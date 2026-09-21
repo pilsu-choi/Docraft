@@ -1,6 +1,8 @@
+import httpx
 import fitz
 import pytest
 
+from backend import parsers
 from backend.parsers import ParseError, parse
 
 
@@ -39,6 +41,71 @@ def test_provider_library_never_uses_ocr_for_images(tmp_path):
     path.write_bytes(b"fake-image-bytes")
     with pytest.raises(ParseError, match="이미지 OCR은 비활성화"):
         parse(path, path.name, "image/png", {"provider": "library"})
+
+
+LAYOUT_RESPONSE = {"result": {"layoutParsingResults": [{"prunedResult": {"width": 100, "height": 100, "parsing_res_list": [
+    {"block_bbox": [0, 0, 100, 100], "block_label": "text", "block_content": "머리글"},
+    {"block_bbox": [0, 40, 100, 100], "block_label": "table", "block_content": "<table><tr><td>진찰료</td></tr></table>"},
+]}}]}}
+LINES_RESPONSE = {"result": {"ocrResults": [{"prunedResult": {
+    "rec_texts": ["머리글", "진찰료", "여백"],
+    "rec_boxes": [[10, 5, 40, 20], [10, 50, 40, 70], [200, 200, 240, 220]],
+}}]}}
+
+
+def _paddle(monkeypatch, lines_response, lines_url="http://lines.invalid"):
+    """Mock both PaddleOCR pipelines; `lines_response` may be an exception to simulate the line service failing."""
+    monkeypatch.setenv("PARSE_PROVIDER", "paddle")
+    monkeypatch.setenv("PADDLEOCR_BASE_URL", "http://layout.invalid")
+    monkeypatch.setenv("PADDLEOCR_LINES_URL", lines_url)
+    calls = []
+
+    def post(url, **kwargs):
+        calls.append(url)
+        body = lines_response if url.endswith("/ocr") else LAYOUT_RESPONSE
+        if isinstance(body, Exception):
+            raise body
+        return httpx.Response(200, json=body, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(parsers.httpx, "post", post)
+    return calls
+
+
+def test_ocr_lines_join_the_smallest_block_containing_them(tmp_path, monkeypatch):
+    path = tmp_path / "scan.png"
+    path.write_bytes(b"fake-image-bytes")
+    calls = _paddle(monkeypatch, LINES_RESPONSE)
+
+    _, blocks = parse(path, path.name, "image/png")
+
+    assert calls == ["http://layout.invalid/layout-parsing", "http://lines.invalid/ocr"]
+    # The table box is nested in the page-wide text box, so the 진찰료 line belongs to the table.
+    assert blocks[0]["lines"] == [{"text": "머리글", "bbox": [10.0, 5.0, 40.0, 20.0]}]
+    assert blocks[1]["lines"] == [{"text": "진찰료", "bbox": [10.0, 50.0, 40.0, 70.0]}]
+    # A line whose center falls outside every block is dropped.
+    assert "여백" not in str(blocks)
+
+
+def test_line_ocr_failure_keeps_parsing_without_lines(tmp_path, monkeypatch):
+    path = tmp_path / "scan.png"
+    path.write_bytes(b"fake-image-bytes")
+    _paddle(monkeypatch, httpx.ConnectError("refused"))
+
+    _, blocks = parse(path, path.name, "image/png")
+
+    assert [b["text"] for b in blocks] == ["머리글", "<table><tr><td>진찰료</td></tr></table>"]
+    assert all("lines" not in block for block in blocks)
+
+
+def test_line_ocr_is_skipped_when_not_configured(tmp_path, monkeypatch):
+    path = tmp_path / "scan.png"
+    path.write_bytes(b"fake-image-bytes")
+    calls = _paddle(monkeypatch, LINES_RESPONSE, lines_url="")
+
+    _, blocks = parse(path, path.name, "image/png")
+
+    assert calls == ["http://layout.invalid/layout-parsing"]
+    assert all("lines" not in block for block in blocks)
 
 
 def test_html_becomes_heading_text_and_table_markdown(tmp_path):

@@ -85,6 +85,8 @@ def ocr_settings() -> dict:
     return {
         "provider": provider,
         "base_url": base_url,
+        # Plain PP-OCRv5 pipeline used only for text line boxes; empty disables line grounding.
+        "lines_url": os.getenv("PADDLEOCR_LINES_URL", "").rstrip("/"),
         "token": token,
         "model": os.getenv("PADDLEOCR_MODEL", "PaddleOCR-VL-1.6-0.9B"),
         "timeout": float(os.getenv("PADDLEOCR_TIMEOUT", "600")),

@@ -205,7 +205,53 @@ ROW_SCHEMA = {"type": "object", "properties": {"항목정보": {"type": "array",
     "항목": {"type": "string"}, "금액": {"type": "number"}, "횟수": {"type": "number"}}}}}}
 
 
-def test_extract_grounds_each_array_item_on_its_own_table_row(monkeypatch):
+LINE_TABLE = {
+    "text": (
+        "<table>"
+        "<tr><td>항목</td><td>금액</td><td>횟수</td></tr>"
+        "<tr><td>진찰료</td><td>47,300</td><td>1</td></tr>"
+        "<tr><td>약품비</td><td>47,300</td><td>3</td></tr>"
+        "</table>"
+    ),
+    "type": "table",
+    "page": 1,
+    "bbox": [0, 0, 100, 300],
+    "lines": [
+        {"text": "항목", "bbox": [0, 10, 30, 30]}, {"text": "금액", "bbox": [40, 10, 70, 30]}, {"text": "횟수", "bbox": [75, 10, 95, 30]},
+        {"text": "진찰료", "bbox": [0, 110, 30, 130]}, {"text": "47,300", "bbox": [40, 110, 70, 130]}, {"text": "1", "bbox": [75, 110, 95, 130]},
+        {"text": "약품비", "bbox": [0, 210, 30, 230]}, {"text": "47,300", "bbox": [40, 210, 70, 230]}, {"text": "3", "bbox": [75, 210, 95, 230]},
+    ],
+}
+
+
+def test_extract_grounds_leaves_on_the_ocr_line_box_when_the_block_has_lines(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({"hospital": "서울병원", "amount": 12380}, ensure_ascii=False))
+    schema = {"type": "object", "properties": {"hospital": {"type": "string"}, "amount": {"type": "number"}}}
+    blocks = [{"text": "병원: 서울병원\n금액 12,380", "page": 1, "bbox": [0, 0, 200, 100], "lines": [
+        {"text": "병원: 서울병원", "bbox": [10, 10, 120, 30]},
+        {"text": "금액 12,380", "bbox": [10, 50, 120, 70]},
+    ]}]
+
+    _, groundings = engine.extract(schema, blocks)
+
+    assert groundings["hospital"]["bbox"] == [10, 10, 120, 30]
+    assert groundings["amount"]["bbox"] == [10, 50, 120, 70]
+
+
+def test_extract_picks_the_repeated_value_line_closest_to_its_siblings(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({"항목정보": [{"항목": "약품비", "금액": 47300, "횟수": 3}]}, ensure_ascii=False))
+
+    _, groundings = engine.extract(ROW_SCHEMA, [LINE_TABLE])
+
+    # `47,300` matches two lines; the siblings with a single line sit at y 210..230, so the second one wins.
+    item = groundings["항목정보"]["0"]
+    assert item["항목"]["bbox"] == [0, 210, 30, 230]
+    assert item["금액"] == {"confidence": 1.0, "page": 1, "bbox": [40, 210, 70, 230], "source_text": "47300"}
+
+
+def test_extract_without_line_boxes_grounds_on_the_whole_block(monkeypatch):
     configure(monkeypatch)
     install_response(monkeypatch, json.dumps({"항목정보": [
         {"항목": "진찰료", "금액": 12380, "횟수": 1},
@@ -214,11 +260,11 @@ def test_extract_grounds_each_array_item_on_its_own_table_row(monkeypatch):
 
     _, groundings = engine.extract(ROW_SCHEMA, [TABLE_BLOCK])
 
-    # The row box is the block box split by <tr> index: 4 rows over y 0..400.
-    assert groundings["항목정보"]["0"]["항목"] == {"confidence": 1.0, "page": 1, "bbox": [0, 100.0, 100, 200.0], "source_text": "진찰료"}
-    assert groundings["항목정보"]["0"]["횟수"]["bbox"] == [0, 100.0, 100, 200.0]
+    # No line OCR: the block box is used as is, never an estimated slice of it.
+    assert groundings["항목정보"]["0"]["항목"] == {"confidence": 1.0, "page": 1, "bbox": [0, 0, 100, 400], "source_text": "진찰료"}
+    assert groundings["항목정보"]["1"]["항목"]["bbox"] == [0, 0, 100, 400]
     # `0` must not be found inside the `12,380` cell of the row above.
-    assert groundings["항목정보"]["1"]["금액"] == {"confidence": 1.0, "page": 1, "bbox": [0, 200.0, 100, 300.0], "source_text": "0"}
+    assert groundings["항목정보"]["1"]["금액"] == {"confidence": 1.0, "page": 1, "bbox": [0, 0, 100, 400], "source_text": "0"}
 
 
 def test_extract_marks_array_item_value_taken_from_another_row(monkeypatch):
@@ -228,11 +274,24 @@ def test_extract_marks_array_item_value_taken_from_another_row(monkeypatch):
     result, groundings = engine.extract(ROW_SCHEMA, [TABLE_BLOCK])
 
     item = groundings["항목정보"]["0"]
-    assert item["항목"]["bbox"] == [0, 300.0, 100, 400.0]
-    assert item["금액"] == {"confidence": 0.5, "page": 1, "bbox": [0, 100.0, 100, 200.0], "source_text": "12380"}
+    assert item["항목"]["confidence"] == 1.0
+    assert item["금액"] == {"confidence": 0.5, "page": 1, "bbox": [0, 0, 100, 400], "source_text": "12380"}
     assert engine.validate(result, ROW_SCHEMA, groundings) == [
         {"path": "/항목정보/0/금액", "code": "low_confidence", "message": "원문 근거 또는 추출 신뢰도가 낮습니다."},
     ]
+
+
+def test_extract_leaves_boolean_leaves_out_of_the_grounding_tree(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({"hospital": "서울병원", "급여여부": True}, ensure_ascii=False))
+    schema = {"type": "object", "properties": {"hospital": {"type": "string"}, "급여여부": {"type": "boolean"}}, "required": ["hospital", "급여여부"]}
+
+    result, groundings = engine.extract(schema, [{"text": "병원: 서울병원", "page": 1, "bbox": [0, 0, 1, 1]}])
+
+    # A boolean is derived, never quoted in the source, so grounding it would only produce a false 0.0.
+    assert result == {"hospital": "서울병원", "급여여부": True}
+    assert "급여여부" not in groundings
+    assert engine.validate(result, schema, groundings) == []
 
 
 def test_extract_grounds_values_inside_sentences_and_date_separator_variants(monkeypatch):
@@ -255,7 +314,7 @@ def test_extract_top_level_leaves_may_come_from_different_blocks(monkeypatch):
     _, groundings = engine.extract(schema, [{"text": "진료비 세부산정내역", "page": 1, "bbox": [0, 0, 10, 10]}, TABLE_BLOCK])
 
     assert groundings["제목"] == {"confidence": 1.0, "page": 1, "bbox": [0, 0, 10, 10], "source_text": "진료비 세부산정내역"}
-    assert groundings["항목"] == {"confidence": 1.0, "page": 1, "bbox": [0, 100.0, 100, 200.0], "source_text": "진찰료"}
+    assert groundings["항목"] == {"confidence": 1.0, "page": 1, "bbox": [0, 0, 100, 400], "source_text": "진찰료"}
 
 
 def test_extract_response_that_is_not_an_object_raises(monkeypatch):

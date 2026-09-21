@@ -37,7 +37,7 @@ tail -f docraft.log
 
 ```bash
 docker compose --profile app up -d --build                 # postgres + backend + frontend
-docker compose --profile app --profile ocr up -d --build   # PaddleOCR-VL(GPU) 포함
+docker compose --profile app --profile ocr up -d --build   # PaddleOCR-VL(GPU) + 줄 좌표 OCR 포함
 docker compose logs -f backend
 ```
 
@@ -77,7 +77,7 @@ QUEUE_BACKEND=celery docker compose --profile app --profile queue up -d --build 
    - 분석 결과는 `미리보기 | Markdown | HTML | JSON`으로 봅니다. 미리보기는 블록을 `번호 - 유형`(텍스트·제목·표·그림·여백·수식) 카드로 보여 주고, 카드와 원문 상자가 양방향으로 연결됩니다. 카드를 누르면 원문이 해당 페이지·위치로 이동합니다.
 3. `02 스키마 설계` 탭에서 파싱이 끝난 참고 문서를 하나 이상 골라 `AI 스키마 생성`을 누르거나, JSON Schema 파일을 불러오거나, 직접 필드를 구성합니다. 필드마다 설명·허용 값(enum)·순서를 편집할 수 있습니다.
 4. `03 데이터 추출` 탭에서 스키마를 골라 추출합니다. `신뢰도 기준` 슬라이더보다 낮은 필드는 주황색으로 표시되고, 필드를 누르면 원문 근거 위치로 스크롤됩니다. 값을 수정·승인한 뒤 JSON·CSV·XLSX로 내려받습니다.
-   - 근거 상자는 표의 행 단위입니다. 서버가 값이 들어 있는 행을 찾아 블록 상자를 행 수만큼 나눠 표시하고, 표의 한 행에서 와야 할 값이 다른 행에서만 발견되면 신뢰도 0.5로 낮춰 `review`에 드러냅니다.
+   - 근거 상자는 값이 적힌 줄 단위입니다. 서버가 값이 들어 있는 표의 행을 찾고, 그 블록에 줄 단위 OCR 좌표(`PADDLEOCR_LINES_URL`)가 있으면 값과 일치하는 줄 상자를, 없으면 블록 상자를 표시합니다. 표의 한 행에서 와야 할 값이 다른 행에서만 발견되면 신뢰도 0.5로 낮춰 `review`에 드러냅니다. 원문에 그대로 적히지 않는 불리언 필드는 근거 대상에서 제외합니다.
    - 긴 문서는 페이지 경계를 지켜 여러 호출로 나눠 추출합니다(기본 40000자, `EXTRACT_CHUNK_CHARS`로 조정). 결과는 객체는 필드별, 배열은 호출 순서대로 이어 붙이고 경계에서 겹치는 항목만 제거하며, 스칼라 값은 처음 나온 값을 채택해 하나로 합칩니다.
 5. 상세 화면 상단의 `결과 표`에서는 프로젝트 문서 전체를 스키마 필드 기준 표로 비교·검색·정렬하고, 문서를 골라 `선택 문서 추출`로 한 번에 추출하며, 프로젝트 결과를 CSV·XLSX·JSON으로 내보냅니다. 객체 목록 필드는 CSV·XLSX에서 여러 행으로 펼쳐집니다.
 6. `04 API` 탭에서는 현재 프로젝트·문서·스키마에 맞춘 cURL·Python·JavaScript 예시를 복사할 수 있습니다.
@@ -140,6 +140,16 @@ curl http://127.0.0.1:8080/health   # paddleocr-vl-api가 healthy가 되면 사�
 `.env`에는 `PARSE_PROVIDER=paddle`, `PADDLEOCR_BASE_URL=http://127.0.0.1:8080`을 설정합니다. `paddleocr-vlm-server`(vLLM, PaddleOCR-VL-1.6-0.9B)와 `paddleocr-vl-api`(PP-DocLayoutV3 layout + `/layout-parsing`) 두 컨테이너가 같은 GPU를 씁니다. 12GB GPU 기준으로 `deploy/paddleocr/vllm_config.yaml`의 `gpu-memory-utilization`을 0.5로 낮춰 두었습니다. GPU 번호와 호스트 포트는 `PADDLEOCR_GPU`, `PADDLEOCR_PORT`로 바꿀 수 있습니다. 서빙 모델은 `.env`의 `PADDLEOCR_MODEL` 하나로 정해집니다. compose가 같은 `.env`를 읽어 vLLM `--model_name`과 pipeline의 VL 모델명에 넣고, 앱 상태 표시도 이 값을 씁니다. 바꾼 뒤에는 `docker compose --profile ocr up -d --force-recreate`로 다시 띄웁니다. 응답의 영역별 `block_bbox`는 원문 미리보기의 근거 상자로 표시됩니다.
 
 서비스는 `POST /layout-parsing` 계약을 지원해야 합니다. 설정하지 않은 상태에서 이미지 또는 스캔 PDF를 업로드하면 명시적인 설정 오류가 표시됩니다. 자세한 계약과 근거는 [wiki/2026-09-21-paddleocr-compatibility.md](wiki/2026-09-21-paddleocr-compatibility.md)를 참고하세요.
+
+#### 줄 단위 좌표(선택)
+
+layout pipeline은 블록 단위 좌표만 돌려주므로 표 한 장이 블록 하나가 되면 근거 상자가 문서 전체를 덮습니다. `PADDLEOCR_LINES_URL`에 줄 단위 좌표 전용 PP-OCRv5 파이프라인을 지정하면 파서가 같은 파일을 이 서비스에도 보내 줄 상자를 블록에 붙이고, 근거 상자가 값이 실제로 적힌 줄이 됩니다. compose `ocr` profile의 `paddleocr-lines-api`(`deploy/paddleocr/ocr_lines.yaml`, 호스트 포트 `PADDLEOCR_LINES_PORT`, 기본 8081)가 이 역할을 합니다.
+
+```dotenv
+PADDLEOCR_LINES_URL=http://127.0.0.1:8081
+```
+
+비워 두면 기존 동작대로 블록 상자를 씁니다. 이 서비스 호출이 실패해도 파싱은 경고 로그만 남기고 블록 상자로 계속됩니다. 구조·내용은 PaddleOCR-VL이, 좌표는 PP-OCRv5가 맡는 이 구성의 배경과 검증 수치는 [wiki/2026-09-22-ocr-line-grounding.md](wiki/2026-09-22-ocr-line-grounding.md)에 있습니다.
 
 ## 프로젝트 문서
 

@@ -302,13 +302,20 @@ def _needles(value):
     return {needle for needle in map(_normalized, forms) if needle}
 
 
+def _rank(cells, needles):
+    """2 when a whole normalized cell equals a needle, 1 for a substring match of a 3+ character needle, 0 for none."""
+    if any(cell == needle for cell in cells for needle in needles): return 2
+    return 1 if any(needle in cell for cell in cells for needle in needles if len(needle) >= 3) else 0
+
+
 def _hits(value, sources):
-    """Rows holding the value; whole-cell matches win and substring matches need a needle of 3+ characters."""
+    """Rows holding the value; whole-cell matches win over substring matches."""
     needles, exact, loose = _needles(value), [], []
     for index, (_, rows) in enumerate(sources):
         for row_no, cells in enumerate(rows):
-            if any(cell == needle for cell in cells for needle in needles): exact.append((index, row_no))
-            elif any(needle in cell for cell in cells for needle in needles if len(needle) >= 3): loose.append((index, row_no))
+            rank = _rank(cells, needles)
+            if rank == 2: exact.append((index, row_no))
+            elif rank: loose.append((index, row_no))
     return exact or loose
 
 
@@ -321,37 +328,62 @@ def _agreed_row(hits, taken):
     return agreed
 
 
-def _row_bbox(bbox, row_no, total):
-    """Split the block box into equal horizontal bands, one per row; rowspan and uneven row heights are ignored."""
-    if not bbox or total <= 1: return bbox
-    x0, y0, x1, y1 = bbox
-    return [x0, y0 + (y1 - y0) * row_no / total, x1, y0 + (y1 - y0) * (row_no + 1) / total]
+def _position(hits, agreed):
+    return agreed if agreed in hits else (hits[0] if hits else None)
 
 
-def _leaf(value, hits, agreed, strict, sources):
+def _center(bbox):
+    return (bbox[1] + bbox[3]) / 2
+
+
+def _value_lines(value, hits, agreed, sources):
+    """OCR line boxes of the matched block that hold the value, whole-line matches first; empty when the parser collected no lines."""
+    position = _position(hits, agreed)
+    if position is None: return []
+    needles = _needles(value)
+    ranked = [(_rank([_normalized(line["text"])], needles), line) for line in sources[position[0]][0].get("lines") or []]
+    best = max((rank for rank, _ in ranked), default=0)
+    return [line for rank, line in ranked if rank == best] if best else []
+
+
+def _band(candidates):
+    """Median y center of the siblings that matched exactly one line — the vertical band their object occupies."""
+    centers = sorted(_center(lines[0]["bbox"]) for lines in candidates if len(lines) == 1)
+    return centers[len(centers) // 2] if centers else None
+
+
+def _pick(lines, band, block):
+    """The candidate line nearest the object's band (the first one when there is no band), or the whole block box without lines."""
+    if not lines: return block.get("bbox")
+    if band is None: return lines[0]["bbox"]
+    return min(lines, key=lambda line: abs(_center(line["bbox"]) - band))["bbox"]
+
+
+def _leaf(value, hits, agreed, strict, sources, band=None):
     """Leaf grounding; inside an array item a value found only outside the agreed row drops to 0.5."""
     if value is None: return {"confidence": 0, "page": None, "bbox": None, "source_text": None}
-    position = agreed if agreed in hits else (hits[0] if hits else None)
+    position = _position(hits, agreed)
     if position is None: return {"confidence": 0.0, "page": None, "bbox": None, "source_text": str(value)}
-    block, rows = sources[position[0]]
+    block = sources[position[0]][0]
     return {
         "confidence": 1.0 if position == agreed or not strict else 0.5,
         "page": block.get("page"),
-        "bbox": _row_bbox(block.get("bbox"), position[1], len(rows)),
+        "bbox": _pick(_value_lines(value, hits, agreed, sources), band, block),
         "source_text": str(value),
     }
 
 
 def _grounding_tree(value, sources, taken=None, strict=False):
-    """Ground every leaf of the result against the rows of the source blocks."""
+    """Ground every leaf of the result against the rows of the source blocks; booleans are derived values absent from the source text, so they stay out of the tree."""
     if isinstance(value, list):
         taken = set()
-        return {str(index): _grounding_tree(item, sources, taken, True) for index, item in enumerate(value)}
+        return {str(index): _grounding_tree(item, sources, taken, True) for index, item in enumerate(value) if not isinstance(item, bool)}
     if isinstance(value, dict):
-        hits = {key: _hits(sub, sources) for key, sub in value.items() if sub is not None and not isinstance(sub, (dict, list))}
+        hits = {key: _hits(sub, sources) for key, sub in value.items() if sub is not None and not isinstance(sub, (bool, dict, list))}
         agreed = _agreed_row(hits, set() if taken is None else taken)
-        return {key: _grounding_tree(sub, sources) if isinstance(sub, (dict, list)) else _leaf(sub, hits.get(key, []), agreed, strict, sources)
-                for key, sub in value.items()}
+        band = _band([_value_lines(value[key], positions, agreed, sources) for key, positions in hits.items()])
+        return {key: _grounding_tree(sub, sources) if isinstance(sub, (dict, list)) else _leaf(sub, hits.get(key, []), agreed, strict, sources, band)
+                for key, sub in value.items() if not isinstance(sub, bool)}
     return _leaf(value, _hits(value, sources), None, False, sources)
 
 
