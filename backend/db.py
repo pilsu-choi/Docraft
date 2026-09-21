@@ -5,6 +5,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import config as _config  # Load .env before resolving storage paths.
+
 ROOT = Path(os.getenv("DOCRAFT_DATA_DIR", Path(__file__).resolve().parent / "data"))
 DB_PATH = ROOT / "docraft.db"
 FILES = ROOT / "files"

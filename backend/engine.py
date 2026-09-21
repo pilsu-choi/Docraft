@@ -1,25 +1,39 @@
 import json
-import os
 import re
 from copy import deepcopy
 
 import httpx
 from jsonschema import Draft202012Validator
 
+from .config import ai_settings
+
+
+class ProviderConfigurationError(RuntimeError):
+    pass
+
 
 def _provider(messages, response_schema=None):
-    base = os.getenv("AI_BASE_URL")
-    key = os.getenv("AI_API_KEY")
-    model = os.getenv("AI_MODEL")
-    if not (base and key and model):
-        return None
-    body = {"model": model, "messages": messages, "temperature": 0}
+    settings = ai_settings()
+    if not settings["configured"] or settings["mode"] == "local":
+        raise ProviderConfigurationError("AI provider가 설정되지 않았습니다. AI_BASE_URL, AI_API_KEY, AI_VLM_MODEL을 확인해 주세요.")
+    body = {"model": settings["model"], "messages": messages, "temperature": 0}
     if response_schema:
         body["response_format"] = {"type": "json_schema", "json_schema": {"name": "result", "strict": True, "schema": response_schema}}
+    else:
+        body["response_format"] = {"type": "json_object"}
     with httpx.Client(timeout=90, transport=httpx.HTTPTransport(retries=2)) as client:
-        response = client.post(f"{base.rstrip('/')}/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=body)
-        response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"].strip()
+        response = client.post(f"{settings['base_url']}/chat/completions", headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body)
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"AI provider 요청 실패 (HTTP {response.status_code})") from exc
+        try:
+            choice = response.json()["choices"][0]
+            if choice.get("finish_reason") == "length":
+                raise RuntimeError("AI provider 응답이 토큰 제한으로 잘렸습니다.")
+            content = choice["message"]["content"].strip()
+        except (KeyError, IndexError, TypeError, AttributeError) as exc:
+            raise RuntimeError("AI provider 응답 형식을 해석할 수 없습니다.") from exc
         if content.startswith("```"):
             content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.I)
         return json.loads(content)
@@ -31,9 +45,9 @@ def _field_name(label):
 
 
 def generate_schema(prompt, document_text=""):
-    system = "Return a practical JSON Schema (draft 2020-12) matching the requested document fields. Include title, type object, properties and required."
-    generated = _provider([{"role": "system", "content": system}, {"role": "user", "content": f"Request:\n{prompt}\n\nDocument sample:\n{document_text[:12000]}"}])
-    if generated:
+    if ai_settings()["mode"] != "local":
+        system = "Return only a JSON object containing a practical JSON Schema draft 2020-12. Include title, type object, properties and required. Use nested objects and arrays when the request or document implies them."
+        generated = _provider([{"role": "system", "content": system}, {"role": "user", "content": f"Request:\n{prompt}\n\nDocument sample:\n{document_text[:12000]}"}])
         generated.setdefault("$schema", "https://json-schema.org/draft/2020-12/schema")
         return generated
     terms = re.split(r"[,，、\n]|(?:와|과|및|그리고)|\band\b", prompt, flags=re.I)
@@ -111,19 +125,48 @@ def _local_extract(schema, blocks):
 
 
 def extract(schema, blocks):
-    text = "\n".join(b["text"] for b in blocks)
-    ai = _provider([
-        {"role": "system", "content": "Extract only values supported by the document. Use null when absent. Return JSON matching the supplied schema."},
-        {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nDocument:\n{text[:40000]}"},
-    ], schema)
-    if ai is None:
+    if ai_settings()["mode"] == "local":
         return _local_extract(schema, blocks)
-    result, groundings = ai, {}
-    local_result, local_ground = _local_extract(schema, blocks)
-    for name, value in result.items():
-        evidence = local_ground.get(name, {}) if local_result.get(name) == value else {}
-        groundings[name] = {"confidence": 0.9 if evidence else 0.65, "page": evidence.get("page"), "bbox": evidence.get("bbox"), "source_text": evidence.get("source_text")}
-    return result, groundings
+    text = "\n".join(b["text"] for b in blocks)
+    grounding_schema = {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "JSON Pointer to the extracted leaf value"},
+                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "source_text": {"type": ["string", "null"]},
+                "page": {"type": ["integer", "null"]},
+                "bbox": {"type": ["array", "null"], "items": {"type": "number"}},
+            },
+            "required": ["path", "confidence", "source_text", "page", "bbox"],
+            "additionalProperties": False,
+        },
+    }
+    response_schema = {
+        "type": "object",
+        "properties": {"result": schema, "groundings": grounding_schema},
+        "required": ["result", "groundings"],
+        "additionalProperties": False,
+    }
+    ai = _provider([
+        {"role": "system", "content": "Extract values using document context and layout. Never invent values. Use null when allowed and absent. For every extracted leaf, return exact source text and its JSON Pointer. Page and bbox must come from the supplied block metadata; otherwise null."},
+        {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nDocument:\n{text[:40000]}"},
+    ], response_schema)
+    return ai["result"], _grounding_tree(ai["groundings"])
+
+
+def _grounding_tree(items):
+    root = {}
+    for item in items:
+        parts = [part.replace("~1", "/").replace("~0", "~") for part in item["path"].strip("/").split("/") if part]
+        if not parts:
+            continue
+        target = root
+        for part in parts[:-1]:
+            target = target.setdefault(part, {})
+        target[parts[-1]] = {key: item.get(key) for key in ("confidence", "page", "bbox", "source_text")}
+    return root
 
 
 def validate(result, schema, groundings):

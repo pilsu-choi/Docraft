@@ -1,12 +1,14 @@
 import csv
 import io
-import shutil
+import base64
 from pathlib import Path
 
 from docx import Document
 from openpyxl import load_workbook
-from PIL import Image
 from pypdf import PdfReader
+import httpx
+
+from .config import ocr_settings
 
 
 class ParseError(ValueError):
@@ -31,26 +33,46 @@ def parse_pdf(path):
 
         page.extract_text(visitor_text=visit)
     if not result:
-        raise ParseError("PDF에 추출 가능한 텍스트가 없습니다. 스캔 PDF는 OCR 제공자 설정이 필요합니다.")
+        if ocr_settings()["provider"] != "paddle":
+            raise ParseError("스캔 PDF OCR은 비활성화되어 있습니다. PARSE_PROVIDER=paddle과 원격 endpoint를 설정해 주세요.")
+        result = _remote_paddle(path, 0)
+    if not result:
+        raise ParseError("PaddleOCR가 스캔 PDF에서 텍스트를 찾지 못했습니다.")
     return result
 
 
 def parse_image(path):
-    if not shutil.which("tesseract"):
-        raise ParseError("이미지 OCR을 위해 시스템에 Tesseract를 설치하거나 AI 제공자를 설정해 주세요.")
-    import pytesseract
+    if ocr_settings()["provider"] != "paddle":
+        raise ParseError("이미지 OCR은 비활성화되어 있습니다. PARSE_PROVIDER=paddle과 원격 endpoint를 설정해 주세요.")
+    return _remote_paddle(path, 1)
 
-    image = Image.open(path)
-    data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-    result = []
-    for i, value in enumerate(data["text"]):
-        value = value.strip()
-        if value:
-            x, y, w, h = (data[k][i] for k in ("left", "top", "width", "height"))
-            result.append(block(value, page=1, bbox=[x, y, x+w, y+h], confidence=float(data["conf"][i]) / 100))
-    if not result:
-        raise ParseError("이미지에서 텍스트를 찾지 못했습니다.")
-    return result
+
+def _remote_paddle(path, file_type):
+    settings = ocr_settings()
+    if not settings["configured"]:
+        raise ParseError("PaddleOCR 원격 서비스가 설정되지 않았습니다. PADDLEOCR_BASE_URL을 설정해 주세요.")
+    endpoint = settings["base_url"]
+    if not endpoint.endswith("/layout-parsing"):
+        endpoint += "/layout-parsing"
+    headers = {"Authorization": f"Bearer {settings['token']}"} if settings["token"] else {}
+    payload = {"file": base64.b64encode(Path(path).read_bytes()).decode("ascii"), "fileType": file_type}
+    try:
+        response = httpx.post(endpoint, json=payload, headers=headers, timeout=180)
+        response.raise_for_status()
+        pages = response.json()["result"]["layoutParsingResults"]
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+        status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+        suffix = f" (HTTP {status})" if status else ""
+        raise ParseError(f"PaddleOCR 원격 처리 실패{suffix}") from exc
+    blocks = []
+    for page_no, page in enumerate(pages, 1):
+        markdown = page.get("markdown", {})
+        text = markdown.get("text") if isinstance(markdown, dict) else None
+        if text and text.strip():
+            blocks.append(block(text.strip(), "text", page=page_no, bbox=None, source="paddleocr_remote"))
+    if not blocks:
+        raise ParseError("PaddleOCR 원격 응답에서 텍스트를 찾지 못했습니다.")
+    return blocks
 
 
 def parse_docx(path):

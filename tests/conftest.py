@@ -8,6 +8,7 @@ import tempfile
 TEST_DATA_DIR = tempfile.mkdtemp(prefix="docraft-tests-")
 os.environ["DOCRAFT_DATA_DIR"] = TEST_DATA_DIR
 os.environ.pop("DOCRAFT_API_KEY", None)
+os.environ["AI_MODE"] = "local"
 
 # TestClient is intentionally module-scoped in test_api.py. Initialize the same
 # application lifecycle state that uvicorn would initialize on startup.
