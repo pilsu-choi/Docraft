@@ -78,7 +78,12 @@ export default function Preview({ doc, fileUrl, active, selected, onHover }: { d
     height: natural.height * Math.min(natural.width, availableWidth) / natural.width * zoom,
   } : { width: 0, height: 0 }
   const display = isImage ? imageSize : size
-  useEffect(() => { if (selected) scroll.current?.querySelector('.bbox.selected')?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }) }, [selected, page, display.width, display.height])
+  useEffect(() => {
+    const node = scroll.current, target = node?.querySelector('.bbox.selected')
+    if (!selected || !node || !target) return
+    const outer = node.getBoundingClientRect(), inner = target.getBoundingClientRect()
+    node.scrollBy({ left: inner.left + inner.width / 2 - outer.left - outer.width / 2, top: inner.top + inner.height / 2 - outer.top - outer.height / 2, behavior: 'smooth' })
+  }, [selected, page, display.width, display.height])
   const boxes = [...(doc?.blocks || []).filter(block => Array.isArray(block.bbox)).map(block => ({ path: 'parse-block', ...block })), ...(doc?.groundings || [])].filter(g => (g.page || 1) === page)
   const box = (g: Grounding & { page_size?: number[] }) => {
     const b = g.bbox
