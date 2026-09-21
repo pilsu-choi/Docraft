@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import Rendered, { markdownHtml } from './Rendered'
+import Rendered, { blockGrounding, markdownHtml } from './Rendered'
 import type { Document, Grounding } from './types'
 import './viewer.css'
 
@@ -9,7 +9,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
 type Size = { width: number; height: number }
 
-export default function Preview({ doc, fileUrl, active, onHover }: { doc: Document | null; fileUrl: string; active: Grounding | null; onHover: (g: Grounding | null) => void }) {
+export default function Preview({ doc, fileUrl, active, selected, onHover, onSelect }: { doc: Document | null; fileUrl: string; active: Grounding | null; selected: Grounding | null; onHover: (g: Grounding | null) => void; onSelect: (g: Grounding) => void }) {
   const [page, setPage] = useState(1), [pages, setPages] = useState(1), [zoom, setZoom] = useState(1)
   const [availableWidth, setAvailableWidth] = useState(0), [natural, setNatural] = useState<Size>({ width: 0, height: 0 })
   const [size, setSize] = useState<Size>({ width: 0, height: 0 }), [pdfReady, setPdfReady] = useState(0)
@@ -78,7 +78,13 @@ export default function Preview({ doc, fileUrl, active, onHover }: { doc: Docume
     height: natural.height * Math.min(natural.width, availableWidth) / natural.width * zoom,
   } : { width: 0, height: 0 }
   const display = isImage ? imageSize : size
-  const boxes = [...(doc?.blocks || []).filter(block => Array.isArray(block.bbox)).map(block => ({ path: 'parse-block', ...block })), ...(doc?.groundings || [])].filter(g => (g.page || 1) === page)
+  useEffect(() => {
+    const node = scroll.current, target = selected && node?.querySelector(`.bbox[data-path="${CSS.escape(selected.path)}"]`)
+    if (!selected || !node || !target) return
+    const outer = node.getBoundingClientRect(), inner = target.getBoundingClientRect()
+    node.scrollBy({ left: inner.left + inner.width / 2 - outer.left - outer.width / 2, top: inner.top + inner.height / 2 - outer.top - outer.height / 2, behavior: 'smooth' })
+  }, [selected, page, display.width, display.height])
+  const boxes = [...(doc?.blocks || []).map(blockGrounding).filter(g => Array.isArray(g.bbox)), ...(doc?.groundings || [])].filter(g => (g.page || 1) === page)
   const box = (g: Grounding & { page_size?: number[] }) => {
     const b = g.bbox
     if (!b || b.length < 4 || b.some(v => !Number.isFinite(v)) || b[2] <= b[0] || b[3] <= b[1] || !display.width) return null
@@ -91,7 +97,8 @@ export default function Preview({ doc, fileUrl, active, onHover }: { doc: Docume
     const y = normalized ? display.height : display.height / basis[1]
     return { left: b[0] * x, top: b[1] * y, width: (b[2] - b[0]) * x, height: (b[3] - b[1]) * y }
   }
-  const overlays = boxes.map((g, i) => { const rect = box(g), field = g.path !== 'parse-block'; return rect && <span key={i} className={`bbox ${field ? 'field' : ''} ${active?.path === g.path ? 'selected' : ''}`} style={rect} title={field ? `${g.path}${'text' in g && g.text ? ` · ${g.text}` : ''}` : undefined} onMouseEnter={field ? () => onHover(g) : undefined} onMouseLeave={field ? () => onHover(null) : undefined} /> })
+  // 분석 블록은 유형별 색, 추출 필드 근거는 기존 강조색. 둘 다 hover·click이 같은 active/selected로 이어진다.
+  const overlays = boxes.map((g, i) => { const rect = box(g); return rect && <span key={i} className={`bbox ${'type' in g ? `block t-${g.type}` : 'field'} ${active?.path === g.path ? 'selected' : ''}`} style={rect} data-path={g.path} title={`${g.path}${g.text ? ` · ${g.text}` : ''}`} onMouseEnter={() => onHover(g)} onMouseLeave={() => onHover(null)} onClick={() => onSelect(g)} /> })
 
   return <div className="preview"><div className="preview-toolbar"><b>원본 문서</b><div><button disabled={page <= 1} onClick={() => setPage(page - 1)}>‹</button>{page} / {pages}<button disabled={page >= pages} onClick={() => setPage(page + 1)}>›</button><button onClick={() => setZoom(Math.max(.5, zoom - .25))}>−</button>{Math.round(zoom * 100)}%<button onClick={() => setZoom(Math.min(2.5, zoom + .25))}>＋</button></div></div><div className="preview-scroll" ref={scroll}>{doc && fileUrl ? isPdf ? <div className="page-image" style={display}><canvas ref={canvas} />{overlays}</div> : isImage ? <div className="page-image" style={display}><img src={fileUrl} alt={doc.filename} style={display} onLoad={e => setNatural({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })} />{overlays}</div> : isHtml || isMarkdown ? markup && <Rendered key={doc.id} html={markup} title={doc.filename} /> : <div className="empty">미리보기를 지원하지 않는 파일입니다. <a href={fileUrl} download={doc.filename}>원본 다운로드</a></div> : <div className="empty">파일을 선택하면 원본이 표시됩니다.</div>}</div></div>
 }

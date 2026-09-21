@@ -549,9 +549,6 @@ h3{
   align-items:center;
   gap:8px
 }
-.mobile-label{
-  display:none
-}
 .status-pill{
   display:inline-flex;
   align-items:center;
@@ -724,34 +721,55 @@ h3{
   margin-top:11px;
   padding-bottom:3px
 }
-.file-list>button{
+.file-item{
+  position:relative;
   display:flex;
-  align-items:center;
-  gap:8px;
   min-width:142px;
   max-width:210px;
-  padding:6px;
   border:1px solid #e8eee9;
   border-radius:9px;
-  text-align:left;
-  font-size:11px;
   overflow:hidden
 }
-.file-list>button.active{
+.file-item.active{
   border-color:#79c1a5;
   background:#f4fbf7
 }
-.file-list>button .folder{
+.file-item>button:first-child{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex:1;
+  min-width:0;
+  padding:6px 22px 6px 6px;
+  text-align:left;
+  font-size:11px
+}
+.file-item .folder{
   min-width:27px;
   width:27px;
   height:29px;
   border-radius:6px
 }
-.file-list>button>span:last-child{
+.file-item>button:first-child>span:last-child{
   min-width:0;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap
+}
+.file-delete{
+  position:absolute;
+  top:3px;
+  right:3px;
+  width:18px;
+  height:18px;
+  border-radius:5px;
+  color:#90a097;
+  font-size:14px;
+  line-height:1
+}
+.file-delete:hover:not(:disabled){
+  background:#fbeceb;
+  color:#b64e4d
 }
 .work-area{
   min-width:0;
@@ -1074,6 +1092,28 @@ h3{
   min-width:190px;
   height:70px
 }
+.result-field.low{
+  border-color:#efd08a;
+  background:#fffaf0
+}
+.threshold{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  margin:12px 0 4px;
+  font-size:11px;
+  font-weight:800
+}
+.threshold input{
+  flex:1;
+  max-width:200px;
+  padding:0;
+  accent-color:#149177
+}
+.threshold small{
+  color:#a86f12;
+  font-weight:700
+}
 .source{
   background:#fffaf0;
   border:1px solid #f0dfb9;
@@ -1251,12 +1291,6 @@ h3{
 .detail-actions .quiet{
   font-size:10px;
   padding:6px
-}
-.detail-actions .desktop-label{
-  display:none
-}
-.detail-actions .mobile-label{
-  display:inline
 }
 .status-pill{
   font-size:10px;

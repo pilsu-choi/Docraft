@@ -1,4 +1,44 @@
-from backend.parsers import parse
+import fitz
+import pytest
+
+from backend.parsers import ParseError, parse
+
+
+def _pdf(tmp_path, *texts):
+    path = tmp_path / "doc.pdf"
+    doc = fitz.open()
+    for text in texts:
+        doc.new_page().insert_text((72, 72), text)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_page_range_selects_subset_and_ignores_out_of_range_pages(tmp_path):
+    path = _pdf(tmp_path, "one", "two", "three")
+    markdown, blocks = parse(path, path.name, "application/pdf", {"pages": "1,3,9"})
+    assert [b["page"] for b in blocks] == [1, 3]
+    assert "one" in markdown and "three" in markdown and "two" not in markdown
+
+
+def test_page_range_with_no_pages_remaining_is_a_parse_error(tmp_path):
+    path = _pdf(tmp_path, "one")
+    with pytest.raises(ParseError):
+        parse(path, path.name, "application/pdf", {"pages": "9"})
+
+
+def test_table_format_html_renders_an_html_table(tmp_path):
+    path = tmp_path / "t.csv"
+    path.write_bytes(b"a,b\n1,2\n")
+    markdown, _ = parse(path, path.name, "text/csv", {"table_format": "html"})
+    assert markdown == "<table><tr><td>a</td><td>b</td></tr><tr><td>1</td><td>2</td></tr></table>"
+
+
+def test_provider_library_never_uses_ocr_for_images(tmp_path):
+    path = tmp_path / "scan.png"
+    path.write_bytes(b"fake-image-bytes")
+    with pytest.raises(ParseError, match="이미지 OCR은 비활성화"):
+        parse(path, path.name, "image/png", {"provider": "library"})
 
 
 def test_html_becomes_heading_text_and_table_markdown(tmp_path):

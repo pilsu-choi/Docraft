@@ -1,9 +1,11 @@
 import io
 import time
 
+import openpyxl
 from fastapi.testclient import TestClient
 
-from backend.main import app
+from backend.db import connect
+from backend.main import app, table_rows
 
 
 client = TestClient(app)
@@ -149,3 +151,105 @@ def test_parse_failure_is_visible_as_async_failed_status():
     document_id = upload(project_id, "broken.pdf", b"not a PDF")
     failed = wait_for(document_id, "failed")
     assert failed["error"]
+
+
+def test_document_list_is_lightweight():
+    project_id = project("lightweight-list")
+    document_id = upload(project_id)
+    wait_for(document_id, "parsed")
+    response = client.get(f"/api/projects/{project_id}/documents")
+    assert response.status_code == 200
+    listed = response.json()[0]
+    assert "markdown" not in listed and "blocks" not in listed and "groundings" not in listed
+    assert "result" in listed and "validation" in listed
+
+
+def test_table_rows_expands_object_lists_and_repeats_scalars():
+    result = {
+        "hospital": "ABC Hospital",
+        "items": [
+            {"name": "Apple", "qty": 1},
+            {"name": "Banana", "qty": 2, "note": {"organic": True}},
+        ],
+    }
+    assert table_rows(result) == [
+        {"hospital": "ABC Hospital", "items.name": "Apple", "items.qty": 1},
+        {"hospital": "ABC Hospital", "items.name": "Banana", "items.qty": 2, "items.note.organic": True},
+    ]
+
+
+def test_table_rows_scalar_list_becomes_one_json_cell():
+    assert table_rows({"tags": ["a", "b"], "total": 5}) == [{"tags": '["a", "b"]', "total": 5}]
+
+
+def test_document_export_expands_object_list_rows_and_supports_xlsx(monkeypatch):
+    project_id = project("table-export")
+    document_id = upload(project_id)
+    wait_for(document_id, "parsed")
+    schema_id = schema(project_id)
+    monkeypatch.setattr(
+        "backend.main.engine.extract",
+        lambda _schema, _blocks: (
+            {"hospital": "ABC Hospital", "items": [{"name": "Apple", "qty": 1}, {"name": "Banana", "qty": 2}]},
+            {},
+        ),
+    )
+    client.post(f"/api/documents/{document_id}/extract", json={"schema_id": schema_id})
+    wait_for(document_id, "completed", "needs_review")
+
+    csv_response = client.get(f"/api/documents/{document_id}/export?format=csv")
+    assert csv_response.status_code == 200
+    lines = csv_response.text.strip().splitlines()
+    assert lines[0] == "hospital,items.name,items.qty"
+    assert len(lines) == 3
+
+    xlsx_response = client.get(f"/api/documents/{document_id}/export?format=xlsx")
+    assert xlsx_response.status_code == 200
+    assert xlsx_response.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    workbook = openpyxl.load_workbook(io.BytesIO(xlsx_response.content))
+    sheet = workbook["result"]
+    assert [cell.value for cell in sheet[1]] == ["hospital", "items.name", "items.qty"]
+    assert sheet.max_row == 3
+
+
+def test_parse_options_default_empty_and_persisted_after_reparse():
+    project_id = project("parse-options")
+    document_id = upload(project_id)
+    parsed = wait_for(document_id, "parsed")
+    assert parsed["parse_options"] == {}
+
+    response = client.post(f"/api/documents/{document_id}/parse", json={"table_format": "html"})
+    assert response.status_code == 202
+    reparsed = wait_for(document_id, "parsed")
+    assert reparsed["parse_options"] == {"pages": None, "provider": "auto", "table_format": "html"}
+
+
+def test_bad_page_range_syntax_is_a_422():
+    project_id = project("bad-page-range")
+    document_id = upload(project_id)
+    wait_for(document_id, "parsed")
+    response = client.post(f"/api/documents/{document_id}/parse", json={"pages": "abc"})
+    assert response.status_code == 422
+    assert "페이지 범위 형식이 올바르지 않습니다." in response.text
+
+
+def test_document_delete_removes_row_and_file_but_not_while_busy():
+    project_id = project("delete-document")
+    document_id = upload(project_id)
+    wait_for(document_id, "parsed")
+
+    with connect() as db:
+        db.execute("UPDATE documents SET status='extracting' WHERE id=?", (document_id,))
+    busy = client.delete(f"/api/documents/{document_id}")
+    assert busy.status_code == 409, busy.text
+    assert busy.json()["detail"] == "처리 중인 문서는 삭제할 수 없습니다."
+    with connect() as db:
+        db.execute("UPDATE documents SET status='parsed' WHERE id=?", (document_id,))
+
+    response = client.get(f"/api/documents/{document_id}/file")
+    assert response.status_code == 200
+
+    deleted = client.delete(f"/api/documents/{document_id}")
+    assert deleted.status_code == 204
+    assert client.get(f"/api/documents/{document_id}").status_code == 404
+    assert client.get(f"/api/documents/{document_id}/file").status_code == 404
