@@ -16,6 +16,8 @@ status: stable
 
 2026-09-22에 권장 순서 1~3단계(#1 제외: `fix/extract-grounding-block-id`에서 별도 진행)를 구현했다. #2~#9, A, B, C가 완료됐고, 구현 기록은 [레퍼런스 기반 개선 1~3단계 구현](2026-09-22-refs-improvements.md)에 있다. #1은 `fix/extract-grounding-block-id`가 main에 병합되면서(`b42ce95`) 완료됐다. 남은 후보는 D~K다.
 
+`#1`은 애초 제안한 "블록 id 참조 grounding"이 아니라 [서버 측 행 grounding](2026-09-21-extract-grounding-block-id.md)으로 교체돼 완료됐고, `#1`이 함께 언급한 "페이지 단위 분할 추출"은 별도 브랜치 `fix/extract-page-chunking`에서 마저 구현했다([추출 페이지 단위 분할 호출](2026-09-22-extract-page-chunking.md)). 긴 문서에서 예산을 넘는 뒤쪽 블록을 조용히 버리던 `_block_lines`를 페이지 경계를 지키는 다중 호출과 스키마 기반 병합으로 대체했다.
+
 ## 조사 시점 상태 요약
 
 - 이미 있음: 프로젝트 CRUD, 업로드·파싱(pypdf/fitz 줄 단위 bbox, PaddleOCR-VL), `미리보기|Markdown|HTML|JSON`, AI 스키마 생성, 시각 스키마 편집기(문자열·숫자·참거짓·객체·객체 목록, required, 필드 설명), 스키마 버전, 추출 신뢰도·검증, 필드↔bbox 호버 연동, 수정·승인, JSON/CSV 내보내기.
