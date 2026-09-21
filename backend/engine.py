@@ -67,6 +67,13 @@ def generate_schema(prompt, document_text=""):
     return {"$schema": "https://json-schema.org/draft/2020-12/schema", "title": "Generated schema", "type": "object", "properties": properties, "required": list(properties)}
 
 
+def generate_schema_from_documents(prompt, docs):
+    text = "\n\n".join(f"Document {doc['filename']}:\n{doc.get('markdown') or ''}" for doc in docs)
+    if ai_settings()["mode"] == "local":
+        return generate_schema(prompt, text)
+    return generate_schema(prompt or "Infer useful structured fields from these parsed documents.", text)
+
+
 def _coerce(value, schema):
     value = value.strip()
     kind = schema.get("type")
@@ -127,7 +134,10 @@ def _local_extract(schema, blocks):
 def extract(schema, blocks):
     if ai_settings()["mode"] == "local":
         return _local_extract(schema, blocks)
-    text = "\n".join(b["text"] for b in blocks)
+    evidence = [
+        {"text": b["text"], "page": b.get("page"), "bbox": b.get("bbox")}
+        for b in blocks
+    ]
     grounding_schema = {
         "type": "array",
         "items": {
@@ -151,8 +161,16 @@ def extract(schema, blocks):
     }
     ai = _provider([
         {"role": "system", "content": "Extract values using document context and layout. Never invent values. Use null when allowed and absent. For every extracted leaf, return exact source text and its JSON Pointer. Page and bbox must come from the supplied block metadata; otherwise null."},
-        {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nDocument:\n{text[:40000]}"},
+        {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks (use only these coordinates):\n{json.dumps(evidence, ensure_ascii=False)[:40000]}"},
     ], response_schema)
+    for item in ai["groundings"]:
+        bbox = item.get("bbox")
+        if bbox is not None and not any(
+            source["page"] == item.get("page") and source["bbox"] == bbox and
+            item.get("source_text") and item["source_text"] in source["text"]
+            for source in evidence
+        ):
+            item["bbox"] = None
     return ai["result"], _grounding_tree(ai["groundings"])
 
 

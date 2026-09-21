@@ -5,6 +5,7 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+import fitz
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,14 +46,25 @@ class ProjectInput(BaseModel):
     description: str = Field(default="", max_length=1000)
 
 
+class ProjectPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=1000)
+
+
 class SchemaInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     json_schema: dict
 
 
+class SchemaPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    json_schema: dict | None = None
+
+
 class GenerateInput(BaseModel):
-    prompt: str = Field(min_length=1)
+    prompt: str = ""
     document_id: str | None = None
+    document_ids: list[str] = Field(default_factory=list)
     name: str = "Generated schema"
 
 
@@ -132,6 +144,27 @@ def create_project(data: ProjectInput):
 @app.get("/api/projects/{project_id}", dependencies=[Depends(auth)])
 def get_project(project_id: str):
     with connect() as db: return one(db, "SELECT * FROM projects WHERE id=?", (project_id,))
+
+
+@app.patch("/api/projects/{project_id}", dependencies=[Depends(auth)])
+def update_project(project_id: str, data: ProjectPatch):
+    with connect() as db:
+        current = one(db, "SELECT * FROM projects WHERE id=?", (project_id,))
+        db.execute("UPDATE projects SET name=?,description=?,updated_at=? WHERE id=?",
+                   (data.name if data.name is not None else current["name"],
+                    data.description if data.description is not None else current["description"], now(), project_id))
+        audit(db, project_id, "update", "project", project_id)
+        return one(db, "SELECT * FROM projects WHERE id=?", (project_id,))
+
+
+@app.delete("/api/projects/{project_id}", status_code=204, dependencies=[Depends(auth)])
+def delete_project(project_id: str):
+    with connect() as db:
+        one(db, "SELECT id FROM projects WHERE id=?", (project_id,))
+        audit(db, project_id, "delete", "project", project_id)
+        db.execute("DELETE FROM documents WHERE project_id=?", (project_id,))
+        db.execute("DELETE FROM schemas WHERE project_id=?", (project_id,))
+        db.execute("DELETE FROM projects WHERE id=?", (project_id,))
 
 
 @app.get("/api/projects/{project_id}/documents", dependencies=[Depends(auth)])
@@ -218,7 +251,7 @@ def list_schemas(project_id: str):
 
 def persist_schema(db, project_id, name, definition):
     engine.Draft202012Validator.check_schema(definition)
-    version = db.execute("SELECT COALESCE(MAX(version),0)+1 FROM schemas WHERE project_id=? AND name=?", (project_id, name)).fetchone()[0]
+    version = db.execute("SELECT COALESCE(MAX(version),0)+1 AS version FROM schemas WHERE project_id=? AND name=?", (project_id, name)).fetchone()["version"]
     schema_id, stamp = uid(), now()
     db.execute("INSERT INTO schemas VALUES(?,?,?,?,?,?)", (schema_id, project_id, name, version, json.dumps(definition, ensure_ascii=False), stamp))
     audit(db, project_id, "create", "schema", schema_id, {"version": version})
@@ -233,16 +266,46 @@ def create_schema(project_id: str, data: SchemaInput):
         except SchemaError as exc: raise HTTPException(422, f"유효하지 않은 JSON Schema: {exc.message}")
 
 
+@app.get("/api/schemas/{schema_id}", dependencies=[Depends(auth)])
+def get_schema(schema_id: str):
+    with connect() as db: return schema_row(one(db, "SELECT * FROM schemas WHERE id=?", (schema_id,)))
+
+
+@app.patch("/api/schemas/{schema_id}", status_code=201, dependencies=[Depends(auth)])
+def update_schema(schema_id: str, data: SchemaPatch):
+    with connect() as db:
+        current = schema_row(one(db, "SELECT * FROM schemas WHERE id=?", (schema_id,)))
+        name = data.name if data.name is not None else current["name"]
+        definition = data.json_schema if data.json_schema is not None else current["json_schema"]
+        try: return persist_schema(db, current["project_id"], name, definition)
+        except SchemaError as exc: raise HTTPException(422, f"유효하지 않은 JSON Schema: {exc.message}")
+
+
+@app.delete("/api/schemas/{schema_id}", status_code=204, dependencies=[Depends(auth)])
+def delete_schema(schema_id: str):
+    with connect() as db:
+        schema = one(db, "SELECT * FROM schemas WHERE id=?", (schema_id,))
+        used = db.execute("SELECT id FROM documents WHERE schema_id=? LIMIT 1", (schema_id,)).fetchone()
+        if used: raise HTTPException(409, "이 스키마 버전을 사용한 문서가 있어 삭제할 수 없습니다.")
+        db.execute("DELETE FROM schemas WHERE id=?", (schema_id,))
+        audit(db, schema["project_id"], "delete", "schema", schema_id)
+
+
 @app.post("/api/projects/{project_id}/schemas/generate", status_code=201, dependencies=[Depends(auth)])
 def generate(project_id: str, data: GenerateInput):
-    text = ""
+    references = list(dict.fromkeys(([data.document_id] if data.document_id else []) + data.document_ids))
+    if not references:
+        raise HTTPException(422, "스키마 자동 생성에는 파싱 완료된 참조 문서가 필요합니다.")
     with connect() as db:
         one(db, "SELECT id FROM projects WHERE id=?", (project_id,))
-        if data.document_id:
-            doc = one(db, "SELECT project_id,markdown FROM documents WHERE id=?", (data.document_id,))
+        docs = []
+        for document_id in references:
+            doc = one(db, "SELECT * FROM documents WHERE id=?", (document_id,))
             if doc["project_id"] != project_id: raise HTTPException(409, "문서가 이 프로젝트에 속하지 않습니다.")
-            text = doc["markdown"] or ""
-        try: definition = engine.generate_schema(data.prompt, text)
+            if doc["status"] not in {"parsed", "needs_review", "completed"} or not (doc["markdown"] or "").strip():
+                raise HTTPException(409, "OCR/파싱 완료 후 스키마를 자동 생성할 수 있습니다.")
+            docs.append(doc)
+        try: definition = engine.generate_schema_from_documents(data.prompt, docs)
         except Exception as exc: raise HTTPException(502, f"AI 스키마 생성 실패: {exc}")
         try: return persist_schema(db, project_id, data.name, definition)
         except SchemaError as exc: raise HTTPException(502, f"AI가 유효하지 않은 JSON Schema를 반환했습니다: {exc.message}")
@@ -271,7 +334,8 @@ def start_extract(document_id: str, data: ExtractInput, background: BackgroundTa
         doc = one(db, "SELECT project_id,status FROM documents WHERE id=?", (document_id,))
         schema = one(db, "SELECT project_id FROM schemas WHERE id=?", (data.schema_id,))
         if doc["project_id"] != schema["project_id"]: raise HTTPException(409, "문서와 스키마의 프로젝트가 다릅니다.")
-        if doc["status"] not in {"parsed", "needs_review", "completed", "failed"}: raise HTTPException(409, "파싱 완료 후 추출할 수 있습니다.")
+        if doc["status"] not in {"parsed", "needs_review", "completed"}:
+            raise HTTPException(409, "파싱 완료 후 추출할 수 있습니다.")
         db.execute("UPDATE documents SET status='queued',error=NULL,updated_at=? WHERE id=?", (now(), document_id))
     background.add_task(run_extract, document_id, data.schema_id)
     return {"id": document_id, "status": "queued"}
@@ -344,3 +408,25 @@ def original_file(document_id: str):
     path = Path(doc["file_path"]).resolve()
     if path.parent != FILES.resolve() or not path.is_file(): raise HTTPException(404, "원본 파일을 찾을 수 없습니다.")
     return FileResponse(path, media_type=doc["media_type"], filename=doc["filename"])
+
+
+@app.get("/api/documents/{document_id}/pages", dependencies=[Depends(auth)])
+def document_pages(document_id: str):
+    with connect() as db: doc = one(db, "SELECT filename,file_path FROM documents WHERE id=?", (document_id,))
+    path = Path(doc["file_path"]).resolve()
+    if path.parent != FILES.resolve() or not path.is_file(): raise HTTPException(404, "원본 파일을 찾을 수 없습니다.")
+    if path.suffix.lower() != ".pdf": raise HTTPException(415, "PDF 문서만 페이지 목록을 제공합니다.")
+    with fitz.open(path) as pdf:
+        return [{"page": index + 1, "width": page.rect.width, "height": page.rect.height} for index, page in enumerate(pdf)]
+
+
+@app.get("/api/documents/{document_id}/pages/{page}/preview", dependencies=[Depends(auth)])
+def document_page_preview(document_id: str, page: int):
+    with connect() as db: doc = one(db, "SELECT filename,file_path FROM documents WHERE id=?", (document_id,))
+    path = Path(doc["file_path"]).resolve()
+    if path.parent != FILES.resolve() or not path.is_file(): raise HTTPException(404, "원본 파일을 찾을 수 없습니다.")
+    if path.suffix.lower() != ".pdf": raise HTTPException(415, "PDF 문서만 페이지 미리보기를 제공합니다.")
+    with fitz.open(path) as pdf:
+        if not 1 <= page <= len(pdf): raise HTTPException(404, "페이지를 찾을 수 없습니다.")
+        pixmap = pdf[page - 1].get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
+        return Response(pixmap.tobytes("png"), media_type="image/png")

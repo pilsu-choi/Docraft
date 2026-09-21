@@ -1,0 +1,22 @@
+name: docraft
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:0.8.6-pg16}
+    environment:
+      POSTGRES_DB: docraft
+      POSTGRES_USER: docraft
+      POSTGRES_PASSWORD: docraft
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - docraft_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docraft -d docraft"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    shm_size: 128mb
+
+volumes:
+  docraft_postgres:
