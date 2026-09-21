@@ -212,6 +212,27 @@ def test_document_export_expands_object_list_rows_and_supports_xlsx(monkeypatch)
     assert sheet.max_row == 3
 
 
+def test_parse_options_default_empty_and_persisted_after_reparse():
+    project_id = project("parse-options")
+    document_id = upload(project_id)
+    parsed = wait_for(document_id, "parsed")
+    assert parsed["parse_options"] == {}
+
+    response = client.post(f"/api/documents/{document_id}/parse", json={"table_format": "html"})
+    assert response.status_code == 202
+    reparsed = wait_for(document_id, "parsed")
+    assert reparsed["parse_options"] == {"pages": None, "provider": "auto", "table_format": "html"}
+
+
+def test_bad_page_range_syntax_is_a_422():
+    project_id = project("bad-page-range")
+    document_id = upload(project_id)
+    wait_for(document_id, "parsed")
+    response = client.post(f"/api/documents/{document_id}/parse", json={"pages": "abc"})
+    assert response.status_code == 422
+    assert "페이지 범위 형식이 올바르지 않습니다." in response.text
+
+
 def test_document_delete_removes_row_and_file_but_not_while_busy():
     project_id = project("delete-document")
     document_id = upload(project_id)
