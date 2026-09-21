@@ -1,0 +1,7 @@
+# dev 통합 및 UI 확인
+
+- 사용자 요청: P0 구현 전체를 `dev` 브랜치에 병합하고 UI를 실행한다.
+- `feat/prd-implementation`의 구현·테스트·문서를 커밋하여 `dev`로 통합한다.
+- 원본 디렉터리의 작업 안내 문서는 보존하고 README는 실제 설치·실행 문서로 갱신한다.
+- 개발 서버는 의존성이 설치된 `.worktrees/prd-implementation`에서 실행하며, UI 기본 주소는 `http://localhost:5173`이다.
+- 외부 저장소 push는 요청 범위에 포함되지 않는다.

@@ -1,5 +1,6 @@
-.worktrees/
 .venv/
+.worktrees/
+data/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -7,7 +8,8 @@ __pycache__/
 .env
 *.db
 uploads/
-data/
 dist/
 build/
+*.tsbuildinfo
+*.egg-info/
 node_modules/
