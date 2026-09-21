@@ -26,6 +26,7 @@ okf_version: "0.2"
 
 # 조사
 
+* [레퍼런스 기반 개선·기능 추가 후보](2026-09-21-refs-improvement-review.md) - refs 3사 화면과 현재 UI·backend를 비교한 개선·신규 기능 후보와 우선순위
 * [PaddleOCR 호환성 조사](2026-09-21-paddleocr-compatibility.md) - PaddleOCR 원격·on-prem layout-parsing HTTP 계약과 Docraft adapter 출력 규약 조사
 
 # 장애와 버그 수정
