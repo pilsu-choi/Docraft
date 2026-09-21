@@ -14,6 +14,7 @@ import fitz
 import httpx
 
 from .config import ocr_settings
+from .engine import refine_table
 
 logger = logging.getLogger(__name__)
 
@@ -90,15 +91,16 @@ def parse_image(path, provider="auto"):
     return _remote_paddle(path, 1)
 
 
-def _html_table_rows(content):
+def _html_table(content):
+    """`rows` and `spans` of the first table in an HTML fragment; empty when there is none."""
     if "<table" not in content.lower():
-        return None
+        return {}
     parser = _HtmlBlocks()
     parser.feed(content)
     parser.close()
     parser.flush()
-    table = next((b for b in parser.blocks if b["type"] == "table"), None)
-    return table["rows"] if table else None
+    table = next((b for b in parser.blocks if b["type"] == "table"), {})
+    return {key: table[key] for key in ("rows", "spans") if key in table}
 
 
 def _attach_lines(blocks, encoded, file_type, settings, page_map):
@@ -162,11 +164,7 @@ def _remote_paddle(path, file_type, page_map=None):
             label = region.get("block_label")
             kind = LABEL_TYPES.get(label, "text")
             content = region["block_content"].strip()
-            extra = {"label": label}
-            if kind == "table":
-                rows = _html_table_rows(content)
-                if rows is not None:
-                    extra["rows"] = rows
+            extra = {"label": label, **(_html_table(content) if kind == "table" else {})}
             blocks.append(block(content, kind, page=page_no, bbox=list(bbox) if bbox and len(bbox) == 4 else None, page_size=size, source="paddleocr_remote", **extra))
         markdown = page.get("markdown", {})
         text = markdown.get("text") if isinstance(markdown, dict) else None
@@ -320,6 +318,10 @@ def parse(path, filename, media_type, options=None):
         raise ParseError(f"지원하지 않는 파일 형식입니다: {suffix or media_type}")
     if not blocks:
         raise ParseError("문서에서 내용을 찾지 못했습니다.")
+    for item in blocks:
+        text = refine_table(item, path) if item["type"] == "table" and item.get("source") == "paddleocr_remote" else None
+        if text:
+            item.update(text=text, **_html_table(text))
     separator = "\n" if suffix in {".pdf", ".txt", ".md"} else "\n\n"
     markdown = separator.join(_markdown(item, table_format) for item in blocks)
     logger.debug("parse: suffix=%s blocks=%d markdown_chars=%d", suffix, len(blocks), len(markdown))

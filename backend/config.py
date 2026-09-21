@@ -68,6 +68,10 @@ ENV_FILE = load_env()
 setup_logging()
 
 
+def _flag(name: str, default: str) -> bool:
+    return os.getenv(name, default).strip().lower() not in {"false", "0", "no", "off"}
+
+
 def ai_settings() -> dict:
     base_url = os.getenv("AI_BASE_URL", "").rstrip("/")
     model = os.getenv("AI_VLM_MODEL") or os.getenv("AI_MODEL", "")
@@ -76,8 +80,10 @@ def ai_settings() -> dict:
     configured = mode == "local" or bool(base_url and key and model)
     chunk_chars = int(os.getenv("EXTRACT_CHUNK_CHARS", "40000"))
     # Attach the page image to provider calls so the model reads the table layout from the document itself.
-    vision = os.getenv("AI_VISION", "true").strip().lower() not in {"false", "0", "no", "off"}
-    return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision}
+    vision = _flag("AI_VISION", "true")
+    # Correct OCR table cell text against the table image, keeping the OCR model's cell structure.
+    table_refine = _flag("TABLE_REFINE", "false")
+    return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine}
 
 
 def ocr_settings() -> dict:

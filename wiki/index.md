@@ -20,6 +20,7 @@ okf_version: "0.2"
 * [스키마 내보내기](2026-09-22-schema-export.md) - 편집 중인 JSON Schema를 title(스키마 이름)과 함께 파일로 내려받는 기능
 * [프로젝트 전환 시 이전 스키마 상태 노출 수정](2026-09-22-project-state-reset.md) - 새 프로젝트 생성·이동 시 이전 프로젝트의 탭·스키마 편집 상태가 남던 버그의 원인과 수정
 * [추출 지침·필드 구조 확대 편집 모달](2026-09-22-zoom-modal.md) - 추출 지침·필드 구조를 모달에서 편집하고 전체 화면으로 확대·축소하는 기능
+* [표 모델 비교와 VLM 셀 텍스트 교정](2026-09-22-table-refine.md) - VL·PP-StructureV3·Qwen3-VL 표 인식 비교와 VL 격자에 VLM 셀 교정을 얹은 TABLE_REFINE
 * [표 병합 셀 보존](2026-09-22-table-spans.md) - PaddleOCR-VL 표의 rowspan·colspan을 직사각형 격자와 spans로 보존하고 남은 모델 인식 오류를 정리
 * [작업 진행 중 로딩바](2026-09-22-loading-bar.md) - 요청 대기·백그라운드 문서 처리 중 상단바에 로딩바와 진행 문구를 보여주는 기능
 * [추출 페이지 단위 분할 호출](2026-09-22-extract-page-chunking.md) - 긴 문서를 페이지 경계 기준으로 나눠 여러 번 호출하고 스키마에 따라 결과를 병합하는 구현
