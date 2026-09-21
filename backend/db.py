@@ -1,13 +1,17 @@
 import json
+import logging
 import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import psycopg
 from psycopg.rows import dict_row
 
 from . import config as _config  # Load .env before resolving storage paths.
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(os.getenv("DOCRAFT_DATA_DIR", Path(__file__).resolve().parent / "data"))
 FILES = ROOT / "files"
@@ -28,6 +32,7 @@ class Database:
 @contextmanager
 def connect():
     url = os.getenv("DATABASE_URL", "postgresql://docraft:docraft@127.0.0.1:5433/docraft")
+    logger.debug("db connect: host=%s", urlparse(url).hostname)
     with psycopg.connect(url, row_factory=dict_row) as connection:
         yield Database(connection)
 
@@ -66,6 +71,7 @@ def init_db() -> None:
           project_id TEXT, action TEXT NOT NULL, resource_type TEXT NOT NULL,
           resource_id TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
         )""")
+    logger.info("db: schema initialized")
 
 
 def decode(row, fields=()):
@@ -77,6 +83,7 @@ def decode(row, fields=()):
 
 
 def audit(db, project_id, action, resource_type, resource_id, detail=None):
+    logger.debug("audit: %s %s %s", action, resource_type, resource_id)
     db.execute(
         "INSERT INTO audit_log(project_id,action,resource_type,resource_id,detail,created_at) VALUES(?,?,?,?,?,?)",
         (project_id, action, resource_type, resource_id, json.dumps(detail or {}), now()),

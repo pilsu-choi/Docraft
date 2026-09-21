@@ -25,6 +25,24 @@ npm run dev
 
 화면은 `http://localhost:5173`, API 서버는 `http://127.0.0.1:8000`, OpenAPI 문서는 API 서버의 `/docs`에서 확인합니다. `docker compose up -d`는 기본적으로 캐시된 PostgreSQL 16 호환 `pgvector/pgvector:0.8.6-pg16` 이미지를 사용합니다(벡터 확장은 현재 사용하지 않습니다). 다른 이미지는 `POSTGRES_IMAGE`로 지정할 수 있습니다. 테스트는 실제 PostgreSQL의 임시 schema에서 `pytest -q`로 실행하며, 프론트 빌드는 `frontend/`에서 `npm run build`로 실행합니다.
 
+### 로그
+
+백엔드는 `backend` logger로 업로드, 분석·추출 시작과 종료(소요 시간 포함), 상태 전환을 INFO로 남깁니다. 실패는 traceback과 함께 ERROR로 남기고, AI provider 원본 응답(앞뒤 2000자)과 요청 크기는 DEBUG로 남깁니다. 로컬 실행 시 기본값은 `LOG_LEVEL=DEBUG`이고, 콘솔과 저장소 루트의 `docraft.log`(10MB × 3개 회전, git 제외)에 함께 기록합니다. 파일 위치는 `LOG_FILE`로 바꿀 수 있고, 빈 값으로 두면 파일에 쓰지 않습니다. API key와 DB 비밀번호는 기록하지 않습니다.
+
+```bash
+tail -f docraft.log
+```
+
+### Docker로 전체 스택 실행
+
+```bash
+docker compose --profile app up -d --build                 # postgres + backend + frontend
+docker compose --profile app --profile ocr up -d --build   # PaddleOCR-VL(GPU) 포함
+docker compose logs -f backend
+```
+
+화면은 `http://localhost:3000`, API는 `http://127.0.0.1:8000`입니다. frontend의 nginx가 `/api`를 backend로 넘깁니다. backend는 `.env`를 읽되 `DATABASE_URL`, `DOCRAFT_DATA_DIR=/data`(`./data` bind mount), `PADDLEOCR_BASE_URL=http://paddleocr-vl-api:8080`은 컨테이너용 값으로 덮어씁니다. 로그는 파일 없이 stdout으로만 나갑니다. 공유하는 `./data`가 root 소유가 되지 않도록 backend는 `DOCKER_UID`/`DOCKER_GID`(기본 1000) 사용자로 실행됩니다. 호스트 포트는 `POSTGRES_PORT`, `BACKEND_PORT`, `FRONTEND_PORT`로 바꿀 수 있습니다. 로컬 개발 서버와 포트 8000이 겹치므로 둘 중 하나만 띄우세요.
+
 `DOCRAFT_API_KEY`를 설정했다면 화면 왼쪽 아래의 `API 키 설정`에 같은 API 키를 입력합니다. 이 키는 브라우저 세션에 저장되고 원문 조회와 다운로드에도 적용됩니다. provider의 `AI_API_KEY`는 서버 전용이며 UI에 입력하지 않습니다.
 
 ## OCR 변환 샘플

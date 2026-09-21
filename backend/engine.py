@@ -1,5 +1,7 @@
 import json
+import logging
 import re
+import time
 from copy import deepcopy
 
 import httpx
@@ -7,9 +9,15 @@ from jsonschema import Draft202012Validator
 
 from .config import ai_settings
 
+logger = logging.getLogger(__name__)
+
 
 class ProviderConfigurationError(RuntimeError):
     pass
+
+
+def _truncate(text, limit=2000):
+    return text if len(text) <= limit * 2 else f"{text[:limit]}...<truncated>...{text[-limit:]}"
 
 
 def _provider(messages, response_schema=None):
@@ -21,22 +29,35 @@ def _provider(messages, response_schema=None):
         body["response_format"] = {"type": "json_schema", "json_schema": {"name": "result", "strict": True, "schema": response_schema}}
     else:
         body["response_format"] = {"type": "json_object"}
+    prompt_chars = sum(len(m.get("content") or "") for m in messages)
+    logger.debug("provider call: model=%s messages=%d prompt_chars=%d", settings["model"], len(messages), prompt_chars)
+    started = time.monotonic()
     with httpx.Client(timeout=90, transport=httpx.HTTPTransport(retries=2)) as client:
         response = client.post(f"{settings['base_url']}/chat/completions", headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body)
+        elapsed = time.monotonic() - started
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            logger.error("provider HTTP error: status=%s elapsed=%.2fs", response.status_code, elapsed)
             raise RuntimeError(f"AI provider 요청 실패 (HTTP {response.status_code})") from exc
         try:
             choice = response.json()["choices"][0]
-            if choice.get("finish_reason") == "length":
+            finish_reason = choice.get("finish_reason")
+            if finish_reason == "length":
+                logger.warning("provider response truncated: finish_reason=length elapsed=%.2fs", elapsed)
                 raise RuntimeError("AI provider 응답이 토큰 제한으로 잘렸습니다.")
             content = choice["message"]["content"].strip()
         except (KeyError, IndexError, TypeError, AttributeError) as exc:
+            logger.error("provider response format error: %s elapsed=%.2fs", exc, elapsed)
             raise RuntimeError("AI provider 응답 형식을 해석할 수 없습니다.") from exc
+        logger.debug("provider response: elapsed=%.2fs finish_reason=%s len=%d content=%s", elapsed, finish_reason, len(content), _truncate(content))
         if content.startswith("```"):
             content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.I)
-        return json.loads(content)
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            logger.error("provider json decode failed: len=%d finish_reason=%s content=%s", len(content), finish_reason, _truncate(content))
+            raise
 
 
 def _field_name(label):
@@ -45,6 +66,7 @@ def _field_name(label):
 
 
 def generate_schema(prompt, document_text=""):
+    logger.debug("generate_schema: mode=%s prompt_chars=%d doc_chars=%d", ai_settings()["mode"], len(prompt), len(document_text))
     if ai_settings()["mode"] != "local":
         system = (
             "Return only a JSON object containing a practical JSON Schema draft 2020-12. Include title, type object, properties and required. "
@@ -138,6 +160,7 @@ def _local_extract(schema, blocks):
 
 def extract(schema, blocks):
     if ai_settings()["mode"] == "local":
+        logger.debug("extract: local mode blocks=%d", len(blocks))
         return _local_extract(schema, blocks)
     evidence = [
         {"text": b["text"], "page": b.get("page"), "bbox": b.get("bbox")}
@@ -164,6 +187,7 @@ def extract(schema, blocks):
         "required": ["result", "groundings"],
         "additionalProperties": False,
     }
+    logger.debug("extract: provider mode blocks=%d evidence_chars=%d", len(blocks), len(json.dumps(evidence, ensure_ascii=False)))
     ai = _provider([
         {"role": "system", "content": "Extract values using document context and layout. Never invent values. Use null when allowed and absent. For every extracted leaf, return exact source text and its JSON Pointer. Page and bbox must come from the supplied block metadata; otherwise null."},
         {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks (use only these coordinates):\n{json.dumps(evidence, ensure_ascii=False)[:40000]}"},
