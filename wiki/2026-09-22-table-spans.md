@@ -56,3 +56,5 @@ VL의 원본 격자는 7개 표 모두 빈칸 없는 직사각형이었다. 따�
 ## 후속 수정
 
 PaddleOCR 경로(`_remote_paddle`)는 `_html_table_rows()`로 `rows`만 받아 `spans`가 저장되지 않았다. 스캔 문서 미리보기에서 병합 셀이 합쳐지지 않았던 원인이다. [table-refine](2026-09-22-table-refine.md)에서 `_html_table()`로 바꿔 `rows`와 `spans`를 함께 저장하도록 고쳤다.
+
+괘선이 인쇄된 표는 VLM 구조 대신 괘선 격자로 복원한다([ruled-table-grid](2026-09-22-ruled-table-grid.md)). 진료비영수증의 헤더 구조·합계 행 오류가 여기서 해소됐다.
