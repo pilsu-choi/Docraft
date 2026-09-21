@@ -26,6 +26,10 @@ npm run dev
 
 `DOCRAFT_API_KEY`를 설정했다면 화면 왼쪽 아래의 `API 키 설정`에 같은 API 키를 입력합니다. 이 키는 브라우저 세션에 저장되고 원문 조회와 다운로드에도 적용됩니다. provider의 `AI_API_KEY`는 서버 전용이며 UI에 입력하지 않습니다.
 
+## OCR 변환 샘플
+
+`samples/agentic-ocr-2.0.1-results/pdf/`에는 UI에서 바로 업로드해 볼 수 있는 의료 문서 PNG 5개의 검색 가능 PDF가 있습니다. 같은 이미지 원본은 `samples/agentic-ocr-2.0.1-results/images/`에 문서 종류별로 보관합니다. PDF는 macOS Vision이 만든 보이지 않는 텍스트 레이어를 포함하므로 현재 `PARSE_PROVIDER=library` 설정에서도 파싱됩니다. 샘플 바이너리는 개인정보 보호를 위해 Git에서 제외됩니다. 생성 방식과 검증 결과는 [wiki/fixture-conversion.md](wiki/fixture-conversion.md)에서 확인할 수 있습니다.
+
 ## 화면에서 전체 흐름 실행
 
 1. `http://localhost:5173`에서 프로젝트를 만들고 TXT/PDF/이미지 파일을 업로드합니다.
