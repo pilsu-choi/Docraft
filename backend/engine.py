@@ -46,7 +46,12 @@ def _field_name(label):
 
 def generate_schema(prompt, document_text=""):
     if ai_settings()["mode"] != "local":
-        system = "Return only a JSON object containing a practical JSON Schema draft 2020-12. Include title, type object, properties and required. Use nested objects and arrays when the request or document implies them."
+        system = (
+            "Return only a JSON object containing a practical JSON Schema draft 2020-12. Include title, type object, properties and required. "
+            "Use nested objects and arrays when the request or document implies them. "
+            "Every property, including nested and array item properties, must have a title and a description that explains what to extract and in which format. "
+            "Write titles and descriptions in Korean first; keep other languages only for proper nouns, codes or units. Property keys stay short snake_case identifiers."
+        )
         generated = _provider([{"role": "system", "content": system}, {"role": "user", "content": f"Request:\n{prompt}\n\nDocument sample:\n{document_text[:12000]}"}])
         generated.setdefault("$schema", "https://json-schema.org/draft/2020-12/schema")
         return generated
@@ -61,9 +66,9 @@ def generate_schema(prompt, document_text=""):
         properties[_field_name(label)] = {"type": kind, "title": label, "description": f"문서의 {label}"}
     if not properties and document_text:
         for label in re.findall(r"(?m)^\s*([^:\n]{2,40})\s*:", document_text)[:12]:
-            properties[_field_name(label)] = {"type": "string", "title": label.strip()}
+            properties[_field_name(label)] = {"type": "string", "title": label.strip(), "description": f"문서의 {label.strip()}"}
     if not properties:
-        properties["value"] = {"type": "string", "title": "value"}
+        properties["value"] = {"type": "string", "title": "값", "description": "문서에서 추출할 값"}
     return {"$schema": "https://json-schema.org/draft/2020-12/schema", "title": "Generated schema", "type": "object", "properties": properties, "required": list(properties)}
 
 

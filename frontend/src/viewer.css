@@ -3,3 +3,5 @@
 .preview-scroll .page-image img{display:block}
 .preview .bbox{border:0;outline:1px solid #e43b32;background:transparent;border-radius:0;min-width:0;min-height:0;padding:0;box-shadow:none}
 .preview .bbox.selected{border:0;outline:2px solid #e43b32;background:transparent;box-shadow:0 0 0 3px white}
+.preview .bbox.field{outline:1px solid #0a8a6f;pointer-events:auto;cursor:pointer}
+.preview .bbox.field.selected,.preview .bbox.field:hover{outline:2px solid #0a8a6f;background:#0a8a6f2e;box-shadow:0 0 0 3px white;z-index:1}
