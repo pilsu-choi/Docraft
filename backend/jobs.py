@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 TASKS = {}
 QUEUE_NAME = os.getenv("QUEUE_NAME", "docraft")
 CONCURRENCY = int(os.getenv("QUEUE_CONCURRENCY", "2"))
+# A running job heartbeats every LEASE/3 seconds; one silent for LEASE seconds is taken over.
+LEASE = int(os.getenv("JOB_LEASE_SECONDS", "600"))
 
 
 def task(name):
@@ -65,7 +67,8 @@ def celery_app():
         task_serializer="json", accept_content=["json"], task_ignore_result=True,
         task_default_queue=QUEUE_NAME, task_acks_late=True, task_reject_on_worker_lost=True,
         worker_prefetch_multiplier=1, broker_connection_retry_on_startup=True,
-        broker_transport_options=prefix, result_backend_transport_options=prefix,
+        # Redis redelivers an unacked message after visibility_timeout; match the lease so a dead worker's job resumes soon.
+        broker_transport_options={**prefix, "visibility_timeout": LEASE}, result_backend_transport_options=prefix,
     )
     for name, fn in TASKS.items():
         app.task(name=f"{QUEUE_NAME}.{name}", autoretry_for=(psycopg.OperationalError, OSError),
