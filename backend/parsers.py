@@ -23,9 +23,11 @@ def parse_pdf(path):
     result = []
     with fitz.open(path) as pdf:
         for number, page in enumerate(pdf, 1):
-            for x0, y0, x1, y1, text, *_ in page.get_text("blocks"):
-                if text.strip():
-                    result.append(block(text.strip(), page=number, bbox=[x0, y0, x1, y1], page_size=[page.rect.width, page.rect.height]))
+            for region in page.get_text("dict")["blocks"]:
+                for line in region.get("lines", []):
+                    text = "".join(span["text"] for span in line["spans"]).strip()
+                    if text:
+                        result.append(block(text, page=number, bbox=list(line["bbox"]), page_size=[page.rect.width, page.rect.height]))
     if not result:
         if ocr_settings()["provider"] != "paddle":
             raise ParseError("스캔 PDF OCR은 비활성화되어 있습니다. PARSE_PROVIDER=paddle과 원격 endpoint를 설정해 주세요.")
@@ -119,5 +121,6 @@ def parse(path, filename, media_type):
         raise ParseError(f"지원하지 않는 파일 형식입니다: {suffix or media_type}")
     if not blocks:
         raise ParseError("문서에서 내용을 찾지 못했습니다.")
-    markdown = "\n\n".join(b["text"] if b["type"] != "table" else f"```text\n{b['text']}\n```" for b in blocks)
+    separator = "\n" if suffix == ".pdf" else "\n\n"
+    markdown = separator.join(b["text"] if b["type"] != "table" else f"```text\n{b['text']}\n```" for b in blocks)
     return markdown, blocks

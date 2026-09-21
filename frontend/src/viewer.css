@@ -1,3 +1,5 @@
 .preview .preview-scroll{justify-content:flex-start}
 .preview-scroll .page-image{margin-inline:auto}
 .preview-scroll .page-image img{display:block}
+.preview .bbox{border:0;outline:1px solid #e43b32;background:transparent;border-radius:0;min-width:0;min-height:0;padding:0;box-shadow:none}
+.preview .bbox.selected{border:0;outline:2px solid #e43b32;background:transparent;box-shadow:0 0 0 3px white}

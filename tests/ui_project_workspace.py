@@ -47,7 +47,7 @@ def main():
         bbox.wait_for()
         geometry = bbox.bounding_box()
         assert geometry["width"] > 1 and geometry["height"] > 1
-        assert page.evaluate("node => getComputedStyle(node).borderTopColor", bbox.element_handle()) == "rgb(228, 59, 50)"
+        assert page.evaluate("node => getComputedStyle(node).outlineColor", bbox.element_handle()) == "rgb(228, 59, 50)"
 
         page.get_by_role("button", name="02 스키마 설계").click()
         prompt = page.get_by_placeholder("예: 거래처, 날짜, 금액과 품목별 내역")

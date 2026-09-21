@@ -11,7 +11,6 @@ from playwright.sync_api import sync_playwright
 def fixtures(directory):
     pdf = fitz.open()
     page = pdf.new_page(width=600, height=900)
-    page.draw_rect(fitz.Rect(60, 90, 240, 150), color=(1, 0, 0), fill=(1, 0.9, 0.9))
     page.insert_text((70, 125), "Synthetic preview")
     pdf_path = directory / "source.pdf"
     image_path = directory / "source.png"
@@ -45,12 +44,29 @@ def check_fit(page, kind):
     return image
 
 
+def check_tiny_box(page, index, coords, basis):
+    source = page.locator(".page-image").bounding_box()
+    target = page.locator(".bbox").nth(index)
+    box = target.bounding_box()
+    expected = {
+        "x": source["x"] + coords[0] / basis[0] * source["width"],
+        "y": source["y"] + coords[1] / basis[1] * source["height"],
+        "width": (coords[2] - coords[0]) / basis[0] * source["width"],
+        "height": (coords[3] - coords[1]) / basis[1] * source["height"],
+    }
+    for key in expected:
+        assert abs(box[key] - expected[key]) < 1, (key, box, expected)
+    assert box["width"] < 2 and box["height"] < 2, box
+    style = target.evaluate("node => ({tag: node.tagName, outline: getComputedStyle(node).outlineStyle, border: getComputedStyle(node).borderTopWidth, radius: getComputedStyle(node).borderRadius, background: getComputedStyle(node).backgroundColor})")
+    assert style == {"tag": "SPAN", "outline": "solid", "border": "0px", "radius": "0px", "background": "rgba(0, 0, 0, 0)"}, style
+
+
 def main():
     with tempfile.TemporaryDirectory() as temp:
         pdf_bytes, png_bytes = fixtures(Path(temp))
         docs = [
-            {"id": "d-pdf", "project_id": "preview", "filename": "source.pdf", "media_type": "application/pdf", "size": len(pdf_bytes), "status": "parsed", "blocks": [{"type": "text", "page": 1, "bbox": [60, 90, 240, 150], "page_size": [600, 900], "text": "Synthetic preview"}], "groundings": []},
-            {"id": "d-image", "project_id": "preview", "filename": "source.png", "media_type": "image/png", "size": len(png_bytes), "status": "parsed", "blocks": [{"type": "text", "page": 1, "bbox": [300, 450, 1200, 750], "page_size": [3000, 4500], "text": "Synthetic preview"}], "groundings": []},
+            {"id": "d-pdf", "project_id": "preview", "filename": "source.pdf", "media_type": "application/pdf", "size": len(pdf_bytes), "status": "parsed", "blocks": [{"type": "text", "page": 1, "bbox": [60, 90, 240, 150], "page_size": [600, 900], "text": "Synthetic preview"}, {"type": "text", "page": 1, "bbox": [0.1, 0.1, 0.4, 0.4], "page_size": [600, 900], "text": "Tiny absolute PDF box"}], "groundings": [{"path": "tiny-grounding", "page": 1, "bbox": [0.2, 0.2, 0.5, 0.5]}]},
+            {"id": "d-image", "project_id": "preview", "filename": "source.png", "media_type": "image/png", "size": len(png_bytes), "status": "parsed", "blocks": [{"type": "text", "page": 1, "bbox": [300, 450, 1200, 750], "page_size": [3000, 4500], "text": "Synthetic preview"}, {"type": "text", "page": 1, "bbox": [0.1, 0.1, 0.4, 0.4], "page_size": [3000, 4500], "text": "Tiny absolute image box"}], "groundings": [{"path": "normalized-image", "page": 1, "bbox": [0.2, 0.3, 0.2005, 0.3005]}]},
         ]
         errors = []
         with sync_playwright() as playwright:
@@ -102,6 +118,8 @@ def main():
             assert page.get_by_role("button", name="03 데이터 추출").get_attribute("aria-current") == "step"
             page.get_by_role("button", name="01 문서 분석").click()
             pdf = check_fit(page, "PDF desktop DPR2")
+            check_tiny_box(page, 1, [0.1, 0.1, 0.4, 0.4], [600, 900])
+            check_tiny_box(page, 2, [0.2, 0.2, 0.5, 0.5], [600, 900])
             canvas = page.locator("canvas").evaluate("node => ({intrinsic: node.width, css: node.getBoundingClientRect().width})")
             assert abs(canvas["intrinsic"] / canvas["css"] - 2) < 0.03, canvas
             page.screenshot(path="/tmp/docraft-preview-pdf-fit.png")
@@ -112,6 +130,7 @@ def main():
             assert geometry(page)["scroll"] > geometry(page)["client"]
             page.locator(".preview-scroll").evaluate("node => node.scrollLeft = node.scrollWidth")
             assert geometry(page)["left"] > 0
+            check_tiny_box(page, 1, [0.1, 0.1, 0.4, 0.4], [600, 900])
             page.screenshot(path="/tmp/docraft-preview-pdf-zoom.png")
 
             page.locator(".preview-toolbar button").nth(2).click()
@@ -129,6 +148,8 @@ def main():
 
             page.get_by_role("button", name="source.png").click()
             check_fit(page, "image desktop")
+            check_tiny_box(page, 1, [0.1, 0.1, 0.4, 0.4], [3000, 4500])
+            check_tiny_box(page, 2, [0.2, 0.3, 0.2005, 0.3005], [1, 1])
             page.screenshot(path="/tmp/docraft-preview-image-fit.png")
             page.set_viewport_size({"width": 800, "height": 900})
             check_fit(page, "image narrow")
