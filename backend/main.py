@@ -8,6 +8,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote
 import fitz
 
@@ -15,7 +16,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPExcepti
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from openpyxl import Workbook
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from jsonschema.exceptions import SchemaError
 
 from .config import public_ai_settings
@@ -25,7 +26,8 @@ from .parsers import ParseError, parse
 
 logger = logging.getLogger(__name__)
 
-JSON_FIELDS = ("blocks", "result", "groundings", "validation")
+JSON_FIELDS = ("blocks", "result", "groundings", "validation", "parse_options")
+PAGE_RANGE_RE = re.compile(r"^\d+(-\d+)?(,\d+(-\d+)?)*$")
 ALLOWED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".docx", ".xlsx", ".csv", ".txt", ".md", ".html", ".htm"}
 MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
 
@@ -87,6 +89,19 @@ class BatchExtractInput(BaseModel):
 class ReviewInput(BaseModel):
     path: str
     value: object = None
+
+
+class ParseOptions(BaseModel):
+    pages: str | None = None
+    provider: Literal["auto", "library", "paddle"] = "auto"
+    table_format: Literal["markdown", "html"] = "markdown"
+
+    @field_validator("pages")
+    @classmethod
+    def _valid_pages(cls, value):
+        if value is not None and not PAGE_RANGE_RE.fullmatch(value):
+            raise ValueError("페이지 범위 형식이 올바르지 않습니다.")
+        return value
 
 
 def uid(): return uuid.uuid4().hex
@@ -250,12 +265,12 @@ def delete_document(document_id: str):
 
 def run_parse(document_id: str):
     with connect() as db:
-        row = one(db, "SELECT * FROM documents WHERE id=?", (document_id,))
+        row = one(db, "SELECT * FROM documents WHERE id=?", (document_id,), json_fields=("parse_options",))
         db.execute("UPDATE documents SET status='parsing',error=NULL,updated_at=? WHERE id=?", (now(), document_id))
     logger.info("parse start: document=%s filename=%s", document_id, row["filename"])
     started = time.monotonic()
     try:
-        markdown, blocks = parse(row["file_path"], row["filename"], row["media_type"])
+        markdown, blocks = parse(row["file_path"], row["filename"], row["media_type"], row["parse_options"])
         with connect() as db:
             db.execute("UPDATE documents SET status='parsed',markdown=?,blocks=?,updated_at=? WHERE id=?", (markdown, json.dumps(blocks, ensure_ascii=False), now(), document_id))
             audit(db, row["project_id"], "parse", "document", document_id, {"blocks": len(blocks)})
@@ -267,10 +282,11 @@ def run_parse(document_id: str):
 
 
 @app.post("/api/documents/{document_id}/parse", status_code=202, dependencies=[Depends(auth)])
-def retry_parse(document_id: str, background: BackgroundTasks):
+def retry_parse(document_id: str, background: BackgroundTasks, data: ParseOptions | None = None):
     with connect() as db:
-        one(db, "SELECT id FROM documents WHERE id=?", (document_id,))
-        db.execute("UPDATE documents SET status='queued',error=NULL,markdown=NULL,blocks='[]',result=NULL,groundings='{}',validation='[]',schema_id=NULL,approved_at=NULL,updated_at=? WHERE id=?", (now(), document_id))
+        current = one(db, "SELECT parse_options FROM documents WHERE id=?", (document_id,), json_fields=("parse_options",))
+        options = data.model_dump() if data is not None else current["parse_options"]
+        db.execute("UPDATE documents SET status='queued',error=NULL,markdown=NULL,blocks='[]',result=NULL,groundings='{}',validation='[]',schema_id=NULL,approved_at=NULL,parse_options=?,updated_at=? WHERE id=?", (json.dumps(options, ensure_ascii=False), now(), document_id))
     background.add_task(run_parse, document_id)
     return {"id": document_id, "status": "queued"}
 
