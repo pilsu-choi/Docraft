@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import Rendered, { blockGrounding, blockHtml, kinds } from './Rendered'
+import Rendered, { blockGrounding, blockHtml, kinds, tableCells } from './Rendered'
 import type { Block, Grounding } from './types'
 
 // 분석 블록 카드 목록. 카드 hover·click과 원문 bbox hover가 같은 active/selected 상태를 공유한다.
@@ -16,7 +16,7 @@ export default function Blocks({ blocks, active, onHover, onSelect }: { blocks: 
     const g = blockGrounding(block, i), text = block.text.replace(/\\n/g, '\n')
     return <section key={i} className={`block-card t-${block.type} ${active?.path === g.path ? 'active' : ''}`} onMouseEnter={() => onHover(g)} onMouseLeave={() => onHover(null)} onClick={() => onSelect(g)}>
       <span className="block-tag">{i + 1} - {kinds[block.type] || block.label || block.type}{block.page ? ` · p.${block.page}` : ''}</span>
-      {block.type === 'heading' ? <h3>{text}</h3> : block.type !== 'table' ? <p>{text}</p> : block.rows ? <div className="block-table"><table><tbody>{block.rows.map((row, r) => <tr key={r}>{row.map((cell, c) => r ? <td key={c}>{cell.replace(/\\n/g, '\n')}</td> : <th key={c}>{cell.replace(/\\n/g, '\n')}</th>)}</tr>)}</tbody></table></div> : <Rendered html={blockHtml(block)} title={`표 ${i + 1}`} />}
+      {block.type === 'heading' ? <h3>{text}</h3> : block.type !== 'table' ? <p>{text}</p> : block.rows ? <div className="block-table"><table><tbody>{tableCells(block).map((row, r) => <tr key={r}>{row.map(({ text, rowSpan, colSpan }, c) => { const Cell = r ? 'td' : 'th'; return <Cell key={c} rowSpan={rowSpan} colSpan={colSpan}>{text.replace(/\\n/g, '\n')}</Cell> })}</tr>)}</tbody></table></div> : <Rendered html={blockHtml(block)} title={`표 ${i + 1}`} />}
     </section>
   })}</div>
 }
