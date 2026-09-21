@@ -12,8 +12,10 @@ from docx import Document
 from openpyxl import load_workbook
 import fitz
 import httpx
+from PIL import Image
 
 from .config import ocr_settings
+from .table_grid import ruled_table
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +131,38 @@ def _attach_lines(blocks, encoded, file_type, settings, page_map):
     logger.debug("paddleocr line OCR: elapsed=%.2fs pages=%d lines=%d", time.monotonic() - started, len(pages), sum(len(b.get("lines") or []) for b in blocks))
 
 
+def _ruled_tables(blocks, path, file_type, page_map):
+    """Replace the VLM's generated table structure with the printed-rule grid (`table_grid`) where a table has one.
+
+    Needs the OCR lines `_attach_lines` put on each table. Tables without a usable grid, or pages that cannot be
+    rendered, keep the VLM structure."""
+    tables = [b for b in blocks if b["type"] == "table" and b["bbox"] and b.get("lines") and b.get("page_size")]
+    if not tables:
+        return
+    started = time.monotonic()
+    try:
+        with fitz.open(path) if file_type == 0 else Image.open(path) as source:
+            for page_no in sorted({b["page"] for b in tables}):
+                width, height = next(b["page_size"] for b in tables if b["page"] == page_no)
+                if file_type == 0:
+                    page = source[page_map.index(page_no) if page_map else page_no - 1]
+                    pix = page.get_pixmap(matrix=fitz.Matrix(width / page.rect.width, height / page.rect.height), colorspace=fitz.csGRAY)
+                    image = Image.frombytes("L", (pix.width, pix.height), pix.samples)
+                else:
+                    image = source.convert("L").resize((round(width), round(height)))
+                for table in (b for b in tables if b["page"] == page_no):
+                    grid = ruled_table(image, table["bbox"], table["lines"])
+                    if grid:
+                        rows, spans = grid
+                        table.pop("spans", None)
+                        table.update(rows=rows, structure="ruled", **({"spans": spans} if spans else {}))
+                        table["text"] = _markdown(table, "html")
+    except (OSError, ValueError, RuntimeError) as exc:
+        logger.warning("ruled table grid skipped, keeping VLM table structure: %s", exc)
+        return
+    logger.debug("ruled tables: elapsed=%.2fs tables=%d ruled=%d", time.monotonic() - started, len(tables), sum(b.get("structure") == "ruled" for b in tables))
+
+
 def _remote_paddle(path, file_type, page_map=None):
     settings = ocr_settings()
     if not settings["base_url"]:
@@ -176,6 +210,7 @@ def _remote_paddle(path, file_type, page_map=None):
         raise ParseError("PaddleOCR 원격 응답에서 텍스트를 찾지 못했습니다.")
     if settings["lines_url"]:
         _attach_lines(blocks, encoded, file_type, settings, page_map)
+        _ruled_tables(blocks, path, file_type, page_map)
     return blocks
 
 

@@ -52,3 +52,5 @@ VL의 원본 격자는 7개 표 모두 빈칸 없는 직사각형이었다. 따�
 - 잡음: 셀 안의 `\n` 문자열, `$ ^{{*}} $` 같은 LaTeX 조각.
 
 이 오류는 표 영역을 잘라 표 전용 모델(PP-StructureV3 표 모듈, TableFormer)이나 더 큰 VLM으로 다시 인식해야 줄일 수 있다. 추출 단계는 `AI_VISION`으로 페이지 이미지를 함께 보내므로 일부를 보정한다([vision-extract](2026-09-22-vision-extract.md)).
+
+후속: 괘선이 인쇄된 표는 VLM 구조 대신 괘선 격자로 복원한다([ruled-table-grid](2026-09-22-ruled-table-grid.md)). 진료비영수증의 헤더 구조·합계 행 오류가 여기서 해소됐다.

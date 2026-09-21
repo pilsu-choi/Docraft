@@ -1,9 +1,11 @@
 import httpx
 import fitz
 import pytest
+from PIL import Image, ImageDraw
 
 from backend import parsers
 from backend.parsers import ParseError, parse
+from backend.table_grid import ruled_table
 
 
 def _pdf(tmp_path, *texts):
@@ -127,3 +129,57 @@ def test_merged_cells_become_a_rectangular_grid_and_render_back_with_spans(tmp_p
     assert blocks[0]["spans"] == [[0, 0, 2, 1], [0, 1, 1, 2]]
     assert markdown == ("<table><tr><td rowspan=\"2\">항목</td><td colspan=\"2\">급여</td></tr><tr><td>본인</td><td>공단</td></tr>"
                         "<tr><td>진찰료</td><td>4,593</td><td>10,717</td></tr></table>")
+
+
+def _ruled_form(path=None):
+    """400x200 form: header row whose right cell spans two columns, then two body rows. Rules are 2px black."""
+    image = Image.new("L", (400, 200), 255)
+    draw = ImageDraw.Draw(image)
+    for y in (10, 70, 130, 188):
+        draw.rectangle((10, y, 390, y + 1), fill=0)
+    for x in (10, 130, 388):
+        draw.rectangle((x, 10, x + 1, 189), fill=0)
+    draw.rectangle((260, 70, 261, 189), fill=0)  # no rule above y=70: 금액 spans both value columns
+    if path:
+        image.save(path)
+    return image
+
+
+FORM_LINES = [
+    {"text": "항목", "bbox": [20, 30, 80, 50]}, {"text": "금액", "bbox": [230, 30, 290, 50]},
+    {"text": "진찰료", "bbox": [20, 90, 90, 110]}, {"text": "1,000", "bbox": [140, 90, 200, 110]},
+    {"text": "2,000", "bbox": [270, 90, 330, 110]}, {"text": "합계", "bbox": [20, 150, 80, 170]},
+    # PP-OCR joined two cells into one line across the rule at x=260; it is cut at the word gap.
+    {"text": "10 20", "bbox": [200, 150, 320, 170]},
+]
+
+
+def test_ruled_table_reads_structure_from_rules_and_splits_lines_joined_across_a_rule():
+    rows, spans = ruled_table(_ruled_form(), [0, 0, 400, 200], FORM_LINES)
+    assert rows == [["항목", "금액", "금액"], ["진찰료", "1,000", "2,000"], ["합계", "10", "20"]]
+    assert spans == [[0, 1, 1, 2]]
+
+
+def test_ruled_table_is_none_without_rules():
+    assert ruled_table(Image.new("L", (400, 200), 255), [0, 0, 400, 200], FORM_LINES) is None
+
+
+def test_paddle_table_takes_the_ruled_grid_over_the_vlm_html(tmp_path, monkeypatch):
+    path = tmp_path / "form.png"
+    _ruled_form(path)
+    layout = {"result": {"layoutParsingResults": [{"prunedResult": {"width": 400, "height": 200, "parsing_res_list": [
+        {"block_bbox": [0, 0, 400, 200], "block_label": "table", "block_content": "<table><tr><td>항목</td><td>금액</td></tr></table>"},
+    ]}}]}}
+    lines = {"result": {"ocrResults": [{"prunedResult": {
+        "rec_texts": [line["text"] for line in FORM_LINES], "rec_boxes": [line["bbox"] for line in FORM_LINES]}}]}}
+    monkeypatch.setenv("PARSE_PROVIDER", "paddle")
+    monkeypatch.setenv("PADDLEOCR_BASE_URL", "http://layout.invalid")
+    monkeypatch.setenv("PADDLEOCR_LINES_URL", "http://lines.invalid")
+    monkeypatch.setattr(parsers.httpx, "post", lambda url, **_: httpx.Response(
+        200, json=lines if url.endswith("/ocr") else layout, request=httpx.Request("POST", url)))
+
+    _, (table,) = parse(path, path.name, "image/png")
+
+    assert table["structure"] == "ruled"
+    assert table["rows"][2] == ["합계", "10", "20"] and table["spans"] == [[0, 1, 1, 2]]
+    assert table["text"].startswith('<table><tr><td>항목</td><td colspan="2">금액</td>')
