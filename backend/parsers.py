@@ -136,8 +136,8 @@ def _attach_lines(blocks, encoded, file_type, settings, page_map):
 def _ruled_tables(blocks, path, file_type, page_map):
     """Replace the VLM's generated table structure with the printed-rule grid (`table_grid`) where a table has one.
 
-    Needs the OCR lines `_attach_lines` put on each table. Tables without a usable grid, or pages that cannot be
-    rendered, keep the VLM structure."""
+    Needs the OCR lines `_attach_lines` put on each table. Tables without a usable grid, a grid with fewer than half
+    the VLM's rows, or pages that cannot be rendered keep the VLM structure."""
     tables = [b for b in blocks if b["type"] == "table" and b["bbox"] and b.get("lines") and b.get("page_size")]
     if not tables:
         return
@@ -154,7 +154,8 @@ def _ruled_tables(blocks, path, file_type, page_map):
                     image = source.convert("L").resize((round(width), round(height)))
                 for table in (b for b in tables if b["page"] == page_no):
                     grid = ruled_table(image, table["bbox"], table["lines"])
-                    if grid:
+                    # Faint rules found only in part collapse many rows into a few; the VLM rows are then the better guess.
+                    if grid and len(grid[0]) * 2 >= len(table.get("rows") or []):
                         rows, spans = grid
                         table.pop("spans", None)
                         table.update(rows=rows, structure="ruled", **({"spans": spans} if spans else {}))

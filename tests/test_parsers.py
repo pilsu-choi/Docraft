@@ -164,11 +164,11 @@ def test_ruled_table_is_none_without_rules():
     assert ruled_table(Image.new("L", (400, 200), 255), [0, 0, 400, 200], FORM_LINES) is None
 
 
-def test_paddle_table_takes_the_ruled_grid_over_the_vlm_html(tmp_path, monkeypatch):
+def _paddle_form(tmp_path, monkeypatch, vlm_html):
     path = tmp_path / "form.png"
     _ruled_form(path)
     layout = {"result": {"layoutParsingResults": [{"prunedResult": {"width": 400, "height": 200, "parsing_res_list": [
-        {"block_bbox": [0, 0, 400, 200], "block_label": "table", "block_content": "<table><tr><td>항목</td><td>금액</td></tr></table>"},
+        {"block_bbox": [0, 0, 400, 200], "block_label": "table", "block_content": vlm_html},
     ]}}]}}
     lines = {"result": {"ocrResults": [{"prunedResult": {
         "rec_texts": [line["text"] for line in FORM_LINES], "rec_boxes": [line["bbox"] for line in FORM_LINES]}}]}}
@@ -177,12 +177,20 @@ def test_paddle_table_takes_the_ruled_grid_over_the_vlm_html(tmp_path, monkeypat
     monkeypatch.setenv("PADDLEOCR_LINES_URL", "http://lines.invalid")
     monkeypatch.setattr(parsers.httpx, "post", lambda url, **_: httpx.Response(
         200, json=lines if url.endswith("/ocr") else layout, request=httpx.Request("POST", url)))
+    return parse(path, path.name, "image/png")[1][0]
 
-    _, (table,) = parse(path, path.name, "image/png")
 
+def test_paddle_table_takes_the_ruled_grid_over_the_vlm_html(tmp_path, monkeypatch):
+    table = _paddle_form(tmp_path, monkeypatch, "<table><tr><td>항목</td><td>금액</td></tr></table>")
     assert table["structure"] == "ruled"
     assert table["rows"][2] == ["합계", "10", "20"] and table["spans"] == [[0, 1, 1, 2]]
     assert table["text"].startswith('<table><tr><td>항목</td><td colspan="2">금액</td>')
+
+
+def test_paddle_table_keeps_vlm_rows_when_the_grid_has_fewer_than_half(tmp_path, monkeypatch):
+    vlm_html = "<table>" + "<tr><td>행</td></tr>" * 7 + "</table>"
+    table = _paddle_form(tmp_path, monkeypatch, vlm_html)
+    assert "structure" not in table and len(table["rows"]) == 7 and table["text"] == vlm_html
 
 
 def test_paddle_table_keeps_merged_cell_spans(tmp_path, monkeypatch):
