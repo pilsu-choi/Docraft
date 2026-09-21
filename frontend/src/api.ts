@@ -1,4 +1,4 @@
-import type { AiStatus, Document, Project, Schema } from './types'
+import type { AiStatus, Document, Format, Project, Schema } from './types'
 
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const key = sessionStorage.getItem('docraft_api_key')
@@ -8,11 +8,18 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || `요청 실패 (${response.status})`)
   return response.status === 204 ? undefined as T : response.json() as Promise<T>
 }
-const blob = async (path: string) => {
+const file = async (path: string) => {
   const key = sessionStorage.getItem('docraft_api_key')
   const response = await fetch(`/api${path}`, { headers: key ? { 'X-API-Key': key } : {} })
   if (!response.ok) throw new Error(`파일 요청 실패 (${response.status})`)
-  return response.blob()
+  return response
+}
+// Content-Disposition의 filename*=UTF-8''… → filename=… 순으로 파일명을 고르고, 없으면 fallback을 쓴다.
+const save = async (path: string, fallback: string) => {
+  const response = await file(path), header = response.headers.get('Content-Disposition') || ''
+  const encoded = header.match(/filename\*=UTF-8''([^;]+)/i)?.[1], plain = header.match(/filename="?([^";]+)"?/i)?.[1]
+  const url = URL.createObjectURL(await response.blob()), anchor = document.createElement('a')
+  anchor.href = url; anchor.download = encoded ? decodeURIComponent(encoded) : plain || fallback; anchor.click(); URL.revokeObjectURL(url)
 }
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 export const api = {
@@ -26,10 +33,9 @@ export const api = {
   updateSchema: (id: string, name: string, json_schema: Record<string, unknown>) => request<Schema>(`/schemas/${id}`, json('PATCH', { name, json_schema })), deleteSchema: (id: string) => request<void>(`/schemas/${id}`, { method: 'DELETE' }),
   generateSchema: (projectId: string, prompt: string, document_id?: string) => request<Schema>(`/projects/${projectId}/schemas/generate`, json('POST', { prompt, document_id })),
   extract: (id: string, schema_id: string) => request<Document>(`/documents/${id}/extract`, json('POST', { schema_id })), review: (id: string, path: string, value: unknown) => request<Document>(`/documents/${id}/review`, json('PATCH', { path, value })), approve: (id: string) => request<Document>(`/documents/${id}/approve`, { method: 'POST' }),
-  file: (id: string) => blob(`/documents/${id}/file`),
-  download: async (id: string, format: 'json' | 'csv') => {
-    const value = await blob(`/documents/${id}/export?format=${format}`), url = URL.createObjectURL(value), anchor = document.createElement('a')
-    anchor.href = url; anchor.download = `docraft-${id}.${format}`; anchor.click(); URL.revokeObjectURL(url)
-  },
+  extractBatch: (projectId: string, schema_id: string, document_ids: string[]) => request<{ queued: string[]; skipped: { id: string; filename: string; reason: string }[] }>(`/projects/${projectId}/extract`, json('POST', { schema_id, document_ids })),
+  file: (id: string) => file(`/documents/${id}/file`).then(response => response.blob()),
+  download: (id: string, format: Format) => save(`/documents/${id}/export?format=${format}`, `docraft-${id}.${format}`),
+  downloadProject: (projectId: string, format: Format, schemaId?: string) => save(`/projects/${projectId}/export?format=${format}${schemaId ? `&schema_id=${schemaId}` : ''}`, `docraft-${projectId}.${format}`),
   setApiKey: (key: string) => key ? sessionStorage.setItem('docraft_api_key', key) : sessionStorage.removeItem('docraft_api_key')
 }

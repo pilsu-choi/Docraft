@@ -549,9 +549,6 @@ h3{
   align-items:center;
   gap:8px
 }
-.mobile-label{
-  display:none
-}
 .status-pill{
   display:inline-flex;
   align-items:center;
@@ -1294,12 +1291,6 @@ h3{
 .detail-actions .quiet{
   font-size:10px;
   padding:6px
-}
-.detail-actions .desktop-label{
-  display:none
-}
-.detail-actions .mobile-label{
-  display:inline
 }
 .status-pill{
   font-size:10px;
