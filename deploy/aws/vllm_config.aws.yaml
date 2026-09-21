@@ -1,0 +1,5 @@
+# NVIDIA L4(23GB)를 harness의 임베딩 vLLM(약 3.5GB)과 나눠 쓴다. 0.35 ≈ 8GB로,
+# 로컬 RTX 4070에서 0.6(≈7.3GB)으로 검증한 크기와 비슷하게 잡았다.
+gpu-memory-utilization: 0.35
+max-num-seqs: 32
+max-num-batched-tokens: 16384

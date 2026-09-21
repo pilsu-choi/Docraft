@@ -1,0 +1,39 @@
+# Docraft · AWS 개발 서버 오버레이
+# 저장소의 compose.yaml을 그대로 쓰고 서버와 다른 점만 덮는다. 환경마다 compose를 복제하면
+# 로컬에서 고친 것이 서버에 반영되지 않는다. 스크립트가 알아서 붙인다(_common.sh의 remote_compose).
+#
+# - 이미지는 로컬에서 빌드해 tar로 올린다(build 제거).
+# - harness와 같은 서버라 호스트 포트는 frontend 하나만 루프백에 연다.
+# - vLLM GPU 메모리 몫을 서버용 설정으로 바꾼다.
+
+services:
+  postgres:
+    ports: !reset []
+    restart: always
+
+  backend:
+    build: !reset null
+    image: docraft-backend:${DOCRAFT_TAG:-latest}
+    ports: !reset []
+    restart: always
+
+  worker:
+    build: !reset null
+    image: docraft-backend:${DOCRAFT_TAG:-latest}
+
+  frontend:
+    build: !reset null
+    image: docraft-frontend:${DOCRAFT_TAG:-latest}
+    ports: !override
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:80"
+    restart: always
+
+  paddleocr-vlm-server:
+    volumes: !override
+      - ./deploy/aws/vllm_config.aws.yaml:/home/paddleocr/vlm_server_config.yaml:ro
+
+  paddleocr-vl-api:
+    ports: !reset []
+
+  paddleocr-lines-api:
+    ports: !reset []
