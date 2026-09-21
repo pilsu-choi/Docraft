@@ -1,6 +1,8 @@
 """Runtime configuration loaded without exposing secrets."""
 
+import logging
 import os
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -43,7 +45,27 @@ def load_env() -> Path | None:
     return None
 
 
+def setup_logging() -> None:
+    """Configure the `backend` package logger once; all modules use logging.getLogger(__name__)."""
+    logger = logging.getLogger("backend")
+    if logger.handlers:
+        return
+    logger.setLevel(os.getenv("LOG_LEVEL", "DEBUG").upper())
+    logger.propagate = False  # Keep separate from uvicorn's own loggers/root.
+    handlers = [logging.StreamHandler()]
+    log_file = os.getenv("LOG_FILE", str(Path(__file__).resolve().parents[1] / "docraft.log"))
+    if log_file:
+        Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8"))
+    for handler in handlers:
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logger.addHandler(handler)
+    for noisy in ("httpx", "httpcore", "fitz"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
 ENV_FILE = load_env()
+setup_logging()
 
 
 def ai_settings() -> dict:

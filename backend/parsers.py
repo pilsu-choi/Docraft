@@ -1,6 +1,8 @@
 import csv
 import io
 import base64
+import logging
+import time
 from pathlib import Path
 
 from docx import Document
@@ -9,6 +11,8 @@ import fitz
 import httpx
 
 from .config import ocr_settings
+
+logger = logging.getLogger(__name__)
 
 
 class ParseError(ValueError):
@@ -52,14 +56,18 @@ def _remote_paddle(path, file_type):
         endpoint += "/layout-parsing"
     headers = {"Authorization": f"Bearer {settings['token']}"} if settings["token"] else {}
     payload = {"file": base64.b64encode(Path(path).read_bytes()).decode("ascii"), "fileType": file_type, "visualize": False, "returnMarkdownImages": False}
+    logger.debug("paddleocr request: endpoint=%s file_type=%s bytes=%d", endpoint, file_type, len(payload["file"]))
+    started = time.monotonic()
     try:
         response = httpx.post(endpoint, json=payload, headers=headers, timeout=settings["timeout"])
         response.raise_for_status()
         pages = response.json()["result"]["layoutParsingResults"]
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
         status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+        logger.error("paddleocr request failed: status=%s elapsed=%.2fs %s", status, time.monotonic() - started, exc)
         suffix = f" (HTTP {status})" if status else ""
         raise ParseError(f"PaddleOCR 원격 처리 실패{suffix}") from exc
+    logger.debug("paddleocr response: elapsed=%.2fs pages=%d", time.monotonic() - started, len(pages))
     blocks = []
     for page_no, page in enumerate(pages, 1):
         pruned = page.get("prunedResult") or {}
@@ -130,4 +138,5 @@ def parse(path, filename, media_type):
         raise ParseError("문서에서 내용을 찾지 못했습니다.")
     separator = "\n" if suffix == ".pdf" else "\n\n"
     markdown = separator.join(b["text"] if b["type"] != "table" else f"```text\n{b['text']}\n```" for b in blocks)
+    logger.debug("parse: suffix=%s blocks=%d markdown_chars=%d", suffix, len(blocks), len(markdown))
     return markdown, blocks

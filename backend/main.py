@@ -1,7 +1,9 @@
 import csv
 import io
 import json
+import logging
 import os
+import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,6 +19,8 @@ from .config import public_ai_settings
 from . import engine
 from .db import FILES, audit, connect, decode, init_db, now
 from .parsers import ParseError, parse
+
+logger = logging.getLogger(__name__)
 
 JSON_FIELDS = ("blocks", "result", "groundings", "validation")
 ALLOWED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".docx", ".xlsx", ".csv", ".txt", ".md"}
@@ -209,6 +213,7 @@ async def upload_documents(project_id: str, background: BackgroundTasks, files: 
         for document_id, filename, media_type, size, target, stamp in staged:
             db.execute("INSERT INTO documents(id,project_id,filename,media_type,size,file_path,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)", (document_id, project_id, filename, media_type, size, str(target), "queued", stamp, stamp))
             audit(db, project_id, "upload", "document", document_id, {"filename": filename, "size": size})
+            logger.info("upload saved: document=%s filename=%s size=%d", document_id, filename, size)
             created.append(document(db, document_id))
             background.add_task(run_parse, document_id)
     return created
@@ -223,13 +228,17 @@ def run_parse(document_id: str):
     with connect() as db:
         row = one(db, "SELECT * FROM documents WHERE id=?", (document_id,))
         db.execute("UPDATE documents SET status='parsing',error=NULL,updated_at=? WHERE id=?", (now(), document_id))
+    logger.info("parse start: document=%s filename=%s", document_id, row["filename"])
+    started = time.monotonic()
     try:
         markdown, blocks = parse(row["file_path"], row["filename"], row["media_type"])
         with connect() as db:
             db.execute("UPDATE documents SET status='parsed',markdown=?,blocks=?,updated_at=? WHERE id=?", (markdown, json.dumps(blocks, ensure_ascii=False), now(), document_id))
             audit(db, row["project_id"], "parse", "document", document_id, {"blocks": len(blocks)})
+        logger.info("parse finished: document=%s blocks=%d elapsed=%.2fs", document_id, len(blocks), time.monotonic() - started)
     except Exception as exc:
         message = str(exc) if isinstance(exc, ParseError) else f"문서 파싱 실패: {exc}"
+        logger.exception("parse failed: document=%s elapsed=%.2fs", document_id, time.monotonic() - started)
         with connect() as db: db.execute("UPDATE documents SET status='failed',error=?,updated_at=? WHERE id=?", (message, now(), document_id))
 
 
@@ -305,10 +314,16 @@ def generate(project_id: str, data: GenerateInput):
             if doc["status"] not in {"parsed", "needs_review", "completed"} or not (doc["markdown"] or "").strip():
                 raise HTTPException(409, "OCR/파싱 완료 후 스키마를 자동 생성할 수 있습니다.")
             docs.append(doc)
+        logger.info("schema generation start: project=%s docs=%d", project_id, len(docs))
         try: definition = engine.generate_schema_from_documents(data.prompt, docs)
-        except Exception as exc: raise HTTPException(502, f"AI 스키마 생성 실패: {exc}")
-        try: return persist_schema(db, project_id, data.name, definition)
+        except Exception as exc:
+            logger.exception("schema generation failed: project=%s", project_id)
+            raise HTTPException(502, f"AI 스키마 생성 실패: {exc}")
+        try:
+            created = persist_schema(db, project_id, data.name, definition)
         except SchemaError as exc: raise HTTPException(502, f"AI가 유효하지 않은 JSON Schema를 반환했습니다: {exc.message}")
+        logger.info("schema generation finished: project=%s schema=%s", project_id, created["id"])
+        return created
 
 
 def run_extract(document_id, schema_id):
@@ -316,6 +331,8 @@ def run_extract(document_id, schema_id):
         doc = one(db, "SELECT * FROM documents WHERE id=?", (document_id,), json_fields=("blocks",))
         schema = schema_row(db.execute("SELECT * FROM schemas WHERE id=?", (schema_id,)).fetchone())
         db.execute("UPDATE documents SET status='extracting',error=NULL,schema_id=?,updated_at=? WHERE id=?", (schema_id, now(), document_id))
+    logger.info("extract start: document=%s schema=%s", document_id, schema_id)
+    started = time.monotonic()
     try:
         result, groundings = engine.extract(schema["json_schema"], doc["blocks"])
         with connect() as db: db.execute("UPDATE documents SET status='validating',result=?,groundings=?,updated_at=? WHERE id=?", (json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), now(), document_id))
@@ -324,7 +341,9 @@ def run_extract(document_id, schema_id):
         with connect() as db:
             db.execute("UPDATE documents SET status=?,validation=?,updated_at=? WHERE id=?", (status, json.dumps(issues, ensure_ascii=False), now(), document_id))
             audit(db, doc["project_id"], "extract", "document", document_id, {"schema_id": schema_id, "issues": len(issues)})
+        logger.info("extract finished: document=%s status=%s issues=%d elapsed=%.2fs", document_id, status, len(issues), time.monotonic() - started)
     except Exception as exc:
+        logger.exception("extract failed: document=%s elapsed=%.2fs", document_id, time.monotonic() - started)
         with connect() as db: db.execute("UPDATE documents SET status='failed',error=?,updated_at=? WHERE id=?", (f"추출 실패: {exc}", now(), document_id))
 
 
@@ -361,6 +380,7 @@ def review(document_id: str, data: ReviewInput):
         db.execute("UPDATE documents SET result=?,groundings=?,validation=?,status='needs_review',approved_at=NULL,updated_at=? WHERE id=?", (json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), json.dumps(issues, ensure_ascii=False), stamp, document_id))
         db.execute("INSERT INTO corrections(document_id,path,old_value,new_value,created_at) VALUES(?,?,?,?,?)", (document_id, data.path, json.dumps(old, ensure_ascii=False), json.dumps(data.value, ensure_ascii=False), stamp))
         audit(db, doc["project_id"], "correct", "document", document_id, {"path": data.path})
+        logger.info("status transition: document=%s status=needs_review (correction path=%s)", document_id, data.path)
         return document(db, document_id)
 
 
@@ -375,6 +395,7 @@ def approve(document_id: str):
         stamp = now()
         db.execute("UPDATE documents SET status='completed',validation='[]',approved_at=?,updated_at=? WHERE id=?", (stamp, stamp, document_id))
         audit(db, doc["project_id"], "approve", "document", document_id)
+        logger.info("status transition: document=%s status=completed", document_id)
         return document(db, document_id)
 
 
