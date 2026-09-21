@@ -3,15 +3,18 @@ import io
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
 import fitz
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
+from openpyxl import Workbook
 from pydantic import BaseModel, Field
 from jsonschema.exceptions import SchemaError
 
@@ -74,6 +77,11 @@ class GenerateInput(BaseModel):
 
 class ExtractInput(BaseModel):
     schema_id: str
+
+
+class BatchExtractInput(BaseModel):
+    schema_id: str
+    document_ids: list[str] = Field(default_factory=list)
 
 
 class ReviewInput(BaseModel):
@@ -363,17 +371,53 @@ def run_extract(document_id, schema_id):
         with connect() as db: db.execute("UPDATE documents SET status='failed',error=?,updated_at=? WHERE id=?", (f"추출 실패: {exc}", now(), document_id))
 
 
+EXTRACTABLE_STATUSES = {"parsed", "needs_review", "completed"}
+
+
+def extract_reason(doc, project_id, mismatch):
+    """None when `doc` (a row with project_id/status/filename, or None) may be queued, else a Korean skip reason."""
+    if doc is None: return "문서를 찾을 수 없습니다."
+    if doc["project_id"] != project_id: return mismatch
+    if doc["status"] not in EXTRACTABLE_STATUSES: return "파싱 완료 후 추출할 수 있습니다."
+    return None
+
+
+def queue_extract(db, background, document_id, schema_id):
+    db.execute("UPDATE documents SET status='queued',error=NULL,updated_at=? WHERE id=?", (now(), document_id))
+    background.add_task(run_extract, document_id, schema_id)
+
+
 @app.post("/api/documents/{document_id}/extract", status_code=202, dependencies=[Depends(auth)])
 def start_extract(document_id: str, data: ExtractInput, background: BackgroundTasks):
     with connect() as db:
         doc = one(db, "SELECT project_id,status FROM documents WHERE id=?", (document_id,))
         schema = one(db, "SELECT project_id FROM schemas WHERE id=?", (data.schema_id,))
-        if doc["project_id"] != schema["project_id"]: raise HTTPException(409, "문서와 스키마의 프로젝트가 다릅니다.")
-        if doc["status"] not in {"parsed", "needs_review", "completed"}:
-            raise HTTPException(409, "파싱 완료 후 추출할 수 있습니다.")
-        db.execute("UPDATE documents SET status='queued',error=NULL,updated_at=? WHERE id=?", (now(), document_id))
-    background.add_task(run_extract, document_id, data.schema_id)
+        reason = extract_reason(doc, schema["project_id"], "문서와 스키마의 프로젝트가 다릅니다.")
+        if reason: raise HTTPException(409, reason)
+        queue_extract(db, background, document_id, data.schema_id)
     return {"id": document_id, "status": "queued"}
+
+
+@app.post("/api/projects/{project_id}/extract", status_code=202, dependencies=[Depends(auth)])
+def batch_extract(project_id: str, data: BatchExtractInput, background: BackgroundTasks):
+    with connect() as db:
+        one(db, "SELECT id FROM projects WHERE id=?", (project_id,))
+        schema = one(db, "SELECT project_id FROM schemas WHERE id=?", (data.schema_id,))
+        if schema["project_id"] != project_id: raise HTTPException(409, "스키마가 이 프로젝트에 속하지 않습니다.")
+        if data.document_ids:
+            targets = [(doc_id, db.execute("SELECT project_id,status,filename FROM documents WHERE id=?", (doc_id,)).fetchone()) for doc_id in data.document_ids]
+        else:
+            rows = db.execute("SELECT id,project_id,status,filename FROM documents WHERE project_id=? ORDER BY created_at", (project_id,)).fetchall()
+            targets = [(row["id"], row) for row in rows]
+        queued, skipped = [], []
+        for doc_id, doc in targets:
+            reason = extract_reason(doc, project_id, "다른 프로젝트의 문서입니다.")
+            if reason:
+                skipped.append({"id": doc_id, "filename": doc["filename"] if doc else None, "reason": reason})
+                continue
+            queue_extract(db, background, doc_id, data.schema_id)
+            queued.append(doc_id)
+    return {"queued": queued, "skipped": skipped}
 
 
 def _schema_for_document(db, doc):
@@ -415,14 +459,57 @@ def approve(document_id: str):
         return document(db, document_id)
 
 
-def flatten(value, prefix=""):
-    output = {}
+def dotted(value, prefix, out):
+    """Flatten scalars/dicts to dotted keys in `out`; any list becomes one JSON-string cell."""
     if isinstance(value, dict):
-        for key, child in value.items(): output.update(flatten(child, f"{prefix}.{key}" if prefix else key))
-    elif isinstance(value, list):
-        output[prefix] = json.dumps(value, ensure_ascii=False)
-    else: output[prefix] = value
-    return output
+        for key, child in value.items(): dotted(child, f"{prefix}.{key}" if prefix else key, out)
+    elif isinstance(value, list): out[prefix] = json.dumps(value, ensure_ascii=False)
+    else: out[prefix] = value
+    return out
+
+
+def table_rows(result):
+    """Row-major view of an extraction result: object-lists expand into rows (item i -> row i), everything else repeats on every row."""
+    scalars, lists = {}, {}
+    for key, value in (result.items() if isinstance(result, dict) else {"": result}.items()):
+        if isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
+            lists[key] = [dotted(item, key, {}) for item in value]
+        else:
+            dotted(value, key, scalars)
+    row_count = max(1, max((len(items) for items in lists.values()), default=0))
+    rows = []
+    for i in range(row_count):
+        row = dict(scalars)
+        for items in lists.values():
+            if i < len(items): row.update(items[i])
+        rows.append(row)
+    return rows
+
+
+def content_disposition(stem, ext):
+    filename = f"{stem}.{ext}"
+    ascii_name = filename.encode("ascii", "ignore").decode("ascii") or f"export.{ext}"
+    return {"Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"}
+
+
+def safe_stem(name, fallback):
+    cleaned = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", name).strip()
+    return cleaned or fallback
+
+
+def table_response(rows, stem, format, columns=None):
+    if format not in ("csv", "xlsx"): raise HTTPException(422, "format은 json, csv, xlsx 중 하나여야 합니다.")
+    columns = columns or list(dict.fromkeys(key for row in rows for key in row))
+    if format == "csv":
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=columns, restval="")
+        writer.writeheader(); writer.writerows(rows)
+        return Response(output.getvalue(), media_type="text/csv; charset=utf-8", headers=content_disposition(stem, "csv"))
+    workbook = Workbook(); sheet = workbook.active; sheet.title = "result"
+    sheet.append(columns)
+    for row in rows: sheet.append([row.get(column, "") for column in columns])
+    buffer = io.BytesIO(); workbook.save(buffer)
+    return Response(buffer.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=content_disposition(stem, "xlsx"))
 
 
 @app.get("/api/documents/{document_id}/export", dependencies=[Depends(auth)])
@@ -431,12 +518,23 @@ def export(document_id: str, format: str = "json"):
     if doc["result"] is None: raise HTTPException(409, "내보낼 추출 결과가 없습니다.")
     stem = Path(doc["filename"]).stem
     if format == "json":
-        return Response(json.dumps(doc["result"], ensure_ascii=False, indent=2), media_type="application/json", headers={"Content-Disposition": f'attachment; filename="{stem}.json"'})
-    if format == "csv":
-        row = flatten(doc["result"])
-        output = io.StringIO(); writer = csv.DictWriter(output, fieldnames=list(row)); writer.writeheader(); writer.writerow(row)
-        return Response(output.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{stem}.csv"'})
-    raise HTTPException(422, "format은 json 또는 csv여야 합니다.")
+        return Response(json.dumps(doc["result"], ensure_ascii=False, indent=2), media_type="application/json", headers=content_disposition(stem, "json"))
+    return table_response(table_rows(doc["result"]), stem, format)
+
+
+@app.get("/api/projects/{project_id}/export", dependencies=[Depends(auth)])
+def export_project(project_id: str, format: str = "json", schema_id: str | None = None):
+    with connect() as db:
+        proj = one(db, "SELECT * FROM projects WHERE id=?", (project_id,))
+        query, args = "SELECT id,filename,status,schema_id,result FROM documents WHERE project_id=? AND result IS NOT NULL", [project_id]
+        if schema_id: query, args = query + " AND schema_id=?", args + [schema_id]
+        docs = [decode(row, ("result",)) for row in db.execute(query + " ORDER BY created_at", tuple(args)).fetchall()]
+    stem = safe_stem(proj["name"], f"docraft-{project_id}")
+    if format == "json":
+        payload = [{"document_id": doc["id"], "filename": doc["filename"], "status": doc["status"], "schema_id": doc["schema_id"], "result": doc["result"]} for doc in docs]
+        return Response(json.dumps(payload, ensure_ascii=False, indent=2), media_type="application/json", headers=content_disposition(stem, "json"))
+    rows = [{"document_id": doc["id"], "filename": doc["filename"], "status": doc["status"], **row} for doc in docs for row in table_rows(doc["result"])]
+    return table_response(rows, stem, format, columns=["document_id", "filename", "status"] if not rows else None)
 
 
 @app.get("/api/documents/{document_id}/file", dependencies=[Depends(auth)])
