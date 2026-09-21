@@ -2,6 +2,7 @@
 
 import json
 import logging
+from copy import deepcopy
 
 import httpx
 import pytest
@@ -279,6 +280,69 @@ def test_extract_marks_array_item_value_taken_from_another_row(monkeypatch):
     assert engine.validate(result, ROW_SCHEMA, groundings) == [
         {"path": "/항목정보/0/금액", "code": "low_confidence", "message": "원문 근거 또는 추출 신뢰도가 낮습니다."},
     ]
+
+
+# The VL block text misreads "진찰료" as "진 찰 로" (row match fails), but the OCR lines read it correctly.
+MISREAD_ITEM_BLOCK = {
+    "text": "환자: 홍길동, 항목: 진 찰 로, 본인부담금: 4,593원, 공단부담금: 10,717원",
+    "page": 1,
+    "bbox": [0, 0, 600, 700],
+    "lines": [
+        {"text": "환자: 홍길동", "bbox": [0, 0, 100, 30]},
+        {"text": "진찰료", "bbox": [149, 414, 246, 443]},
+        {"text": "4,593", "bbox": [362, 411, 431, 444]},
+        {"text": "10,717", "bbox": [494, 406, 571, 443]},
+    ],
+}
+MISREAD_ITEM_SCHEMA = {"type": "object", "properties": {
+    "item_name": {"type": "string"}, "patient_burden": {"type": "number"}, "insurance_burden": {"type": "number"}}}
+
+
+def test_extract_grounds_a_leaf_missing_from_the_vl_row_on_a_line_inside_the_sibling_band(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({"item_name": "진찰료", "patient_burden": 4593, "insurance_burden": 10717}, ensure_ascii=False))
+
+    _, groundings = engine.extract(MISREAD_ITEM_SCHEMA, [MISREAD_ITEM_BLOCK])
+
+    # No row holds "진찰료" (the VL text says "진 찰 로"), but the OCR line does and sits inside the siblings' band.
+    assert groundings["item_name"] == {"confidence": 1.0, "page": 1, "bbox": [149, 414, 246, 443], "source_text": "진찰료"}
+    assert groundings["patient_burden"]["confidence"] == 1.0
+    assert groundings["insurance_burden"]["confidence"] == 1.0
+
+
+def test_extract_keeps_low_confidence_when_the_only_matching_line_is_far_from_the_band(monkeypatch):
+    configure(monkeypatch)
+    far_block = deepcopy(MISREAD_ITEM_BLOCK)
+    far_block["lines"][1] = {"text": "진찰료", "bbox": [149, 2014, 246, 2043]}  # 1600px below the siblings' band
+    install_response(monkeypatch, json.dumps({"item_name": "진찰료", "patient_burden": 4593, "insurance_burden": 10717}, ensure_ascii=False))
+
+    _, groundings = engine.extract(MISREAD_ITEM_SCHEMA, [far_block])
+
+    assert groundings["item_name"] == {"confidence": 0.0, "page": None, "bbox": None, "source_text": "진찰료"}
+
+
+def test_extract_matches_a_one_character_off_line_by_similarity(monkeypatch):
+    configure(monkeypatch)
+    block = {
+        "text": "상호: (판독불가), 전화: 02-000-0000",
+        "page": 1,
+        "bbox": [0, 0, 500, 200],
+        "lines": [
+            {"text": "연세앓은이비인후과", "bbox": [50, 50, 250, 90]},  # OCR line differs from the VL value by one character (암→앓)
+            {"text": "02-000-0000", "bbox": [50, 100, 200, 130]},
+        ],
+    }
+    schema = {"type": "object", "properties": {"hospital_name": {"type": "string"}}}
+    install_response(monkeypatch, json.dumps({"hospital_name": "연세암은이비인후과"}, ensure_ascii=False))
+
+    _, groundings = engine.extract(schema, [block])
+
+    assert groundings["hospital_name"] == {"confidence": 1.0, "page": 1, "bbox": [50, 50, 250, 90], "source_text": "연세암은이비인후과"}
+
+
+def test_rank_does_not_fuzzy_match_a_purely_numeric_needle():
+    # A digit-only needle stays exact-or-substring only, even one digit off and within the length-diff tolerance.
+    assert engine._rank(["12390"], engine._needles(12380)) == 0
 
 
 def test_extract_leaves_boolean_leaves_out_of_the_grounding_tree(monkeypatch):
