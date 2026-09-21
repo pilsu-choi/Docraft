@@ -127,7 +127,7 @@ def test_extract_grounding_block_ids_fill_page_bbox_and_source_text(monkeypatch)
     install_response(monkeypatch, json.dumps({
         "result": {"hospital": "서울병원", "code": None},
         "groundings": [
-            {"path": "/hospital", "confidence": 0.9, "block": 1},
+            {"path": "/hospital", "confidence": 0.9, "block": "1"},  # quoted id, as qwen3-vl returns
             {"path": "/code", "confidence": 0.2, "block": 7},  # out of range
         ],
     }, ensure_ascii=False))
@@ -143,10 +143,39 @@ def test_extract_grounding_block_ids_fill_page_bbox_and_source_text(monkeypatch)
     assert groundings["hospital"] == {"confidence": 0.9, "page": 2, "bbox": [1, 2, 3, 4], "source_text": "서울병원"}
     assert groundings["code"] == {"confidence": 0.2, "page": None, "bbox": None, "source_text": None}
     body = FakeClient.requests[0][1]["json"]
-    item_schema = body["response_format"]["json_schema"]["schema"]["properties"]["groundings"]["items"]
-    assert set(item_schema["properties"]) == {"path", "confidence", "block"}
-    assert item_schema["required"] == ["path", "confidence", "block"] and item_schema["additionalProperties"] is False
+    assert body["response_format"] == {"type": "json_object"}
+    assert "provider" not in body
     assert "[1] 병원: 서울병원" in body["messages"][1]["content"]
+
+
+def test_extract_ignores_missing_or_malformed_groundings(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({
+        "result": {"hospital": "서울병원", "code": "A1"},
+        "groundings": [
+            "not-an-object",
+            {"path": "/hospital", "confidence": "high", "block": 0},
+            {"confidence": 0.9, "block": 0},  # missing path
+            {"path": "/code", "block": 0},  # missing confidence
+        ],
+    }, ensure_ascii=False))
+    schema = {"type": "object", "properties": {"hospital": {"type": "string"}, "code": {"type": "string"}}, "required": ["hospital", "code"]}
+    blocks = [{"text": "병원: 서울병원", "page": 1, "bbox": [0, 0, 1, 1]}]
+
+    result, groundings = engine.extract(schema, blocks)
+
+    assert result == {"hospital": "서울병원", "code": "A1"}
+    assert groundings["hospital"] == {"confidence": 0, "page": 1, "bbox": [0, 0, 1, 1], "source_text": "서울병원"}
+    assert groundings["code"] == {"confidence": 0, "page": 1, "bbox": [0, 0, 1, 1], "source_text": "A1"}
+
+
+def test_extract_raises_when_result_is_missing(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({"groundings": []}))
+    schema = {"type": "object", "properties": {"hospital": {"type": "string"}}}
+
+    with pytest.raises(RuntimeError, match="result"):
+        engine.extract(schema, [{"text": "병원: 서울병원", "page": 1, "bbox": None}])
 
 
 def test_extract_drops_null_optional_field_and_passes_validation(monkeypatch):

@@ -20,17 +20,11 @@ def _truncate(text, limit=2000):
     return text if len(text) <= limit * 2 else f"{text[:limit]}...<truncated>...{text[-limit:]}"
 
 
-def _provider(messages, response_schema=None):
+def _provider(messages):
     settings = ai_settings()
     if not settings["configured"] or settings["mode"] == "local":
         raise ProviderConfigurationError("AI provider가 설정되지 않았습니다. AI_BASE_URL, AI_API_KEY, AI_VLM_MODEL을 확인해 주세요.")
-    body = {"model": settings["model"], "messages": messages, "temperature": 0}
-    if response_schema:
-        body["response_format"] = {"type": "json_schema", "json_schema": {"name": "result", "strict": True, "schema": response_schema}}
-        if "openrouter" in settings["base_url"]:
-            body["provider"] = {"require_parameters": True}
-    else:
-        body["response_format"] = {"type": "json_object"}
+    body = {"model": settings["model"], "messages": messages, "temperature": 0, "response_format": {"type": "json_object"}}
     prompt_chars = sum(len(m.get("content") or "") for m in messages)
     logger.debug("provider call: model=%s messages=%d prompt_chars=%d", settings["model"], len(messages), prompt_chars)
     started = time.monotonic()
@@ -60,28 +54,6 @@ def _provider(messages, response_schema=None):
         except json.JSONDecodeError:
             logger.error("provider json decode failed: len=%d finish_reason=%s content=%s", len(content), finish_reason, _truncate(content))
             raise
-
-
-def _strict_schema(schema, required=True):
-    if not isinstance(schema, dict):
-        return schema
-    node = dict(schema)
-    if "properties" in node or node.get("type") == "object":
-        props = node.get("properties", {})
-        req = set(node.get("required", []))
-        node.update(type="object", additionalProperties=False, required=list(props))
-        node["properties"] = {k: _strict_schema(v, k in req) for k, v in props.items()}
-    elif node.get("type") == "array" and "items" in node:
-        node["items"] = _strict_schema(node["items"], True)
-    elif "type" not in node:
-        node["type"] = "string"
-    if not required:
-        kind = node.get("type")
-        if isinstance(kind, list) and "null" not in kind:
-            node["type"] = kind + ["null"]
-        elif isinstance(kind, str) and kind != "null":
-            node["type"] = [kind, "null"]
-    return node
 
 
 def _field_name(label):
@@ -196,7 +168,7 @@ def _block_lines(blocks, budget=40000):
 
 
 def _drop_null_optionals(value, schema):
-    """Strip leaves the model nulled out only because of strict-mode required-ification."""
+    """Remove leaves the model filled with null for optional fields, per the original schema."""
     if isinstance(value, dict) and schema.get("type") == "object":
         required, props = set(schema.get("required", [])), schema.get("properties", {})
         for key, sub in list(value.items()):
@@ -216,42 +188,45 @@ def extract(schema, blocks):
     if ai_settings()["mode"] == "local":
         logger.debug("extract: local mode blocks=%d", len(blocks))
         return _local_extract(schema, blocks)
-    grounding_schema = {
-        "type": "array",
-        "items": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "JSON Pointer to the extracted leaf value"},
-                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                "block": {"type": ["integer", "null"], "description": "id of the source block, or null when no block supports the value"},
-            },
-            "required": ["path", "confidence", "block"],
-            "additionalProperties": False,
-        },
-    }
-    response_schema = {
-        "type": "object",
-        "properties": {"result": _strict_schema(schema), "groundings": grounding_schema},
-        "required": ["result", "groundings"],
-        "additionalProperties": False,
-    }
     evidence = _block_lines(blocks)
     logger.debug("extract: provider mode blocks=%d evidence_chars=%d", len(blocks), len(evidence))
     ai = _provider([
-        {"role": "system", "content": "Extract values using document context and layout. Never invent values. Use null when allowed and absent. For every extracted leaf, return one grounding with its JSON Pointer and the id of the block the value came from; use null when no block supports it. Never copy source text or coordinates."},
+        {"role": "system", "content": (
+            "Extract values using document context and layout. Never invent values. Use null when allowed and absent. "
+            "Return only a single JSON object with exactly two keys: "
+            "`result`, an object following the given schema (keep the schema's field order); and "
+            "`groundings`, an array of {path, confidence, block} items, one per extracted leaf. "
+            "`path` is a JSON Pointer to the leaf in `result`. `confidence` is a number from 0 to 1. "
+            "`block` is the id of the source block, or null when no block supports the value. "
+            "Never copy source text or coordinates."
+        )},
         {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks ([id] text):\n{evidence}"},
-    ], response_schema)
-    _drop_null_optionals(ai["result"], schema)
+    ])
+    result = ai.get("result") if isinstance(ai, dict) else None
+    if not isinstance(result, dict):
+        raise RuntimeError("AI provider 응답에서 result를 찾을 수 없습니다.")
+    _drop_null_optionals(result, schema)
     groundings = []
-    for item in ai["groundings"]:
-        value = _pointer_value(ai["result"], item["path"])
+    for item in ai.get("groundings") or []:
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+            continue
+        value = _pointer_value(result, item["path"])
         if value is _MISSING:
             continue
         block_id = item.get("block")
+        if isinstance(block_id, str) and block_id.strip("[] ").isdigit():  # models often quote ids: "1", "[1]"
+            block_id = int(block_id.strip("[] "))
         source = blocks[block_id] if isinstance(block_id, int) and 0 <= block_id < len(blocks) else {}
-        item.update(page=source.get("page"), bbox=source.get("bbox"), source_text=None if value is None else str(value))
-        groundings.append(item)
-    return ai["result"], _grounding_tree(groundings)
+        confidence = item.get("confidence")
+        groundings.append({
+            "path": item["path"],
+            "confidence": confidence if isinstance(confidence, (int, float)) else 0,
+            "block": block_id,
+            "page": source.get("page"),
+            "bbox": source.get("bbox"),
+            "source_text": None if value is None else str(value),
+        })
+    return result, _grounding_tree(groundings)
 
 
 def _pointer_parts(pointer):

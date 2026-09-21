@@ -1,7 +1,7 @@
 ---
 type: Incident
 title: "추출 실패: VLM 응답 JSON 파싱 오류"
-description: "VLM 추출 응답 JSON 파싱 실패(Expecting ',' delimiter)의 원인 분석과 대응 후보"
+description: "VLM 추출 응답 JSON 파싱 실패(Expecting ',' delimiter)의 원인 분석(재현 테스트로 strict json_schema가 원인임을 확인)과 최종 대응"
 tags: [extraction, ai-provider, incident]
 generated: {by: claude-code/claude-fable-5-1, at: 2026-09-21}
 status: stable
@@ -31,16 +31,32 @@ OCR 결과(`markdown`)에는 표 전체가 정상으로 들어 있었다. 실패
 3. **structured output이 강제되지 않았을 수 있다.** 요청에 `response_format: json_schema, strict: true`를 넣지만 사용자 스키마에는 `additionalProperties: false`가 없고, 필드 대부분에 `type`도 없으며, 모든 필드가 `required`인 것도 아니다. 따라서 OpenRouter의 하위 provider가 strict decoding을 적용하지 않거나 무시했을 수 있다. 강제됐다면 JSON 문법이 깨지는 일은 없어야 한다.
 4. `finish_reason == "length"`로 잘린 경우는 아니다. 그랬다면 "토큰 제한으로 잘렸습니다" 오류가 났어야 한다.
 
+### 재현 테스트로 확인한 실제 원인 (2026-09-21)
+
+사고를 낸 바로 그 문서(`2303314528.png`, 블록 3개: 제목 text 1 + table 2, 표 전체가 블록 1 하나) + 스키마 `a23d4d53…` + `qwen/qwen3-vl-32b-instruct`(OpenRouter가 Alibaba provider로 라우팅)로 직접 재현했다. 위 추정 2·3번은 부분적으로 틀렸다: 진짜 원인은 "따옴표 escape 누락"이 아니라 **Alibaba provider의 strict `json_schema` constrained decoding 자체가 출력을 망가뜨리는 것**이었다.
+
+| # | 실험 | 결과 |
+|---|------|------|
+| 1 | 당시 코드(strict `json_schema` + `require_parameters`)로 재현 | 실패. `Unterminated string … (char 18262)`, `finish_reason=stop`, 130초. 응답은 키가 알파벳/코드포인트 순으로 정렬돼 `groundings`(204개, 전부 block 1·confidence 1.0)가 `result`보다 먼저 나오고, `result` 첫 행에서 `"일자": "AA254"`(오추출) 후 `"횟수": "1.0000…"` 0이 411개 반복되는 degeneration 루프로 끊겼다 |
+| 2 | strict `json_schema`로 `result`만 요청 | 5초 만에 파싱은 되지만 1행짜리 전부 빈 문자열 — 쓰레기 출력 |
+| 3 | `response_format: json_object`로 `result`만 요청 | 41초, 16행 전부 정확(숫자도 number 타입, 컬럼 순서 유지) |
+| 4 | `json_object` + `result`/`groundings` 계약(프롬프트로 형식만 지시) | 200초, 16행 정확, `validate()` 이슈 0, `page`/`bbox` 정상 채워짐 |
+
+결론: strict `json_schema`는 이 provider에서 키 정렬을 강제해 컬럼이 밀리고, 모델이 그 어긋난 상태를 메우려다 반복 루프에 빠져 JSON을 끊어 먹는다. `response_format`을 `json_object`로 바꾸고 출력 계약을 프롬프트로만 지시하는 쪽이 이 provider에서는 훨씬 안정적이다. strict 정규화(실험 3의 추정 #3)는 "적용 안 됐을 수도" 정도가 아니라 **적용됐고, 그 자체가 해로웠다**.
+
 ## 대응
 
-- 백엔드 로깅을 추가했다([logging-docker](2026-09-21-logging-docker.md)). 이제 `_provider()`가 JSON 파싱 실패 시 응답 길이, `finish_reason`, 원본 응답의 앞뒤 일부를 ERROR로 남기므로 같은 오류가 다시 나면 `docraft.log`에서 원인을 바로 확인할 수 있다.
-- 아래 네 가지를 적용했다([extract-grounding-block-id](2026-09-21-extract-grounding-block-id.md)).
-  - **grounding을 블록 id 참조로 바꿨다.** 모델은 더 이상 `source_text`·`page`·`bbox`를 직접 베끼지 않고 `{path, confidence, block}`만 반환한다. `page`·`bbox`는 서버가 `block` id로 원본 블록을 찾아 채우고, `source_text`는 서버가 `path`로 `result`에서 값을 읽어 채운다. escape가 필요한 긴 문자열을 모델이 직접 옮겨 적을 일이 없어졌다.
-  - **모델 입력을 블록 단위로 평문화·예산 자르기했다.** 소스 블록을 JSON 배열 대신 `[id] text` 줄로 직렬화하고(`_block_lines`), 문자 예산(기본 40000자)을 넘기면 그 지점 이후 블록을 통째로 잘라 로그에 경고를 남긴다.
-  - **사용자 스키마를 strict 호환 형태로 정규화해서 보낸다.** `_strict_schema`가 모든 object에 `additionalProperties: false`와 전체 `required`를 채우고, 원래 optional이던 필드는 `type`에 `null`을 추가해 nullable로 만든다. OpenRouter로 보낼 때는 `provider.require_parameters: true`를 추가해 하위 provider가 strict decoding을 무시하지 못하게 한다.
-  - **optional 필드가 null로 오면 결과에서 제거한다.** strict 정규화 때문에 모델이 원래 optional인 필드를 `null`로 채워 보내는데, 저장·`validate()`는 원본(비-strict) 스키마를 쓰므로 그 null이 `{"type": "string"}` 같은 non-nullable 필드에 들어가면 타입 오류가 난다. `_drop_null_optionals`가 응답을 원본 스키마와 대조해 "null이고 required가 아니며 원본 스키마가 null을 허용하지 않는" 리프를 재귀적으로 지운다. required인데 null인 값은 그대로 둬서 `validate()`가 잡게 한다. 지워진 리프에 대한 grounding 항목도 트리에 남기지 않는다.
-- 남은 후보(보류):
-  - 파싱 실패 시 한 번 재시도하는 안은 `temperature=0`이라 같은 오류가 그대로 재현될 가능성이 높아 보류했다.
-  - `_block_lines`는 예산을 넘는 블록 하나를 만나면 그 지점에서 멈추므로, 그 블록 자체가 예산보다 크면 이후 블록이 전부 빠진다(블록 내부를 잘라 이어 보내는 방식은 아님).
+최종 적용 상태는 [extract-grounding-block-id](2026-09-21-extract-grounding-block-id.md)에 기록했다. 요약하면:
+
+- **적용됨**
+  - grounding을 블록 id 참조로 전환: 모델은 `{path, confidence, block}`만 반환하고, `page`·`bbox`·`source_text`는 서버가 `block` id/`path`로 채운다.
+  - 모델 입력을 블록 단위로 평문화·예산 자르기(`_block_lines`, 기본 40000자).
+  - `extract()`를 `response_format: json_object`로 전환하고, `result`(스키마 필드 순서 유지)와 `groundings`(`{path, confidence, block}` 배열) 계약을 system prompt로 지시.
+  - optional 필드가 `null`로 오면 원본 스키마 기준으로 결과에서 제거(`_drop_null_optionals`).
+- **철회됨** (재현 테스트로 해로움이 확인돼 제거)
+  - strict `json_schema` 정규화(`_strict_schema`)와 OpenRouter `provider.require_parameters: true`. 둘 다 Alibaba provider에서 키 정렬 강제 → 컬럼 오정렬 → degeneration 루프로 이어져 삭제했다.
+- **남은 후보**
+  - grounding 생성이 응답 시간 대부분을 차지한다(실험 3 41초 → 실험 4 200초). 이 문서에선 204개 grounding이 전부 block 1·confidence 1.0이라 정보량이 없다. 서버 측에서 값 텍스트를 블록에서 찾아 grounding을 계산하는 방식(모델에 요청하지 않는 방식)을 검토할 만하다.
+  - `_block_lines`는 예산을 넘는 블록 하나를 만나면 그 지점에서 멈추므로, 그 블록 자체가 예산보다 크면 이후 블록이 전부 빠진다.
   - 응답의 `block` id가 범위를 벗어나면 `page`/`bbox`가 조용히 `null`로 채워질 뿐, 별도 로깅은 없다.
-  - 이번 사고를 낸 문서(`2303314528.png`, 스키마 `a23d4d5314244de1b030b19ac3d31b0a`)로 실제 재현 테스트는 아직 하지 않았다. 위 대응은 코드 수준 계약 테스트로만 검증됐다.
+  - `_provider()`의 httpx `timeout=90`초에 비해 실험 4의 실응답은 200초 걸렸다. 실제 provider 호출 시 타임아웃 초과 가능성이 있다.
