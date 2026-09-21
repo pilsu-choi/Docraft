@@ -63,7 +63,7 @@ def ocr_settings() -> dict:
         "provider": provider,
         "base_url": base_url,
         "token": token,
-        "model": os.getenv("PADDLEOCR_MODEL", "PaddleOCR-VL-1.6"),
+        "model": os.getenv("PADDLEOCR_MODEL", "PaddleOCR-VL-1.6-0.9B"),
         "timeout": float(os.getenv("PADDLEOCR_TIMEOUT", "600")),
         "configured": provider == "paddle" and bool(base_url),
     }

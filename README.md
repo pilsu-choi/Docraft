@@ -84,7 +84,7 @@ AI_VLM_MODEL=qwen/qwen3-vl-32b-instruct
 PADDLEOCR_BASE_URL=https://your-paddle-service.example
 PARSE_PROVIDER=paddle
 PADDLEOCR_ACCESS_TOKEN=<optional bearer token>
-PADDLEOCR_MODEL=PaddleOCR-VL-1.6
+PADDLEOCR_MODEL=PaddleOCR-VL-1.6-0.9B
 ```
 
 #### 로컬 GPU에서 Docker로 호스팅
@@ -96,7 +96,7 @@ docker compose --profile ocr up -d
 curl http://127.0.0.1:8080/health   # paddleocr-vl-api가 healthy가 되면 사용 가능
 ```
 
-`.env`에는 `PARSE_PROVIDER=paddle`, `PADDLEOCR_BASE_URL=http://127.0.0.1:8080`을 설정합니다. `paddleocr-vlm-server`(vLLM, PaddleOCR-VL-1.6-0.9B)와 `paddleocr-vl-api`(PP-DocLayoutV3 layout + `/layout-parsing`) 두 컨테이너가 같은 GPU를 씁니다. 12GB GPU 기준으로 `deploy/paddleocr/vllm_config.yaml`의 `gpu-memory-utilization`을 0.5로 낮춰 두었습니다. GPU 번호와 호스트 포트는 `PADDLEOCR_GPU`, `PADDLEOCR_PORT`로 바꿀 수 있습니다. 응답의 영역별 `block_bbox`는 원문 미리보기의 근거 상자로 표시됩니다.
+`.env`에는 `PARSE_PROVIDER=paddle`, `PADDLEOCR_BASE_URL=http://127.0.0.1:8080`을 설정합니다. `paddleocr-vlm-server`(vLLM, PaddleOCR-VL-1.6-0.9B)와 `paddleocr-vl-api`(PP-DocLayoutV3 layout + `/layout-parsing`) 두 컨테이너가 같은 GPU를 씁니다. 12GB GPU 기준으로 `deploy/paddleocr/vllm_config.yaml`의 `gpu-memory-utilization`을 0.5로 낮춰 두었습니다. GPU 번호와 호스트 포트는 `PADDLEOCR_GPU`, `PADDLEOCR_PORT`로 바꿀 수 있습니다. 서빙 모델은 `.env`의 `PADDLEOCR_MODEL` 하나로 정해집니다. compose가 같은 `.env`를 읽어 vLLM `--model_name`과 pipeline의 VL 모델명에 넣고, 앱 상태 표시도 이 값을 씁니다. 바꾼 뒤에는 `docker compose --profile ocr up -d --force-recreate`로 다시 띄웁니다. 응답의 영역별 `block_bbox`는 원문 미리보기의 근거 상자로 표시됩니다.
 
 서비스는 `POST /layout-parsing` 계약을 지원해야 합니다. 설정하지 않은 상태에서 이미지 또는 스캔 PDF를 업로드하면 명시적인 설정 오류가 표시됩니다. 자세한 계약과 근거는 [wiki/paddleocr-compatibility.md](wiki/paddleocr-compatibility.md)를 참고하세요.
 

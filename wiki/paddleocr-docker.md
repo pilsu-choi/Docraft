@@ -21,3 +21,10 @@
 - 인식 결과 4/5 줄이 정확했다. `환자명: 홍길동`은 `환자명허흐김동`으로 오인식됐다(합성 36px 나눔고딕 이미지). 실제 문서 품질 평가는 별도로 필요하다.
 - 격리 schema(`ocr_e2e`, 확인 후 삭제)로 띄운 Docraft API에 두 파일을 업로드해 `parsed` 상태와 저장된 block bbox를 확인했다. 개발 DB와 사용자 파일은 건드리지 않았다.
 - 백엔드 테스트 28개 통과(영역 bbox 매핑 테스트 추가).
+
+## 2026-09-21 모델 설정 단일화
+
+- 기존에는 `.env`의 `PADDLEOCR_MODEL`(`PaddleOCR-VL-1.6`)이 `/api/ai/status` 표시에만 쓰였고, 실제 모델은 compose `--model_name`과 API 이미지 내부 `pipeline_config_vllm.yaml`에 고정돼 있었다.
+- compose가 저장소 루트 `.env`를 interpolation에 쓰므로 `${PADDLEOCR_MODEL:-PaddleOCR-VL-1.6-0.9B}`를 두 서비스에 넣었다. API 컨테이너는 시작 시 이미지 기본 설정의 `model_name: PaddleOCR-VL...` 줄만 바꾼 사본(`/tmp/pipeline.yaml`)으로 서빙한다. layout 모델(PP-DocLayoutV3)과 `pipeline_name`은 이미지 기본값을 유지한다.
+- 앱 기본값과 `.env.example`을 실제 서빙 이름 `PaddleOCR-VL-1.6-0.9B`로 맞췄다.
+- 추출·스키마용 `AI_VLM_MODEL`은 텍스트 전용 `qwen/qwen3-32b`였다. 현재 `engine.py`는 텍스트 block만 보내 동작에는 문제가 없었지만, 변수 의도와 README 예시에 맞춰 이미지 입력과 structured outputs를 지원하는 `qwen/qwen3-vl-32b-instruct`로 바꿨다(OpenRouter model 목록에서 확인).

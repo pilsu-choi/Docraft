@@ -22,7 +22,7 @@ services:
   paddleocr-vlm-server:
     profiles: [ocr]
     image: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server:${PADDLEOCR_IMAGE_TAG:-latest-nvidia-gpu-offline}
-    command: paddleocr genai_server --model_name PaddleOCR-VL-1.6-0.9B --host 0.0.0.0 --port 8080 --backend vllm --backend_config /home/paddleocr/vlm_server_config.yaml
+    command: paddleocr genai_server --model_name ${PADDLEOCR_MODEL:-PaddleOCR-VL-1.6-0.9B} --host 0.0.0.0 --port 8080 --backend vllm --backend_config /home/paddleocr/vlm_server_config.yaml
     volumes:
       - ./deploy/paddleocr/vllm_config.yaml:/home/paddleocr/vlm_server_config.yaml:ro
     deploy: &gpu
@@ -43,7 +43,8 @@ services:
   paddleocr-vl-api:
     profiles: [ocr]
     image: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-vl:${PADDLEOCR_IMAGE_TAG:-latest-nvidia-gpu-offline}
-    command: paddlex --serve --pipeline /home/paddleocr/pipeline_config_vllm.yaml
+    # 이미지 기본 pipeline 설정의 VL 모델명을 PADDLEOCR_MODEL로 맞춘 뒤 서빙한다.
+    command: ["/bin/bash", "-c", "sed 's/model_name: PaddleOCR-VL.*/model_name: ${PADDLEOCR_MODEL:-PaddleOCR-VL-1.6-0.9B}/' /home/paddleocr/pipeline_config_vllm.yaml > /tmp/pipeline.yaml && exec paddlex --serve --pipeline /tmp/pipeline.yaml"]
     depends_on:
       paddleocr-vlm-server:
         condition: service_healthy
