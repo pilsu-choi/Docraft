@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import Rendered, { markdownHtml } from './Rendered'
 import type { Document, Grounding } from './types'
 import './viewer.css'
 
@@ -15,7 +16,9 @@ export default function Preview({ doc, fileUrl, active, onHover }: { doc: Docume
   const scroll = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null)
   const pdf = useRef<pdfjs.PDFDocumentProxy | null>(null)
   const previousRender = useRef<Promise<unknown>>(Promise.resolve())
+  const [markup, setMarkup] = useState('')
   const isPdf = !!doc?.media_type?.includes('pdf'), isImage = !!doc?.media_type?.startsWith('image/')
+  const isHtml = /\.html?$/i.test(doc?.filename || ''), isMarkdown = /\.md$/i.test(doc?.filename || '')
 
   useEffect(() => { setPage(1); setPages(1); setZoom(1); setNatural({ width: 0, height: 0 }); setSize({ width: 0, height: 0 }) }, [doc?.id])
   useEffect(() => { if (scroll.current) { scroll.current.scrollTop = 0; scroll.current.scrollLeft = 0 } }, [doc?.id, page])
@@ -27,6 +30,12 @@ export default function Preview({ doc, fileUrl, active, onHover }: { doc: Docume
     observer.observe(node)
     return () => observer.disconnect()
   }, [])
+  useEffect(() => {
+    let cancelled = false
+    setMarkup('')
+    if ((isHtml || isMarkdown) && fileUrl) fetch(fileUrl).then(r => r.text()).then(text => { if (!cancelled) setMarkup(isHtml ? text : markdownHtml(text)) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [fileUrl, isHtml, isMarkdown])
   useEffect(() => {
     pdf.current = null
     if (!isPdf || !fileUrl) return
@@ -84,5 +93,5 @@ export default function Preview({ doc, fileUrl, active, onHover }: { doc: Docume
   }
   const overlays = boxes.map((g, i) => { const rect = box(g), field = g.path !== 'parse-block'; return rect && <span key={i} className={`bbox ${field ? 'field' : ''} ${active?.path === g.path ? 'selected' : ''}`} style={rect} title={field ? `${g.path}${'text' in g && g.text ? ` · ${g.text}` : ''}` : undefined} onMouseEnter={field ? () => onHover(g) : undefined} onMouseLeave={field ? () => onHover(null) : undefined} /> })
 
-  return <div className="preview"><div className="preview-toolbar"><b>원본 문서</b><div><button disabled={page <= 1} onClick={() => setPage(page - 1)}>‹</button>{page} / {pages}<button disabled={page >= pages} onClick={() => setPage(page + 1)}>›</button><button onClick={() => setZoom(Math.max(.5, zoom - .25))}>−</button>{Math.round(zoom * 100)}%<button onClick={() => setZoom(Math.min(2.5, zoom + .25))}>＋</button></div></div><div className="preview-scroll" ref={scroll}>{doc && fileUrl ? isPdf ? <div className="page-image" style={display}><canvas ref={canvas} />{overlays}</div> : isImage ? <div className="page-image" style={display}><img src={fileUrl} alt={doc.filename} style={display} onLoad={e => setNatural({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })} />{overlays}</div> : <div className="empty">미리보기를 지원하지 않는 파일입니다. <a href={fileUrl} download={doc.filename}>원본 다운로드</a></div> : <div className="empty">파일을 선택하면 원본이 표시됩니다.</div>}</div></div>
+  return <div className="preview"><div className="preview-toolbar"><b>원본 문서</b><div><button disabled={page <= 1} onClick={() => setPage(page - 1)}>‹</button>{page} / {pages}<button disabled={page >= pages} onClick={() => setPage(page + 1)}>›</button><button onClick={() => setZoom(Math.max(.5, zoom - .25))}>−</button>{Math.round(zoom * 100)}%<button onClick={() => setZoom(Math.min(2.5, zoom + .25))}>＋</button></div></div><div className="preview-scroll" ref={scroll}>{doc && fileUrl ? isPdf ? <div className="page-image" style={display}><canvas ref={canvas} />{overlays}</div> : isImage ? <div className="page-image" style={display}><img src={fileUrl} alt={doc.filename} style={display} onLoad={e => setNatural({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })} />{overlays}</div> : isHtml || isMarkdown ? markup && <Rendered key={doc.id} html={markup} title={doc.filename} /> : <div className="empty">미리보기를 지원하지 않는 파일입니다. <a href={fileUrl} download={doc.filename}>원본 다운로드</a></div> : <div className="empty">파일을 선택하면 원본이 표시됩니다.</div>}</div></div>
 }

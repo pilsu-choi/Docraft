@@ -52,7 +52,7 @@ docker compose logs -f backend
 ## 화면에서 전체 흐름 실행
 
 1. 홈에서 새 프로젝트를 만들거나 프로젝트 목록에서 기존 프로젝트를 열고, 상세 화면의 문서·스키마 탭에서 작업합니다. 프로젝트 이름은 바꾸거나 삭제할 수 있습니다.
-2. TXT/PDF/Office/스프레드시트/이미지 파일을 업로드합니다. 파싱(OCR 포함)이 `parsed`가 된 문서를 하나 이상 선택한 뒤 `스키마` 탭에서 추출할 필드를 설명하고 `AI 스키마 생성`을 누릅니다. 프롬프트는 비워도 되지만 파싱 완료 참조 문서는 필수입니다.
+2. TXT/Markdown/HTML/PDF/Office/스프레드시트/이미지 파일을 업로드합니다. Markdown·HTML 원본은 원문 패널에서 렌더링되고, 분석 결과는 `미리보기 | Markdown | HTML | JSON`으로 볼 수 있습니다(HTML은 스크립트·외부 요청이 차단된 sandbox iframe에 표시). 파싱(OCR 포함)이 `parsed`가 된 문서를 하나 이상 선택한 뒤 `스키마` 탭에서 추출할 필드를 설명하고 `AI 스키마 생성`을 누릅니다. 프롬프트는 비워도 되지만 파싱 완료 참조 문서는 필수입니다.
 3. 저장된 스키마를 선택하고 `이 스키마로 추출 실행`을 누릅니다. `review` 탭에서 결과·신뢰도·원문 근거를 확인합니다.
    - 문서 분석 결과와 추출 결과는 `Markdown | JSON`, `필드 | JSON` 토글로 전환해 봅니다.
    - 스키마 편집기에서 필드마다 설명을 수정할 수 있고, AI 스키마 생성은 한국어 제목·설명을 우선 생성합니다.
@@ -122,6 +122,6 @@ curl http://127.0.0.1:8080/health   # paddleocr-vl-api가 healthy가 되면 사�
 
 구현 요구사항과 검증 근거는 [wiki/2026-09-21-implementation.md](wiki/2026-09-21-implementation.md)에 기록합니다.
 
-검증 결과: 실제 PostgreSQL의 격리된 테스트 schema에서 백엔드 테스트 28개가 통과했고 프론트엔드 빌드도 통과했습니다. 합성 PDF 기반 Chrome E2E는 프로젝트 CRUD, 파싱 후 빈 프롬프트 스키마 생성, 빨간 원문 근거 박스, 패널 접기·펼치기를 검증합니다. 이미지·스캔 OCR은 `ocr` profile의 로컬 PaddleOCR-VL 컨테이너로 합성 영수증 PNG·스캔 PDF 업로드부터 영역 bbox 저장까지 확인했습니다.
+검증 결과: 실제 PostgreSQL의 격리된 테스트 schema에서 백엔드 테스트 29개가 통과했고 프론트엔드 빌드도 통과했습니다. 합성 PDF 기반 Chrome E2E는 프로젝트 CRUD, 파싱 후 빈 프롬프트 스키마 생성, 빨간 원문 근거 박스, 패널 접기·펼치기를 검증합니다. 이미지·스캔 OCR은 `ocr` profile의 로컬 PaddleOCR-VL 컨테이너로 합성 영수증 PNG·스캔 PDF 업로드부터 영역 bbox 저장까지 확인했습니다.
 
 원문 미리보기의 너비 맞춤·확대·근거 상자는 오프라인 Chrome 회귀 테스트로 확인할 수 있습니다. `frontend`에서 `npm run dev -- --host 127.0.0.1 --port 5175`를 실행한 뒤 저장소 루트에서 `python tests/ui_preview_layout.py`를 실행하세요. API 응답은 합성 PDF·이미지로 전부 모킹하며 프로젝트 데이터나 AI provider를 사용하지 않습니다. 다른 포트는 `DOCRAFT_UI_URL`로 지정할 수 있습니다.

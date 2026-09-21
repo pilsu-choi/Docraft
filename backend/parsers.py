@@ -3,6 +3,7 @@ import io
 import base64
 import logging
 import time
+from html.parser import HTMLParser
 from pathlib import Path
 
 from docx import Document
@@ -118,6 +119,69 @@ def parse_text(path):
     return [block(line) for line in text.splitlines() if line.strip()]
 
 
+class _HtmlBlocks(HTMLParser):
+    BLOCKS = {"p", "div", "li", "br", "section", "article", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6"}
+
+    def __init__(self):
+        super().__init__()
+        self.blocks, self.text, self.rows, self.skip = [], "", None, 0
+
+    def flush(self, kind="text"):
+        if self.text.strip():
+            self.blocks.append(block(" ".join(self.text.split()), kind))
+        self.text = ""
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"script", "style", "head"}:
+            self.skip += 1
+        elif tag == "table":
+            self.flush()
+            self.rows = []
+        elif self.rows is not None and tag == "tr":
+            self.rows.append([])
+        elif self.rows is not None and tag in {"td", "th"}:
+            self.text = ""
+        elif tag in self.BLOCKS:
+            self.flush()
+
+    def handle_endtag(self, tag):
+        if tag in {"script", "style", "head"}:
+            self.skip = max(0, self.skip - 1)
+        elif tag == "table" and self.rows is not None:
+            rows = [row for row in self.rows if any(row)]
+            self.rows, self.text = None, ""
+            if rows:
+                self.blocks.append(block("\n".join(" | ".join(row) for row in rows), "table", rows=rows))
+        elif self.rows is not None and tag in {"td", "th"} and self.rows:
+            self.rows[-1].append(" ".join(self.text.split()))
+            self.text = ""
+        elif self.rows is None and tag in self.BLOCKS:
+            self.flush("heading" if tag[0] == "h" and tag[1:].isdigit() else "text")
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.text += data
+
+
+def parse_html(path):
+    parser = _HtmlBlocks()
+    parser.feed(Path(path).read_text(encoding="utf-8", errors="replace"))
+    parser.close()
+    parser.flush()
+    return parser.blocks
+
+
+def _markdown(item):
+    rows = item.get("rows")
+    if item["type"] == "heading":
+        return f"## {item['text']}"
+    if item["type"] != "table" or not rows:
+        return item["text"]
+    width = max(map(len, rows))
+    lines = ["| " + " | ".join(cell.replace("|", "\\|").replace("\n", " ") for cell in row + [""] * (width - len(row))) + " |" for row in rows]
+    return "\n".join([lines[0], "|" + " --- |" * width, *lines[1:]])
+
+
 def parse(path, filename, media_type):
     suffix = Path(filename).suffix.lower()
     if suffix == ".pdf":
@@ -130,13 +194,15 @@ def parse(path, filename, media_type):
         blocks = parse_xlsx(path)
     elif suffix == ".csv":
         blocks = parse_csv(path)
+    elif suffix in {".html", ".htm"}:
+        blocks = parse_html(path)
     elif suffix in {".txt", ".md"} or media_type.startswith("text/"):
         blocks = parse_text(path)
     else:
         raise ParseError(f"지원하지 않는 파일 형식입니다: {suffix or media_type}")
     if not blocks:
         raise ParseError("문서에서 내용을 찾지 못했습니다.")
-    separator = "\n" if suffix == ".pdf" else "\n\n"
-    markdown = separator.join(b["text"] if b["type"] != "table" else f"```text\n{b['text']}\n```" for b in blocks)
+    separator = "\n" if suffix in {".pdf", ".txt", ".md"} else "\n\n"
+    markdown = separator.join(map(_markdown, blocks))
     logger.debug("parse: suffix=%s blocks=%d markdown_chars=%d", suffix, len(blocks), len(markdown))
     return markdown, blocks
