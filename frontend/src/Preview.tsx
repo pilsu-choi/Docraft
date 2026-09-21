@@ -9,7 +9,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
 type Size = { width: number; height: number }
 
-export default function Preview({ doc, fileUrl, active, onHover }: { doc: Document | null; fileUrl: string; active: Grounding | null; onHover: (g: Grounding | null) => void }) {
+export default function Preview({ doc, fileUrl, active, selected, onHover }: { doc: Document | null; fileUrl: string; active: Grounding | null; selected: Grounding | null; onHover: (g: Grounding | null) => void }) {
   const [page, setPage] = useState(1), [pages, setPages] = useState(1), [zoom, setZoom] = useState(1)
   const [availableWidth, setAvailableWidth] = useState(0), [natural, setNatural] = useState<Size>({ width: 0, height: 0 })
   const [size, setSize] = useState<Size>({ width: 0, height: 0 }), [pdfReady, setPdfReady] = useState(0)
@@ -78,6 +78,7 @@ export default function Preview({ doc, fileUrl, active, onHover }: { doc: Docume
     height: natural.height * Math.min(natural.width, availableWidth) / natural.width * zoom,
   } : { width: 0, height: 0 }
   const display = isImage ? imageSize : size
+  useEffect(() => { if (selected) scroll.current?.querySelector('.bbox.selected')?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }) }, [selected, page, display.width, display.height])
   const boxes = [...(doc?.blocks || []).filter(block => Array.isArray(block.bbox)).map(block => ({ path: 'parse-block', ...block })), ...(doc?.groundings || [])].filter(g => (g.page || 1) === page)
   const box = (g: Grounding & { page_size?: number[] }) => {
     const b = g.bbox
