@@ -27,6 +27,8 @@ def _provider(messages, response_schema=None):
     body = {"model": settings["model"], "messages": messages, "temperature": 0}
     if response_schema:
         body["response_format"] = {"type": "json_schema", "json_schema": {"name": "result", "strict": True, "schema": response_schema}}
+        if "openrouter" in settings["base_url"]:
+            body["provider"] = {"require_parameters": True}
     else:
         body["response_format"] = {"type": "json_object"}
     prompt_chars = sum(len(m.get("content") or "") for m in messages)
@@ -58,6 +60,28 @@ def _provider(messages, response_schema=None):
         except json.JSONDecodeError:
             logger.error("provider json decode failed: len=%d finish_reason=%s content=%s", len(content), finish_reason, _truncate(content))
             raise
+
+
+def _strict_schema(schema, required=True):
+    if not isinstance(schema, dict):
+        return schema
+    node = dict(schema)
+    if "properties" in node or node.get("type") == "object":
+        props = node.get("properties", {})
+        req = set(node.get("required", []))
+        node.update(type="object", additionalProperties=False, required=list(props))
+        node["properties"] = {k: _strict_schema(v, k in req) for k, v in props.items()}
+    elif node.get("type") == "array" and "items" in node:
+        node["items"] = _strict_schema(node["items"], True)
+    elif "type" not in node:
+        node["type"] = "string"
+    if not required:
+        kind = node.get("type")
+        if isinstance(kind, list) and "null" not in kind:
+            node["type"] = kind + ["null"]
+        elif isinstance(kind, str) and kind != "null":
+            node["type"] = [kind, "null"]
+    return node
 
 
 def _field_name(label):
@@ -158,14 +182,40 @@ def _local_extract(schema, blocks):
     return result, groundings
 
 
+def _block_lines(blocks, budget=40000):
+    """Serialize blocks as `[id] text` lines, dropping whole blocks beyond the character budget."""
+    lines, used = [], 0
+    for index, block in enumerate(blocks):
+        line = f"[{index}] {block['text']}"
+        if used + len(line) > budget:
+            logger.warning("extract: block list truncated at %d/%d blocks (budget=%d)", index, len(blocks), budget)
+            break
+        lines.append(line)
+        used += len(line) + 1
+    return "\n".join(lines)
+
+
+def _drop_null_optionals(value, schema):
+    """Strip leaves the model nulled out only because of strict-mode required-ification."""
+    if isinstance(value, dict) and schema.get("type") == "object":
+        required, props = set(schema.get("required", [])), schema.get("properties", {})
+        for key, sub in list(value.items()):
+            types = props.get(key, {}).get("type")
+            allows_null = types is None or types == "null" or (isinstance(types, list) and "null" in types)
+            if sub is None and key not in required and not allows_null:
+                del value[key]
+            else:
+                _drop_null_optionals(sub, props.get(key, {}))
+    elif isinstance(value, list) and schema.get("type") == "array":
+        for item in value:
+            _drop_null_optionals(item, schema.get("items", {}))
+    return value
+
+
 def extract(schema, blocks):
     if ai_settings()["mode"] == "local":
         logger.debug("extract: local mode blocks=%d", len(blocks))
         return _local_extract(schema, blocks)
-    evidence = [
-        {"text": b["text"], "page": b.get("page"), "bbox": b.get("bbox")}
-        for b in blocks
-    ]
     grounding_schema = {
         "type": "array",
         "items": {
@@ -173,40 +223,58 @@ def extract(schema, blocks):
             "properties": {
                 "path": {"type": "string", "description": "JSON Pointer to the extracted leaf value"},
                 "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                "source_text": {"type": ["string", "null"]},
-                "page": {"type": ["integer", "null"]},
-                "bbox": {"type": ["array", "null"], "items": {"type": "number"}},
+                "block": {"type": ["integer", "null"], "description": "id of the source block, or null when no block supports the value"},
             },
-            "required": ["path", "confidence", "source_text", "page", "bbox"],
+            "required": ["path", "confidence", "block"],
             "additionalProperties": False,
         },
     }
     response_schema = {
         "type": "object",
-        "properties": {"result": schema, "groundings": grounding_schema},
+        "properties": {"result": _strict_schema(schema), "groundings": grounding_schema},
         "required": ["result", "groundings"],
         "additionalProperties": False,
     }
-    logger.debug("extract: provider mode blocks=%d evidence_chars=%d", len(blocks), len(json.dumps(evidence, ensure_ascii=False)))
+    evidence = _block_lines(blocks)
+    logger.debug("extract: provider mode blocks=%d evidence_chars=%d", len(blocks), len(evidence))
     ai = _provider([
-        {"role": "system", "content": "Extract values using document context and layout. Never invent values. Use null when allowed and absent. For every extracted leaf, return exact source text and its JSON Pointer. Page and bbox must come from the supplied block metadata; otherwise null."},
-        {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks (use only these coordinates):\n{json.dumps(evidence, ensure_ascii=False)[:40000]}"},
+        {"role": "system", "content": "Extract values using document context and layout. Never invent values. Use null when allowed and absent. For every extracted leaf, return one grounding with its JSON Pointer and the id of the block the value came from; use null when no block supports it. Never copy source text or coordinates."},
+        {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks ([id] text):\n{evidence}"},
     ], response_schema)
+    _drop_null_optionals(ai["result"], schema)
+    groundings = []
     for item in ai["groundings"]:
-        bbox = item.get("bbox")
-        if bbox is not None and not any(
-            source["page"] == item.get("page") and source["bbox"] == bbox and
-            item.get("source_text") and item["source_text"] in source["text"]
-            for source in evidence
-        ):
-            item["bbox"] = None
-    return ai["result"], _grounding_tree(ai["groundings"])
+        value = _pointer_value(ai["result"], item["path"])
+        if value is _MISSING:
+            continue
+        block_id = item.get("block")
+        source = blocks[block_id] if isinstance(block_id, int) and 0 <= block_id < len(blocks) else {}
+        item.update(page=source.get("page"), bbox=source.get("bbox"), source_text=None if value is None else str(value))
+        groundings.append(item)
+    return ai["result"], _grounding_tree(groundings)
+
+
+def _pointer_parts(pointer):
+    return [part.replace("~1", "/").replace("~0", "~") for part in pointer.strip("/").split("/") if part]
+
+
+_MISSING = object()
+
+
+def _pointer_value(document, pointer):
+    target = document
+    for part in _pointer_parts(pointer):
+        try:
+            target = target[int(part)] if isinstance(target, list) else target[part]
+        except (KeyError, IndexError, ValueError, TypeError):
+            return _MISSING
+    return target
 
 
 def _grounding_tree(items):
     root = {}
     for item in items:
-        parts = [part.replace("~1", "/").replace("~0", "~") for part in item["path"].strip("/").split("/") if part]
+        parts = _pointer_parts(item["path"])
         if not parts:
             continue
         target = root

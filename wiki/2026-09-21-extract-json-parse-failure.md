@@ -3,7 +3,7 @@ type: Incident
 title: "추출 실패: VLM 응답 JSON 파싱 오류"
 description: "VLM 추출 응답 JSON 파싱 실패(Expecting ',' delimiter)의 원인 분석과 대응 후보"
 tags: [extraction, ai-provider, incident]
-generated: {by: claude-code/claude-opus-5, at: 2026-09-21}
+generated: {by: claude-code/claude-fable-5-1, at: 2026-09-21}
 status: stable
 ---
 
@@ -34,8 +34,13 @@ OCR 결과(`markdown`)에는 표 전체가 정상으로 들어 있었다. 실패
 ## 대응
 
 - 백엔드 로깅을 추가했다([logging-docker](2026-09-21-logging-docker.md)). 이제 `_provider()`가 JSON 파싱 실패 시 응답 길이, `finish_reason`, 원본 응답의 앞뒤 일부를 ERROR로 남기므로 같은 오류가 다시 나면 `docraft.log`에서 원인을 바로 확인할 수 있다.
-- 남은 후보 대응:
-  - grounding에 `source_text` 대신 블록 id를 쓰게 해서 응답 크기와 escape 위험을 함께 줄인다.
-  - 파싱에 실패하면 한 번 재시도한다.
-  - 스키마를 strict 호환 형태(`type`, `additionalProperties: false`, 모든 필드 `required` + nullable)로 정규화한 뒤 전송한다.
-  - 모델 입력에서 HTML 표 마크업을 평문(TSV 등)으로 바꾼다.
+- 아래 네 가지를 적용했다([extract-grounding-block-id](2026-09-21-extract-grounding-block-id.md)).
+  - **grounding을 블록 id 참조로 바꿨다.** 모델은 더 이상 `source_text`·`page`·`bbox`를 직접 베끼지 않고 `{path, confidence, block}`만 반환한다. `page`·`bbox`는 서버가 `block` id로 원본 블록을 찾아 채우고, `source_text`는 서버가 `path`로 `result`에서 값을 읽어 채운다. escape가 필요한 긴 문자열을 모델이 직접 옮겨 적을 일이 없어졌다.
+  - **모델 입력을 블록 단위로 평문화·예산 자르기했다.** 소스 블록을 JSON 배열 대신 `[id] text` 줄로 직렬화하고(`_block_lines`), 문자 예산(기본 40000자)을 넘기면 그 지점 이후 블록을 통째로 잘라 로그에 경고를 남긴다.
+  - **사용자 스키마를 strict 호환 형태로 정규화해서 보낸다.** `_strict_schema`가 모든 object에 `additionalProperties: false`와 전체 `required`를 채우고, 원래 optional이던 필드는 `type`에 `null`을 추가해 nullable로 만든다. OpenRouter로 보낼 때는 `provider.require_parameters: true`를 추가해 하위 provider가 strict decoding을 무시하지 못하게 한다.
+  - **optional 필드가 null로 오면 결과에서 제거한다.** strict 정규화 때문에 모델이 원래 optional인 필드를 `null`로 채워 보내는데, 저장·`validate()`는 원본(비-strict) 스키마를 쓰므로 그 null이 `{"type": "string"}` 같은 non-nullable 필드에 들어가면 타입 오류가 난다. `_drop_null_optionals`가 응답을 원본 스키마와 대조해 "null이고 required가 아니며 원본 스키마가 null을 허용하지 않는" 리프를 재귀적으로 지운다. required인데 null인 값은 그대로 둬서 `validate()`가 잡게 한다. 지워진 리프에 대한 grounding 항목도 트리에 남기지 않는다.
+- 남은 후보(보류):
+  - 파싱 실패 시 한 번 재시도하는 안은 `temperature=0`이라 같은 오류가 그대로 재현될 가능성이 높아 보류했다.
+  - `_block_lines`는 예산을 넘는 블록 하나를 만나면 그 지점에서 멈추므로, 그 블록 자체가 예산보다 크면 이후 블록이 전부 빠진다(블록 내부를 잘라 이어 보내는 방식은 아님).
+  - 응답의 `block` id가 범위를 벗어나면 `page`/`bbox`가 조용히 `null`로 채워질 뿐, 별도 로깅은 없다.
+  - 이번 사고를 낸 문서(`2303314528.png`, 스키마 `a23d4d5314244de1b030b19ac3d31b0a`)로 실제 재현 테스트는 아직 하지 않았다. 위 대응은 코드 수준 계약 테스트로만 검증됐다.

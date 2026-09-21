@@ -51,6 +51,63 @@ def test_provider_uses_openai_compatible_structured_output(monkeypatch):
     assert seen["url"] == "https://provider.example/v1/chat/completions"
     assert seen["body"]["model"] == "vision-model"
     assert seen["body"]["response_format"]["json_schema"]["strict"] is True
+    assert "provider" not in seen["body"]
+
+
+def test_provider_requires_parameters_only_for_openrouter(monkeypatch):
+    monkeypatch.setenv("AI_MODE", "provider")
+    monkeypatch.setenv("AI_API_KEY", "secret")
+    monkeypatch.setenv("AI_VLM_MODEL", "vision-model")
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"value":"ok"}'}}]})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(engine.httpx, "Client", lambda **_kwargs: real_client(transport=httpx.MockTransport(handler)))
+    schema = {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"], "additionalProperties": False}
+
+    monkeypatch.setenv("AI_BASE_URL", "https://openrouter.ai/api/v1")
+    engine._provider([{"role": "user", "content": "JSON"}], schema)
+    assert seen["body"]["provider"] == {"require_parameters": True}
+
+    monkeypatch.setenv("AI_BASE_URL", "https://provider.example/v1")
+    engine._provider([{"role": "user", "content": "JSON"}], schema)
+    assert "provider" not in seen["body"]
+
+
+def test_strict_schema_makes_fields_required_and_nullable(monkeypatch):
+    schema = {
+        "type": "object",
+        "properties": {
+            "hospital": {"type": "string", "title": "병원명"},
+            "note": {"title": "비고"},
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}, "qty": {"type": "integer"}},
+                    "required": ["name"],
+                },
+            },
+        },
+        "required": ["hospital"],
+    }
+    original = json.loads(json.dumps(schema))
+
+    strict = engine._strict_schema(schema)
+
+    assert schema == original
+    assert strict["additionalProperties"] is False
+    assert set(strict["required"]) == {"hospital", "note", "items"}
+    assert strict["properties"]["hospital"]["type"] == "string"
+    assert strict["properties"]["note"]["type"] == ["string", "null"]
+    item_schema = strict["properties"]["items"]["items"]
+    assert item_schema["additionalProperties"] is False
+    assert set(item_schema["required"]) == {"name", "qty"}
+    assert item_schema["properties"]["name"]["type"] == "string"
+    assert item_schema["properties"]["qty"]["type"] == ["integer", "null"]
 
 
 def test_provider_configuration_and_http_errors_are_explicit(monkeypatch):

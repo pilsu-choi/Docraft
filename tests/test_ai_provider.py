@@ -1,6 +1,7 @@
 """Provider contract tests; all HTTP is mocked and no live AI calls are made."""
 
 import json
+import logging
 
 import httpx
 import pytest
@@ -119,3 +120,64 @@ def test_extract_provider_errors_are_not_hidden_by_local_fallback(monkeypatch):
 
     with pytest.raises(json.JSONDecodeError):
         engine.extract(schema, [{"text": "hospital: Local", "page": None, "bbox": None}])
+
+
+def test_extract_grounding_block_ids_fill_page_bbox_and_source_text(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({
+        "result": {"hospital": "서울병원", "code": None},
+        "groundings": [
+            {"path": "/hospital", "confidence": 0.9, "block": 1},
+            {"path": "/code", "confidence": 0.2, "block": 7},  # out of range
+        ],
+    }, ensure_ascii=False))
+    schema = {"type": "object", "properties": {"hospital": {"type": "string"}, "code": {"type": "string"}}, "required": ["hospital", "code"]}
+    blocks = [
+        {"text": "환자명: 홍길동", "page": 1, "bbox": [0, 0, 10, 10]},
+        {"text": "병원: 서울병원", "page": 2, "bbox": [1, 2, 3, 4]},
+    ]
+
+    result, groundings = engine.extract(schema, blocks)
+
+    assert result == {"hospital": "서울병원", "code": None}
+    assert groundings["hospital"] == {"confidence": 0.9, "page": 2, "bbox": [1, 2, 3, 4], "source_text": "서울병원"}
+    assert groundings["code"] == {"confidence": 0.2, "page": None, "bbox": None, "source_text": None}
+    body = FakeClient.requests[0][1]["json"]
+    item_schema = body["response_format"]["json_schema"]["schema"]["properties"]["groundings"]["items"]
+    assert set(item_schema["properties"]) == {"path", "confidence", "block"}
+    assert item_schema["required"] == ["path", "confidence", "block"] and item_schema["additionalProperties"] is False
+    assert "[1] 병원: 서울병원" in body["messages"][1]["content"]
+
+
+def test_extract_drops_null_optional_field_and_passes_validation(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({
+        "result": {"hospital": "서울병원", "code": None},
+        "groundings": [
+            {"path": "/hospital", "confidence": 0.9, "block": 0},
+            {"path": "/code", "confidence": 0.9, "block": 0},
+        ],
+    }, ensure_ascii=False))
+    schema = {"type": "object", "properties": {"hospital": {"type": "string"}, "code": {"type": "string"}}, "required": ["hospital"]}
+    blocks = [{"text": "병원: 서울병원", "page": 1, "bbox": [0, 0, 1, 1]}]
+
+    result, groundings = engine.extract(schema, blocks)
+
+    assert result == {"hospital": "서울병원"}
+    assert "code" not in groundings
+    assert engine.validate(result, schema, groundings) == []
+
+
+def test_extract_block_list_is_truncated_on_block_boundaries(monkeypatch, caplog):
+    configure(monkeypatch)
+    install_response(monkeypatch, '{"result": {}, "groundings": []}')
+    blocks = [{"text": "가" * 5000, "page": 1, "bbox": None} for _ in range(12)]
+
+    with caplog.at_level(logging.WARNING, logger="backend.engine"):
+        engine.extract({"type": "object", "properties": {}}, blocks)
+
+    lines = FakeClient.requests[0][1]["json"]["messages"][1]["content"].split("([id] text):\n", 1)[1].split("\n")
+    assert 0 < len(lines) < len(blocks)
+    assert all(line == f"[{index}] " + "가" * 5000 for index, line in enumerate(lines))
+    assert sum(len(line) for line in lines) <= 40000
+    assert "truncated" in caplog.text
