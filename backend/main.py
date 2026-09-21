@@ -23,7 +23,7 @@ from .parsers import ParseError, parse
 logger = logging.getLogger(__name__)
 
 JSON_FIELDS = ("blocks", "result", "groundings", "validation")
-ALLOWED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".docx", ".xlsx", ".csv", ".txt", ".md"}
+ALLOWED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".docx", ".xlsx", ".csv", ".txt", ".md", ".html", ".htm"}
 MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
 
 
