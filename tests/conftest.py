@@ -38,6 +38,7 @@ os.environ["DOCRAFT_DATA_DIR"] = TEST_DATA_DIR
 os.environ["DATABASE_URL"] = _schema_url(TEST_DATABASE_URL)
 os.environ.pop("DOCRAFT_API_KEY", None)
 os.environ["AI_MODE"] = "local"
+os.environ["PARSE_PROVIDER"] = "library"
 
 from backend.db import init_db
 
