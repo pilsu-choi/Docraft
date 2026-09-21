@@ -4,9 +4,11 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
@@ -30,11 +32,14 @@ JSON_FIELDS = ("blocks", "result", "groundings", "validation", "parse_options")
 PAGE_RANGE_RE = re.compile(r"^\d+(-\d+)?(,\d+(-\d+)?)*$")
 ALLOWED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".docx", ".xlsx", ".csv", ".txt", ".md", ".html", ".htm"}
 MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+# Statuses a stale job may be taken over from, keyed by the status the job claims.
+ACTIVE = {"parsing": ("parsing",), "extracting": ("extracting", "validating")}
 
 
 @asynccontextmanager
 async def lifespan(_app):
     init_db()
+    recover()
     yield
 
 
@@ -264,11 +269,41 @@ def delete_document(document_id: str):
         if path.parent == FILES.resolve(): path.unlink(missing_ok=True)
 
 
-def claim(db, document_id, status, schema_id=None):
-    """Move a queued document to `status`; False when another delivery already took it (or it is gone)."""
-    claimed = db.execute("UPDATE documents SET status=?,error=NULL,schema_id=COALESCE(?,schema_id),updated_at=? WHERE id=? AND status='queued'", (status, schema_id, now(), document_id)).rowcount
+def stale_before():
+    return (datetime.now(timezone.utc) - timedelta(seconds=jobs.LEASE)).isoformat()
+
+
+def claim(db, document_id, status):
+    """Move a queued document, or one whose job stopped heartbeating, to `status`; False when a live job owns it (or it is gone)."""
+    active = ACTIVE[status]
+    claimed = db.execute(
+        f"UPDATE documents SET status=?,error=NULL,updated_at=? WHERE id=? AND (status='queued' OR (status IN ({','.join('?' * len(active))}) AND updated_at<?))",
+        (status, now(), document_id, *active, stale_before()),
+    ).rowcount
     if not claimed: logger.warning("job skipped, document not queued: document=%s target=%s", document_id, status)
     return bool(claimed)
+
+
+@contextmanager
+def heartbeat(document_id):
+    """Refresh updated_at while a job runs so claim() only takes over jobs whose worker died."""
+    stop = threading.Event()
+    def beat():
+        while not stop.wait(jobs.LEASE / 3):
+            with connect() as db: db.execute("UPDATE documents SET updated_at=? WHERE id=? AND status IN ('parsing','extracting','validating')", (now(), document_id))
+    threading.Thread(target=beat, daemon=True).start()
+    try: yield
+    finally: stop.set()
+
+
+def recover():
+    """Re-enqueue queued documents and jobs whose worker died; lost inline jobs and dropped broker messages resume on API start."""
+    with connect() as db:
+        rows = db.execute("SELECT id,schema_id,markdown IS NOT NULL AS parsed FROM documents WHERE status='queued' OR (status IN ('parsing','extracting','validating') AND updated_at<?)", (stale_before(),)).fetchall()
+    for row in rows:
+        if row["parsed"]: jobs.enqueue("extract", row["id"], row["schema_id"])
+        else: jobs.enqueue("parse", row["id"])
+    if rows: logger.info("recovered jobs: %d", len(rows))
 
 
 @jobs.task("parse")
@@ -279,7 +314,7 @@ def run_parse(document_id: str):
     logger.info("parse start: document=%s filename=%s", document_id, row["filename"])
     started = time.monotonic()
     try:
-        markdown, blocks = parse(row["file_path"], row["filename"], row["media_type"], row["parse_options"])
+        with heartbeat(document_id): markdown, blocks = parse(row["file_path"], row["filename"], row["media_type"], row["parse_options"])
         with connect() as db:
             db.execute("UPDATE documents SET status='parsed',markdown=?,blocks=?,updated_at=? WHERE id=?", (markdown, json.dumps(blocks, ensure_ascii=False), now(), document_id))
             audit(db, row["project_id"], "parse", "document", document_id, {"blocks": len(blocks)})
@@ -378,13 +413,13 @@ def generate(project_id: str, data: GenerateInput):
 @jobs.task("extract")
 def run_extract(document_id, schema_id):
     with connect() as db:
-        if not claim(db, document_id, "extracting", schema_id): return
+        if not claim(db, document_id, "extracting"): return
         doc = one(db, "SELECT * FROM documents WHERE id=?", (document_id,), json_fields=("blocks",))
         schema = schema_row(db.execute("SELECT * FROM schemas WHERE id=?", (schema_id,)).fetchone())
     logger.info("extract start: document=%s schema=%s", document_id, schema_id)
     started = time.monotonic()
     try:
-        result, groundings = engine.extract(schema["json_schema"], doc["blocks"])
+        with heartbeat(document_id): result, groundings = engine.extract(schema["json_schema"], doc["blocks"])
         with connect() as db: db.execute("UPDATE documents SET status='validating',result=?,groundings=?,updated_at=? WHERE id=?", (json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), now(), document_id))
         issues = engine.validate(result, schema["json_schema"], groundings)
         status = "needs_review" if issues else "completed"
@@ -408,8 +443,9 @@ def extract_reason(doc, project_id, mismatch):
     return None
 
 
-def mark_queued(db, document_id):
-    db.execute("UPDATE documents SET status='queued',error=NULL,updated_at=? WHERE id=?", (now(), document_id))
+def mark_queued(db, document_id, schema_id):
+    """Queue an extract; schema_id is stored now so recover() can re-enqueue it."""
+    db.execute("UPDATE documents SET status='queued',error=NULL,schema_id=?,updated_at=? WHERE id=?", (schema_id, now(), document_id))
 
 
 @app.post("/api/documents/{document_id}/extract", status_code=202, dependencies=[Depends(auth)])
@@ -419,7 +455,7 @@ def start_extract(document_id: str, data: ExtractInput):
         schema = one(db, "SELECT project_id FROM schemas WHERE id=?", (data.schema_id,))
         reason = extract_reason(doc, schema["project_id"], "문서와 스키마의 프로젝트가 다릅니다.")
         if reason: raise HTTPException(409, reason)
-        mark_queued(db, document_id)
+        mark_queued(db, document_id, data.schema_id)
     jobs.enqueue("extract", document_id, data.schema_id)
     return {"id": document_id, "status": "queued"}
 
@@ -441,7 +477,7 @@ def batch_extract(project_id: str, data: BatchExtractInput):
             if reason:
                 skipped.append({"id": doc_id, "filename": doc["filename"] if doc else None, "reason": reason})
                 continue
-            mark_queued(db, doc_id)
+            mark_queued(db, doc_id, data.schema_id)
             queued.append(doc_id)
     for doc_id in queued: jobs.enqueue("extract", doc_id, data.schema_id)
     return {"queued": queued, "skipped": skipped}

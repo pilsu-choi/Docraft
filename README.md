@@ -51,6 +51,7 @@ docker compose logs -f backend
 | --- | --- | --- |
 | `QUEUE_BACKEND` | `inline` | `inline`은 API 프로세스의 스레드 풀에서 실행(추가 의존성 없음), `celery`는 브로커로 보내고 별도 worker가 실행 |
 | `QUEUE_CONCURRENCY` | `2` | inline 스레드 수이자 worker 동시 실행 수 |
+| `JOB_LEASE_SECONDS` | `600` | 실행 중 작업은 이 값의 1/3마다 heartbeat를 남깁니다. 이 시간 동안 heartbeat가 없으면 worker가 죽은 것으로 보고 다른 worker가 이어받습니다. API 기동 시 대기·중단 작업을 다시 큐에 넣습니다 |
 | `QUEUE_NAME` | `docraft` | Celery 큐 이름, 태스크 이름 접두사(`docraft.parse`), redis 키 접두사(`docraft:`) |
 | `CELERY_BROKER_URL` | - | `celery`일 때 필수. 예: `redis://127.0.0.1:6379/0` |
 | `CELERY_RESULT_BACKEND` | - | 선택. 결과는 DB에 저장하므로 비워도 됩니다 |
