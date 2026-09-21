@@ -101,6 +101,34 @@ def _html_table_rows(content):
     return table["rows"] if table else None
 
 
+def _attach_lines(blocks, encoded, file_type, settings, page_map):
+    """Add PP-OCRv5 text line boxes (`block["lines"]`) so grounding can point at a line instead of a whole block.
+
+    The layout pipeline only returns block coordinates; this plain OCR pipeline returns one box per
+    text line in the same image coordinates. Each line joins the smallest block containing its center;
+    lines outside every block are dropped. A failure here only costs precision, so it is not fatal."""
+    started = time.monotonic()
+    headers = {"Authorization": f"Bearer {settings['token']}"} if settings["token"] else {}
+    try:
+        response = httpx.post(f"{settings['lines_url']}/ocr", json={"file": encoded, "fileType": file_type, "visualize": False}, headers=headers, timeout=settings["timeout"])
+        response.raise_for_status()
+        pages = response.json()["result"]["ocrResults"]
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+        logger.warning("paddleocr line OCR failed, grounding falls back to block boxes: %s", exc)
+        return
+    for index, page in enumerate(pages[:len(page_map)] if page_map else pages, 1):
+        page_no = page_map[index - 1] if page_map else index
+        targets = [b for b in blocks if b["page"] == page_no and b["bbox"]]
+        pruned = page.get("prunedResult") or {}
+        for text, box in zip(pruned.get("rec_texts") or [], pruned.get("rec_boxes") or []):
+            x, y = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+            inside = [b for b in targets if b["bbox"][0] <= x <= b["bbox"][2] and b["bbox"][1] <= y <= b["bbox"][3]]
+            if inside and str(text).strip():
+                smallest = min(inside, key=lambda b: (b["bbox"][2] - b["bbox"][0]) * (b["bbox"][3] - b["bbox"][1]))
+                smallest.setdefault("lines", []).append({"text": str(text), "bbox": [float(v) for v in box]})
+    logger.debug("paddleocr line OCR: elapsed=%.2fs pages=%d lines=%d", time.monotonic() - started, len(pages), sum(len(b.get("lines") or []) for b in blocks))
+
+
 def _remote_paddle(path, file_type, page_map=None):
     settings = ocr_settings()
     if not settings["base_url"]:
@@ -109,7 +137,8 @@ def _remote_paddle(path, file_type, page_map=None):
     if not endpoint.endswith("/layout-parsing"):
         endpoint += "/layout-parsing"
     headers = {"Authorization": f"Bearer {settings['token']}"} if settings["token"] else {}
-    payload = {"file": base64.b64encode(Path(path).read_bytes()).decode("ascii"), "fileType": file_type, "visualize": False, "returnMarkdownImages": False}
+    encoded = base64.b64encode(Path(path).read_bytes()).decode("ascii")
+    payload = {"file": encoded, "fileType": file_type, "visualize": False, "returnMarkdownImages": False}
     logger.debug("paddleocr request: endpoint=%s file_type=%s bytes=%d", endpoint, file_type, len(payload["file"]))
     started = time.monotonic()
     try:
@@ -145,6 +174,8 @@ def _remote_paddle(path, file_type, page_map=None):
             blocks.append(block(text.strip(), "text", page=page_no, bbox=None, source="paddleocr_remote"))
     if not blocks:
         raise ParseError("PaddleOCR 원격 응답에서 텍스트를 찾지 못했습니다.")
+    if settings["lines_url"]:
+        _attach_lines(blocks, encoded, file_type, settings, page_map)
     return blocks
 
 
