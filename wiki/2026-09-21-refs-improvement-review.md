@@ -12,7 +12,11 @@ status: stable
 
 `refs/` 캡처 76장([경쟁 제품 화면 캡처](refs-competitor-capture.md))을 제품별 sub-agent(Sonnet)가 판독하고, 현재 `main`(999696c)의 `backend/*.py`, `frontend/src/*`를 직접 읽어 비교했다. 이 문서는 조사 결과이며 코드는 바꾸지 않았다.
 
-## 현재 상태 요약
+## 진행 상태
+
+2026-09-22에 권장 순서 1~3단계(#1 제외: `fix/extract-grounding-block-id`에서 별도 진행)를 구현했다. #2~#9, A, B, C가 완료됐고, 구현 기록은 [레퍼런스 기반 개선 1~3단계 구현](2026-09-22-refs-improvements.md)에 있다. 남은 후보는 #1, D~K다.
+
+## 조사 시점 상태 요약
 
 - 이미 있음: 프로젝트 CRUD, 업로드·파싱(pypdf/fitz 줄 단위 bbox, PaddleOCR-VL), `미리보기|Markdown|HTML|JSON`, AI 스키마 생성, 시각 스키마 편집기(문자열·숫자·참거짓·객체·객체 목록, required, 필드 설명), 스키마 버전, 추출 신뢰도·검증, 필드↔bbox 호버 연동, 수정·승인, JSON/CSV 내보내기.
 - 레퍼런스 대비 비어 있음: 파싱 옵션, 블록 타입 세분화·블록 목록 연동, 신뢰도 임계값 UI, 다중 문서 결과 표, 분류·분할, 배치, 사용량·키 관리.
