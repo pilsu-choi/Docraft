@@ -171,11 +171,15 @@ def delete_project(project_id: str):
         db.execute("DELETE FROM projects WHERE id=?", (project_id,))
 
 
+DOCUMENT_LIST_COLUMNS = "id,project_id,filename,media_type,size,status,error,schema_id,approved_at,created_at,updated_at,result,validation"
+
+
 @app.get("/api/projects/{project_id}/documents", dependencies=[Depends(auth)])
 def list_documents(project_id: str):
     with connect() as db:
         one(db, "SELECT id FROM projects WHERE id=?", (project_id,))
-        return [document(db, row["id"]) for row in db.execute("SELECT id FROM documents WHERE project_id=? ORDER BY created_at DESC", (project_id,))]
+        rows = db.execute(f"SELECT {DOCUMENT_LIST_COLUMNS} FROM documents WHERE project_id=? ORDER BY created_at DESC", (project_id,)).fetchall()
+        return [decode(row, ("result", "validation")) for row in rows]
 
 
 async def save_upload(upload: UploadFile, target: Path):
@@ -222,6 +226,18 @@ async def upload_documents(project_id: str, background: BackgroundTasks, files: 
 @app.get("/api/documents/{document_id}", dependencies=[Depends(auth)])
 def get_document(document_id: str):
     with connect() as db: return document(db, document_id)
+
+
+@app.delete("/api/documents/{document_id}", status_code=204, dependencies=[Depends(auth)])
+def delete_document(document_id: str):
+    with connect() as db:
+        doc = one(db, "SELECT * FROM documents WHERE id=?", (document_id,))
+        if doc["status"] in {"queued", "parsing", "extracting", "validating"}:
+            raise HTTPException(409, "처리 중인 문서는 삭제할 수 없습니다.")
+        audit(db, doc["project_id"], "delete", "document", document_id, {"filename": doc["filename"]})
+        db.execute("DELETE FROM documents WHERE id=?", (document_id,))
+        path = Path(doc["file_path"]).resolve()
+        if path.parent == FILES.resolve(): path.unlink(missing_ok=True)
 
 
 def run_parse(document_id: str):
