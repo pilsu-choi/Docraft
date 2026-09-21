@@ -1,0 +1,13 @@
+.worktrees/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+.env
+*.db
+uploads/
+data/
+dist/
+build/
+node_modules/
