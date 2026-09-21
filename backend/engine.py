@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import time
+from collections import Counter
 from copy import deepcopy
 
 import httpx
@@ -20,15 +21,11 @@ def _truncate(text, limit=2000):
     return text if len(text) <= limit * 2 else f"{text[:limit]}...<truncated>...{text[-limit:]}"
 
 
-def _provider(messages, response_schema=None):
+def _provider(messages):
     settings = ai_settings()
     if not settings["configured"] or settings["mode"] == "local":
         raise ProviderConfigurationError("AI provider가 설정되지 않았습니다. AI_BASE_URL, AI_API_KEY, AI_VLM_MODEL을 확인해 주세요.")
-    body = {"model": settings["model"], "messages": messages, "temperature": 0}
-    if response_schema:
-        body["response_format"] = {"type": "json_schema", "json_schema": {"name": "result", "strict": True, "schema": response_schema}}
-    else:
-        body["response_format"] = {"type": "json_object"}
+    body = {"model": settings["model"], "messages": messages, "temperature": 0, "response_format": {"type": "json_object"}}
     prompt_chars = sum(len(m.get("content") or "") for m in messages)
     logger.debug("provider call: model=%s messages=%d prompt_chars=%d", settings["model"], len(messages), prompt_chars)
     started = time.monotonic()
@@ -158,62 +155,131 @@ def _local_extract(schema, blocks):
     return result, groundings
 
 
+def _block_lines(blocks, budget=40000):
+    """Serialize block texts as lines, dropping whole blocks beyond the character budget."""
+    lines, used = [], 0
+    for index, block in enumerate(blocks):
+        line = block["text"]
+        if used + len(line) > budget:
+            logger.warning("extract: block list truncated at %d/%d blocks (budget=%d)", index, len(blocks), budget)
+            break
+        lines.append(line)
+        used += len(line) + 1
+    return "\n".join(lines)
+
+
+def _drop_null_optionals(value, schema):
+    """Remove leaves the model filled with null for optional fields, per the original schema."""
+    if isinstance(value, dict) and schema.get("type") == "object":
+        required, props = set(schema.get("required", [])), schema.get("properties", {})
+        for key, sub in list(value.items()):
+            types = props.get(key, {}).get("type")
+            allows_null = types is None or types == "null" or (isinstance(types, list) and "null" in types)
+            if sub is None and key not in required and not allows_null:
+                del value[key]
+            else:
+                _drop_null_optionals(sub, props.get(key, {}))
+    elif isinstance(value, list) and schema.get("type") == "array":
+        for item in value:
+            _drop_null_optionals(item, schema.get("items", {}))
+    return value
+
+
 def extract(schema, blocks):
     if ai_settings()["mode"] == "local":
         logger.debug("extract: local mode blocks=%d", len(blocks))
         return _local_extract(schema, blocks)
-    evidence = [
-        {"text": b["text"], "page": b.get("page"), "bbox": b.get("bbox")}
-        for b in blocks
-    ]
-    grounding_schema = {
-        "type": "array",
-        "items": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "JSON Pointer to the extracted leaf value"},
-                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                "source_text": {"type": ["string", "null"]},
-                "page": {"type": ["integer", "null"]},
-                "bbox": {"type": ["array", "null"], "items": {"type": "number"}},
-            },
-            "required": ["path", "confidence", "source_text", "page", "bbox"],
-            "additionalProperties": False,
-        },
-    }
-    response_schema = {
-        "type": "object",
-        "properties": {"result": schema, "groundings": grounding_schema},
-        "required": ["result", "groundings"],
-        "additionalProperties": False,
-    }
-    logger.debug("extract: provider mode blocks=%d evidence_chars=%d", len(blocks), len(json.dumps(evidence, ensure_ascii=False)))
-    ai = _provider([
-        {"role": "system", "content": "Extract values using document context and layout. Never invent values. Use null when allowed and absent. For every extracted leaf, return exact source text and its JSON Pointer. Page and bbox must come from the supplied block metadata; otherwise null."},
-        {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks (use only these coordinates):\n{json.dumps(evidence, ensure_ascii=False)[:40000]}"},
-    ], response_schema)
-    for item in ai["groundings"]:
-        bbox = item.get("bbox")
-        if bbox is not None and not any(
-            source["page"] == item.get("page") and source["bbox"] == bbox and
-            item.get("source_text") and item["source_text"] in source["text"]
-            for source in evidence
-        ):
-            item["bbox"] = None
-    return ai["result"], _grounding_tree(ai["groundings"])
+    evidence = _block_lines(blocks)
+    logger.debug("extract: provider mode blocks=%d evidence_chars=%d", len(blocks), len(evidence))
+    result = _provider([
+        {"role": "system", "content": (
+            "Extract values using document context and layout. Never invent values. Use null when allowed and absent. "
+            "Return only a single JSON object that itself follows the given schema, with no wrapper key "
+            "and with the schema's field order kept."
+        )},
+        {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks:\n{evidence}"},
+    ])
+    if not isinstance(result, dict):
+        raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
+    _drop_null_optionals(result, schema)
+    return result, _grounding_tree(result, [(block, _block_rows(block)) for block in blocks])
 
 
-def _grounding_tree(items):
-    root = {}
-    for item in items:
-        parts = [part.replace("~1", "/").replace("~0", "~") for part in item["path"].strip("/").split("/") if part]
-        if not parts:
-            continue
-        target = root
-        for part in parts[:-1]:
-            target = target.setdefault(part, {})
-        target[parts[-1]] = {key: item.get(key) for key in ("confidence", "page", "bbox", "source_text")}
-    return root
+def _normalized(text):
+    """Drop whitespace, thousands separators and literal `\\n` so `12,380`, `12380` and `전액\\n본인부담` compare equal."""
+    return re.sub(r"[\s,]+|\\n", "", str(text))
+
+
+def _block_rows(block):
+    """Read a block as rows of normalized cells: table HTML `<tr>` (every row kept, so row indexes stay geometric), parsed table rows, or one row of the text and its tokens."""
+    text = block["text"]
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", text, re.S) or ([text] if re.search(r"<t[dh][\s>]", text) else [])
+    if rows: return [[_normalized(re.sub(r"<[^>]+>", "", cell)) for cell in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)] for row in rows]
+    if block.get("rows"): return [[_normalized(cell) for cell in row] for row in block["rows"]]
+    return [[_normalized(text), *(_normalized(token) for token in text.split())]]
+
+
+def _needles(value):
+    """Normalized forms of a value: `1.0` ↔ `1`, date separator variants, a trailing currency or unit sign."""
+    forms = {str(value)}
+    if isinstance(value, float) and value.is_integer(): forms.add(str(int(value)))  # the model returns 1.0 where the document shows 1
+    for form in list(forms):
+        forms.add(re.sub(r"[원₩%]$", "", form.strip()))
+        if re.fullmatch(r"\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}", form): forms.update(re.sub(r"[.\-/]", separator, form) for separator in ".-/")
+    return {needle for needle in map(_normalized, forms) if needle}
+
+
+def _hits(value, sources):
+    """Rows holding the value; whole-cell matches win and substring matches need a needle of 3+ characters."""
+    needles, exact, loose = _needles(value), [], []
+    for index, (_, rows) in enumerate(sources):
+        for row_no, cells in enumerate(rows):
+            if any(cell == needle for cell in cells for needle in needles): exact.append((index, row_no))
+            elif any(needle in cell for cell in cells for needle in needles if len(needle) >= 3): loose.append((index, row_no))
+    return exact or loose
+
+
+def _agreed_row(hits, taken):
+    """The row most of an object's leaves agree on; ties prefer a row no earlier array item took."""
+    counts = Counter(position for positions in hits.values() for position in positions)
+    if not counts: return None
+    agreed = min(counts, key=lambda position: (-counts[position], position in taken, position))
+    taken.add(agreed)
+    return agreed
+
+
+def _row_bbox(bbox, row_no, total):
+    """Split the block box into equal horizontal bands, one per row; rowspan and uneven row heights are ignored."""
+    if not bbox or total <= 1: return bbox
+    x0, y0, x1, y1 = bbox
+    return [x0, y0 + (y1 - y0) * row_no / total, x1, y0 + (y1 - y0) * (row_no + 1) / total]
+
+
+def _leaf(value, hits, agreed, strict, sources):
+    """Leaf grounding; inside an array item a value found only outside the agreed row drops to 0.5."""
+    if value is None: return {"confidence": 0, "page": None, "bbox": None, "source_text": None}
+    position = agreed if agreed in hits else (hits[0] if hits else None)
+    if position is None: return {"confidence": 0.0, "page": None, "bbox": None, "source_text": str(value)}
+    block, rows = sources[position[0]]
+    return {
+        "confidence": 1.0 if position == agreed or not strict else 0.5,
+        "page": block.get("page"),
+        "bbox": _row_bbox(block.get("bbox"), position[1], len(rows)),
+        "source_text": str(value),
+    }
+
+
+def _grounding_tree(value, sources, taken=None, strict=False):
+    """Ground every leaf of the result against the rows of the source blocks."""
+    if isinstance(value, list):
+        taken = set()
+        return {str(index): _grounding_tree(item, sources, taken, True) for index, item in enumerate(value)}
+    if isinstance(value, dict):
+        hits = {key: _hits(sub, sources) for key, sub in value.items() if sub is not None and not isinstance(sub, (dict, list))}
+        agreed = _agreed_row(hits, set() if taken is None else taken)
+        return {key: _grounding_tree(sub, sources) if isinstance(sub, (dict, list)) else _leaf(sub, hits.get(key, []), agreed, strict, sources)
+                for key, sub in value.items()}
+    return _leaf(value, _hits(value, sources), None, False, sources)
 
 
 def validate(result, schema, groundings):

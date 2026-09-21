@@ -34,7 +34,7 @@ def test_ai_status_is_sanitized(monkeypatch):
     assert "https://" not in response.text
 
 
-def test_provider_uses_openai_compatible_structured_output(monkeypatch):
+def test_provider_uses_openai_compatible_json_object_output(monkeypatch):
     monkeypatch.setenv("AI_MODE", "provider")
     monkeypatch.setenv("AI_BASE_URL", "https://provider.example/v1")
     monkeypatch.setenv("AI_API_KEY", "secret")
@@ -48,11 +48,11 @@ def test_provider_uses_openai_compatible_structured_output(monkeypatch):
 
     real_client = httpx.Client
     monkeypatch.setattr(engine.httpx, "Client", lambda **_kwargs: real_client(transport=httpx.MockTransport(handler)))
-    schema = {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"], "additionalProperties": False}
-    assert engine._provider([{"role": "user", "content": "JSON"}], schema) == {"value": "ok"}
+    assert engine._provider([{"role": "user", "content": "JSON"}]) == {"value": "ok"}
     assert seen["url"] == "https://provider.example/v1/chat/completions"
     assert seen["body"]["model"] == "vision-model"
-    assert seen["body"]["response_format"]["json_schema"]["strict"] is True
+    assert seen["body"]["response_format"] == {"type": "json_object"}
+    assert "provider" not in seen["body"]
 
 
 def test_provider_configuration_and_http_errors_are_explicit(monkeypatch):
