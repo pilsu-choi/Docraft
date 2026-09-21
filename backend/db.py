@@ -40,6 +40,7 @@ def connect():
 def init_db() -> None:
     FILES.mkdir(parents=True, exist_ok=True)
     with connect() as db:
+        db.execute("SELECT pg_advisory_xact_lock(hashtext('docraft.init_db'))")  # API and workers may start together.
         db.execute("""
         CREATE TABLE IF NOT EXISTS projects (
           id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',

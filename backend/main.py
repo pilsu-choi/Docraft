@@ -12,7 +12,7 @@ from typing import Literal
 from urllib.parse import quote
 import fitz
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from openpyxl import Workbook
@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field, field_validator
 from jsonschema.exceptions import SchemaError
 
 from .config import public_ai_settings
-from . import engine
+from . import engine, jobs
 from .db import FILES, audit, connect, decode, init_db, now
 from .parsers import ParseError, parse
 
@@ -40,6 +40,7 @@ async def lifespan(_app):
 
 app = FastAPI(title="Docraft API", version="0.1.0", lifespan=lifespan)
 init_db()  # Also supports test/embedded clients that do not enter ASGI lifespan.
+jobs.backend()  # Fail fast on an unknown QUEUE_BACKEND.
 origins = [value.strip() for value in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",") if value.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -218,7 +219,7 @@ async def save_upload(upload: UploadFile, target: Path):
 
 
 @app.post("/api/projects/{project_id}/documents", status_code=202, dependencies=[Depends(auth)])
-async def upload_documents(project_id: str, background: BackgroundTasks, files: list[UploadFile] = File(...)):
+async def upload_documents(project_id: str, files: list[UploadFile] = File(...)):
     created, staged = [], []
     with connect() as db:
         one(db, "SELECT id FROM projects WHERE id=?", (project_id,))
@@ -242,7 +243,7 @@ async def upload_documents(project_id: str, background: BackgroundTasks, files: 
             audit(db, project_id, "upload", "document", document_id, {"filename": filename, "size": size})
             logger.info("upload saved: document=%s filename=%s size=%d", document_id, filename, size)
             created.append(document(db, document_id))
-            background.add_task(run_parse, document_id)
+    for item in created: jobs.enqueue("parse", item["id"])  # After commit, so workers see the queued row.
     return created
 
 
@@ -263,10 +264,18 @@ def delete_document(document_id: str):
         if path.parent == FILES.resolve(): path.unlink(missing_ok=True)
 
 
+def claim(db, document_id, status, schema_id=None):
+    """Move a queued document to `status`; False when another delivery already took it (or it is gone)."""
+    claimed = db.execute("UPDATE documents SET status=?,error=NULL,schema_id=COALESCE(?,schema_id),updated_at=? WHERE id=? AND status='queued'", (status, schema_id, now(), document_id)).rowcount
+    if not claimed: logger.warning("job skipped, document not queued: document=%s target=%s", document_id, status)
+    return bool(claimed)
+
+
+@jobs.task("parse")
 def run_parse(document_id: str):
     with connect() as db:
+        if not claim(db, document_id, "parsing"): return
         row = one(db, "SELECT * FROM documents WHERE id=?", (document_id,), json_fields=("parse_options",))
-        db.execute("UPDATE documents SET status='parsing',error=NULL,updated_at=? WHERE id=?", (now(), document_id))
     logger.info("parse start: document=%s filename=%s", document_id, row["filename"])
     started = time.monotonic()
     try:
@@ -282,12 +291,12 @@ def run_parse(document_id: str):
 
 
 @app.post("/api/documents/{document_id}/parse", status_code=202, dependencies=[Depends(auth)])
-def retry_parse(document_id: str, background: BackgroundTasks, data: ParseOptions | None = None):
+def retry_parse(document_id: str, data: ParseOptions | None = None):
     with connect() as db:
         current = one(db, "SELECT parse_options FROM documents WHERE id=?", (document_id,), json_fields=("parse_options",))
         options = data.model_dump() if data is not None else current["parse_options"]
         db.execute("UPDATE documents SET status='queued',error=NULL,markdown=NULL,blocks='[]',result=NULL,groundings='{}',validation='[]',schema_id=NULL,approved_at=NULL,parse_options=?,updated_at=? WHERE id=?", (json.dumps(options, ensure_ascii=False), now(), document_id))
-    background.add_task(run_parse, document_id)
+    jobs.enqueue("parse", document_id)
     return {"id": document_id, "status": "queued"}
 
 
@@ -366,11 +375,12 @@ def generate(project_id: str, data: GenerateInput):
         return created
 
 
+@jobs.task("extract")
 def run_extract(document_id, schema_id):
     with connect() as db:
+        if not claim(db, document_id, "extracting", schema_id): return
         doc = one(db, "SELECT * FROM documents WHERE id=?", (document_id,), json_fields=("blocks",))
         schema = schema_row(db.execute("SELECT * FROM schemas WHERE id=?", (schema_id,)).fetchone())
-        db.execute("UPDATE documents SET status='extracting',error=NULL,schema_id=?,updated_at=? WHERE id=?", (schema_id, now(), document_id))
     logger.info("extract start: document=%s schema=%s", document_id, schema_id)
     started = time.monotonic()
     try:
@@ -398,24 +408,24 @@ def extract_reason(doc, project_id, mismatch):
     return None
 
 
-def queue_extract(db, background, document_id, schema_id):
+def mark_queued(db, document_id):
     db.execute("UPDATE documents SET status='queued',error=NULL,updated_at=? WHERE id=?", (now(), document_id))
-    background.add_task(run_extract, document_id, schema_id)
 
 
 @app.post("/api/documents/{document_id}/extract", status_code=202, dependencies=[Depends(auth)])
-def start_extract(document_id: str, data: ExtractInput, background: BackgroundTasks):
+def start_extract(document_id: str, data: ExtractInput):
     with connect() as db:
         doc = one(db, "SELECT project_id,status FROM documents WHERE id=?", (document_id,))
         schema = one(db, "SELECT project_id FROM schemas WHERE id=?", (data.schema_id,))
         reason = extract_reason(doc, schema["project_id"], "문서와 스키마의 프로젝트가 다릅니다.")
         if reason: raise HTTPException(409, reason)
-        queue_extract(db, background, document_id, data.schema_id)
+        mark_queued(db, document_id)
+    jobs.enqueue("extract", document_id, data.schema_id)
     return {"id": document_id, "status": "queued"}
 
 
 @app.post("/api/projects/{project_id}/extract", status_code=202, dependencies=[Depends(auth)])
-def batch_extract(project_id: str, data: BatchExtractInput, background: BackgroundTasks):
+def batch_extract(project_id: str, data: BatchExtractInput):
     with connect() as db:
         one(db, "SELECT id FROM projects WHERE id=?", (project_id,))
         schema = one(db, "SELECT project_id FROM schemas WHERE id=?", (data.schema_id,))
@@ -431,8 +441,9 @@ def batch_extract(project_id: str, data: BatchExtractInput, background: Backgrou
             if reason:
                 skipped.append({"id": doc_id, "filename": doc["filename"] if doc else None, "reason": reason})
                 continue
-            queue_extract(db, background, doc_id, data.schema_id)
+            mark_queued(db, doc_id)
             queued.append(doc_id)
+    for doc_id in queued: jobs.enqueue("extract", doc_id, data.schema_id)
     return {"queued": queued, "skipped": skipped}
 
 

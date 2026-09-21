@@ -6,8 +6,9 @@ ENV PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# The image serves both the API and the queue worker, so it includes the optional celery extra.
+COPY requirements.txt requirements-queue.txt ./
+RUN pip install --no-cache-dir -r requirements-queue.txt
 
 COPY backend ./backend
 

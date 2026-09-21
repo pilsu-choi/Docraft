@@ -1,0 +1,3 @@
+# Optional: only needed for QUEUE_BACKEND=celery (API producer and `python -m backend.worker`).
+-r requirements.txt
+celery[redis]==5.6.3
