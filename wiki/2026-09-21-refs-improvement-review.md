@@ -14,7 +14,7 @@ status: stable
 
 ## 진행 상태
 
-2026-09-22에 권장 순서 1~3단계(#1 제외: `fix/extract-grounding-block-id`에서 별도 진행)를 구현했다. #2~#9, A, B, C가 완료됐고, 구현 기록은 [레퍼런스 기반 개선 1~3단계 구현](2026-09-22-refs-improvements.md)에 있다. 남은 후보는 #1, D~K다.
+2026-09-22에 권장 순서 1~3단계(#1 제외: `fix/extract-grounding-block-id`에서 별도 진행)를 구현했다. #2~#9, A, B, C가 완료됐고, 구현 기록은 [레퍼런스 기반 개선 1~3단계 구현](2026-09-22-refs-improvements.md)에 있다. #1은 `fix/extract-grounding-block-id`가 main에 병합되면서(`b42ce95`) 완료됐다. 남은 후보는 D~K다.
 
 ## 조사 시점 상태 요약
 
