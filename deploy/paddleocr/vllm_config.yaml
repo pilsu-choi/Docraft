@@ -1,0 +1,5 @@
+# RTX 4070(12GB)급 단일 GPU에서 레이아웃 모델과 VRAM을 나눠 쓰기 위한 값.
+# 배치 토큰 예산을 줄여 multimodal profiling peak를 낮추고 KV cache 공간을 확보한다.
+gpu-memory-utilization: 0.6
+max-num-seqs: 32
+max-num-batched-tokens: 16384

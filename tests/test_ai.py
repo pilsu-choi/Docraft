@@ -92,3 +92,22 @@ def test_remote_paddle_layout_contract(monkeypatch, tmp_path):
     assert seen["json"]["fileType"] == 1
     assert seen["headers"] == {"Authorization": "Bearer ocr-secret"}
     assert blocks == [{"type": "text", "page": 1, "bbox": None, "text": "환자명: 홍길동", "source": "paddleocr_remote"}]
+
+
+def test_remote_paddle_region_bboxes(monkeypatch, tmp_path):
+    source = tmp_path / "scan.pdf"
+    source.write_bytes(b"synthetic-pdf")
+    monkeypatch.setenv("PADDLEOCR_BASE_URL", "http://ocr.local:8080")
+    monkeypatch.setenv("PARSE_PROVIDER", "paddle")
+    pruned = {"width": 1000, "height": 1400, "parsing_res_list": [
+        {"block_label": "text", "block_content": " 환자명: 홍길동 ", "block_bbox": [10, 20, 300, 60]},
+        {"block_label": "table", "block_content": "<table></table>", "block_bbox": [10, 80, 900, 400]},
+        {"block_label": "image", "block_content": "", "block_bbox": [0, 0, 1, 1]},
+    ]}
+    response = {"result": {"layoutParsingResults": [{"prunedResult": pruned, "markdown": {"text": "ignored"}}]}}
+    monkeypatch.setattr(parsers.httpx, "post", lambda url, **_: httpx.Response(200, json=response, request=httpx.Request("POST", url)))
+    blocks = parsers._remote_paddle(source, 0)
+    assert [(b["type"], b["text"], b["bbox"], b["page_size"]) for b in blocks] == [
+        ("text", "환자명: 홍길동", [10, 20, 300, 60], [1000, 1400]),
+        ("table", "<table></table>", [10, 80, 900, 400], [1000, 1400]),
+    ]
