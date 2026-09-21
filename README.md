@@ -43,6 +43,27 @@ docker compose logs -f backend
 
 화면은 `http://localhost:3000`, API는 `http://127.0.0.1:8000`입니다. frontend의 nginx가 `/api`를 backend로 넘깁니다. backend는 `.env`를 읽되 `DATABASE_URL`, `DOCRAFT_DATA_DIR=/data`(`./data` bind mount), `PADDLEOCR_BASE_URL=http://paddleocr-vl-api:8080`은 컨테이너용 값으로 덮어씁니다. 로그는 파일 없이 stdout으로만 나갑니다. 공유하는 `./data`가 root 소유가 되지 않도록 backend는 `DOCKER_UID`/`DOCKER_GID`(기본 1000) 사용자로 실행됩니다. 호스트 포트는 `POSTGRES_PORT`, `BACKEND_PORT`, `FRONTEND_PORT`로 바꿀 수 있습니다. 로컬 개발 서버와 포트 8000이 겹치므로 둘 중 하나만 띄우세요.
 
+### 작업 큐(배치 처리)
+
+파싱·추출은 `backend/jobs.py`의 `enqueue()`로 넘어가고, 실행 위치는 `QUEUE_BACKEND`가 정합니다.
+
+| 변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `QUEUE_BACKEND` | `inline` | `inline`은 API 프로세스의 스레드 풀에서 실행(추가 의존성 없음), `celery`는 브로커로 보내고 별도 worker가 실행 |
+| `QUEUE_CONCURRENCY` | `2` | inline 스레드 수이자 worker 동시 실행 수 |
+| `QUEUE_NAME` | `docraft` | Celery 큐 이름, 태스크 이름 접두사(`docraft.parse`), redis 키 접두사(`docraft:`) |
+| `CELERY_BROKER_URL` | - | `celery`일 때 필수. 예: `redis://127.0.0.1:6379/0` |
+| `CELERY_RESULT_BACKEND` | - | 선택. 결과는 DB에 저장하므로 비워도 됩니다 |
+
+```bash
+pip install -r requirements-queue.txt            # celery[redis]; 기본 설치에는 포함하지 않습니다
+QUEUE_BACKEND=celery CELERY_BROKER_URL=redis://127.0.0.1:6379/0 uvicorn backend.main:app
+CELERY_BROKER_URL=redis://127.0.0.1:6379/0 python -m backend.worker   # 또는 celery -A backend.worker worker -Q docraft
+QUEUE_BACKEND=celery docker compose --profile app --profile queue up -d --build   # redis + worker 포함
+```
+
+이미 운영 중인 redis/RabbitMQ·Celery 인프라를 공용으로 쓰려면 compose의 `redis`는 띄우지 않고 `.env`에 `CELERY_BROKER_URL`만 지정한 뒤 `docker compose up -d worker`로 worker만 추가합니다. 다른 앱과 섞이지 않도록 큐·태스크·redis 키가 모두 `QUEUE_NAME`으로 분리됩니다. worker는 API와 같은 DB와 업로드 파일(`DOCRAFT_DATA_DIR`)을 볼 수 있어야 합니다. 일괄 추출 진행 상황은 기존 문서 목록의 상태로 확인합니다. 설계는 [wiki/2026-09-22-job-queue.md](wiki/2026-09-22-job-queue.md)를 참고하세요.
+
 `DOCRAFT_API_KEY`를 설정했다면 화면 왼쪽 아래의 `API 키 설정`에 같은 API 키를 입력합니다. 이 키는 브라우저 세션에 저장되고 원문 조회와 다운로드에도 적용됩니다. provider의 `AI_API_KEY`는 서버 전용이며 UI에 입력하지 않습니다.
 
 ## OCR 변환 샘플
@@ -77,7 +98,7 @@ docker compose logs -f backend
 
 `AI_MODE=local`이면 외부 AI 키 없이 로컬 heuristic 추출을 사용합니다. 기본값은 `provider`이며 이 모드에서는 provider 설정이 없거나 응답이 잘못된 경우 로컬 결과로 조용히 대체하지 않고 오류를 표시합니다. MVP의 로컬 parser는 agentic AI 추론이나 완전한 OCR을 보장하지 않습니다. Office 문서, 복잡한 표, 손글씨 및 비정형 이미지 품질은 배포 전 별도 provider와 평가가 필요합니다.
 
-문서 상태는 queued/parsing/parsed/extracting/validating/completed/failed 계열로 저장되며 업로드와 추출은 BackgroundTasks 기반 비동기로 실행됩니다. `DOCRAFT_API_KEY`를 설정하면 `X-API-Key` 인증이 활성화됩니다. RBAC, webhook, 작업 큐 기반 batch, feedback learning, workflow builder는 후속 범위입니다.
+문서 상태는 queued/parsing/parsed/extracting/validating/completed/failed 계열로 저장되며 파싱과 추출(단건·일괄)은 작업 큐(`QUEUE_BACKEND`, 아래 참고)로 비동기 실행됩니다. `DOCRAFT_API_KEY`를 설정하면 `X-API-Key` 인증이 활성화됩니다. RBAC, webhook, feedback learning, workflow builder는 후속 범위입니다.
 
 ## 설정
 

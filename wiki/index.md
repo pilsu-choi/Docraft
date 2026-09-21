@@ -12,6 +12,7 @@ okf_version: "0.2"
 * [Backend P0 implementation (2026-09-21)](2026-09-21-backend-implementation.md) - FastAPI 백엔드 P0 최초 구현(SQLite·Tesseract 시기) 기록 (deprecated)
 * [AGENTS.md 작업 규칙 보강](2026-09-21-agents-md-rules.md) - 브랜치·워크트리, 커밋 메시지, wiki 작성 규칙을 AGENTS.md에 명시
 * [dev 통합 및 UI 확인](2026-09-21-dev-merge.md) - P0 구현을 dev 브랜치로 통합하고 UI를 실행한 작업 기록
+* [작업 큐(Queue·Worker) 구조 도입](2026-09-22-job-queue.md) - 파싱·추출을 inline·celery로 교체 가능한 작업 큐에서 실행하고 공용 redis/Celery 인프라에 붙이는 구성
 * [추출 지침·필드 구조 확대 편집 모달](2026-09-22-zoom-modal.md) - 추출 지침·필드 구조를 모달에서 편집하고 전체 화면으로 확대·축소하는 기능
 * [추출 페이지 단위 분할 호출](2026-09-22-extract-page-chunking.md) - 긴 문서를 페이지 경계 기준으로 나눠 여러 번 호출하고 스키마에 따라 결과를 병합하는 구현
 * [레퍼런스 기반 개선 1~3단계 구현](2026-09-22-refs-improvements.md) - 문서 목록 경량화·삭제, 결과 표·일괄 추출·XLSX, 블록 연동·스키마 편집·API 탭·파싱 옵션 구현
