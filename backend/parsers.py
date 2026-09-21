@@ -216,7 +216,7 @@ class _HtmlBlocks(HTMLParser):
 
     def __init__(self):
         super().__init__()
-        self.blocks, self.text, self.rows, self.skip = [], "", None, 0
+        self.blocks, self.text, self.rows, self.span, self.skip = [], "", None, (1, 1), 0
 
     def flush(self, kind="text"):
         if self.text.strip():
@@ -232,7 +232,8 @@ class _HtmlBlocks(HTMLParser):
         elif self.rows is not None and tag == "tr":
             self.rows.append([])
         elif self.rows is not None and tag in {"td", "th"}:
-            self.text = ""
+            attrs = dict(attrs)
+            self.text, self.span = "", tuple(int(attrs[name]) if str(attrs.get(name)).isdigit() and int(attrs[name]) > 0 else 1 for name in ("rowspan", "colspan"))
         elif tag in self.BLOCKS:
             self.flush()
 
@@ -240,12 +241,12 @@ class _HtmlBlocks(HTMLParser):
         if tag in {"script", "style", "head"}:
             self.skip = max(0, self.skip - 1)
         elif tag == "table" and self.rows is not None:
-            rows = [row for row in self.rows if any(row)]
+            rows, spans = _grid([row for row in self.rows if row])
             self.rows, self.text = None, ""
-            if rows:
-                self.blocks.append(block("\n".join(" | ".join(row) for row in rows), "table", rows=rows))
+            if any(map(any, rows)):
+                self.blocks.append(block("\n".join(" | ".join(row) for row in rows), "table", rows=rows, **({"spans": spans} if spans else {})))
         elif self.rows is not None and tag in {"td", "th"} and self.rows:
-            self.rows[-1].append(" ".join(self.text.split()))
+            self.rows[-1].append((" ".join(self.text.split()), *self.span))
             self.text = ""
         elif self.rows is None and tag in self.BLOCKS:
             self.flush("heading" if tag[0] == "h" and tag[1:].isdigit() else "text")
@@ -253,6 +254,24 @@ class _HtmlBlocks(HTMLParser):
     def handle_data(self, data):
         if not self.skip:
             self.text += data
+
+
+def _grid(cells):
+    """Lay out rows of (text, rowspan, colspan) on a rectangular grid. A merged cell's text fills every position it
+    covers so each row reads on its own; `spans` keeps [row, col, rowspan, colspan] of each merged cell for rendering."""
+    grid, spans = {}, []
+    for r, row in enumerate(cells):
+        c = 0
+        for text, rowspan, colspan in row:
+            while (r, c) in grid:
+                c += 1
+            rowspan = min(rowspan, len(cells) - r)
+            grid.update({(r + i, c + j): text for i in range(rowspan) for j in range(colspan)})
+            if rowspan > 1 or colspan > 1:
+                spans.append([r, c, rowspan, colspan])
+            c += colspan
+    width = max((c + 1 for _, c in grid), default=0)
+    return [[grid.get((r, c), "") for c in range(width)] for r in range(len(cells))], spans
 
 
 def parse_html(path):
@@ -270,7 +289,10 @@ def _markdown(item, table_format="markdown"):
     if item["type"] != "table" or not rows:
         return item["text"]
     if table_format == "html":
-        return "<table>" + "".join("<tr>" + "".join(f"<td>{html.escape(cell)}</td>" for cell in row) + "</tr>" for row in rows) + "</table>"
+        spans = {(r, c): (rowspan, colspan) for r, c, rowspan, colspan in item.get("spans") or []}
+        covered = {(r + i, c + j) for (r, c), (rowspan, colspan) in spans.items() for i in range(rowspan) for j in range(colspan)} - spans.keys()
+        attrs = lambda rowspan=1, colspan=1: (f' rowspan="{rowspan}"' if rowspan > 1 else "") + (f' colspan="{colspan}"' if colspan > 1 else "")
+        return "<table>" + "".join("<tr>" + "".join(f"<td{attrs(*spans.get((r, c), ()))}>{html.escape(cell)}</td>" for c, cell in enumerate(row) if (r, c) not in covered) + "</tr>" for r, row in enumerate(rows)) + "</table>"
     width = max(map(len, rows))
     lines = ["| " + " | ".join(cell.replace("|", "\\|").replace("\n", " ") for cell in row + [""] * (width - len(row))) + " |" for row in rows]
     return "\n".join([lines[0], "|" + " --- |" * width, *lines[1:]])

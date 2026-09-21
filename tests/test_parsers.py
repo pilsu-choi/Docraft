@@ -116,3 +116,14 @@ def test_html_becomes_heading_text_and_table_markdown(tmp_path):
     assert [b["type"] for b in blocks] == ["heading", "text", "table"]
     assert blocks[2]["rows"] == [["항목", "금액"], ["진료|비", "120000"]]
     assert markdown == "## 청구서\n\n병원: ABC Hospital\n\n| 항목 | 금액 |\n| --- | --- |\n| 진료\\|비 | 120000 |"
+
+
+def test_merged_cells_become_a_rectangular_grid_and_render_back_with_spans(tmp_path):
+    path = tmp_path / "receipt.html"
+    path.write_text("<table><tr><td rowspan=\"2\">항목</td><td colspan=\"2\">급여</td></tr><tr><td>본인</td><td>공단</td></tr>"
+                    "<tr><td>진찰료</td><td>4,593</td><td>10,717</td></tr></table>", encoding="utf-8")
+    markdown, blocks = parse(path, path.name, "text/html", {"table_format": "html"})
+    assert blocks[0]["rows"] == [["항목", "급여", "급여"], ["항목", "본인", "공단"], ["진찰료", "4,593", "10,717"]]
+    assert blocks[0]["spans"] == [[0, 0, 2, 1], [0, 1, 1, 2]]
+    assert markdown == ("<table><tr><td rowspan=\"2\">항목</td><td colspan=\"2\">급여</td></tr><tr><td>본인</td><td>공단</td></tr>"
+                        "<tr><td>진찰료</td><td>4,593</td><td>10,717</td></tr></table>")

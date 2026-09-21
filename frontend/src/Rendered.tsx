@@ -9,10 +9,17 @@ export const blockGrounding = (block: Block, i: number) => ({ ...block, path: `#
 const escape = (text: string) => text.replace(/[&<>"]/g, c => `&${{ '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot' }[c]};`)
 // OCR 결과에 줄바꿈이 실제 개행 또는 "\n" 문자열로 섞여 온다.
 const lines = (html: string) => html.replace(/\\n|\n/g, '<br>')
-export const blockHtml = ({ type, text, rows }: Block) => type === 'heading' ? `<h2>${escape(text)}</h2>`
-  : type !== 'table' ? `<p>${lines(escape(text))}</p>`
-  : rows ? `<table>${rows.map((row, i) => `<tr>${row.map(cell => i ? `<td>${lines(escape(cell))}</td>` : `<th>${lines(escape(cell))}</th>`).join('')}</tr>`).join('')}</table>`
-  : text.replace(/^```\w*\n?|\n?```$/g, '').replace(/\\n/g, '<br>') // PaddleOCR 표는 HTML 원문이며 sandbox iframe 안에서만 렌더링된다.
+// 표 rows는 병합 셀 값이 덮는 칸마다 반복된 격자다. spans([행, 열, rowspan, colspan])의 첫 칸만 그리고 나머지 칸은 건너뛴다.
+export const tableCells = ({ rows = [], spans = [] }: Block) => {
+  const origin = new Map(spans.map(([r, c, rowSpan, colSpan]) => [`${r},${c}`, { rowSpan, colSpan }]))
+  const covered = new Set(spans.flatMap(([r, c, rowSpan, colSpan]) => Array.from({ length: rowSpan * colSpan }, (_, k) => `${r + Math.floor(k / colSpan)},${c + k % colSpan}`)))
+  return rows.map((row, r) => row.flatMap((text, c) => origin.has(`${r},${c}`) || !covered.has(`${r},${c}`) ? [{ text, rowSpan: 1, colSpan: 1, ...origin.get(`${r},${c}`) }] : []))
+}
+const spanAttrs = ({ rowSpan, colSpan }: { rowSpan: number; colSpan: number }) => (rowSpan > 1 ? ` rowspan="${rowSpan}"` : '') + (colSpan > 1 ? ` colspan="${colSpan}"` : '')
+export const blockHtml = (block: Block) => block.type === 'heading' ? `<h2>${escape(block.text)}</h2>`
+  : block.type !== 'table' ? `<p>${lines(escape(block.text))}</p>`
+  : block.rows ? `<table>${tableCells(block).map((row, i) => `<tr>${row.map(cell => { const tag = i ? 'td' : 'th'; return `<${tag}${spanAttrs(cell)}>${lines(escape(cell.text))}</${tag}>` }).join('')}</tr>`).join('')}</table>`
+  : block.text.replace(/^```\w*\n?|\n?```$/g, '').replace(/\\n/g, '<br>') // PaddleOCR 표는 HTML 원문이며 sandbox iframe 안에서만 렌더링된다.
 
 // 분석 블록을 LandingAI Parse 화면처럼 "번호 - 유형" 카드로 렌더링한다.
 export const blocksHtml = (blocks: Block[]) => blocks.map((block, i) => `<section><span class="tag">${i + 1} - ${kinds[block.type] || block.type}${block.page ? ` · p.${block.page}` : ''}</span>${blockHtml(block)}</section>`).join('\n')
