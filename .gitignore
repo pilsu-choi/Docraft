@@ -15,3 +15,8 @@ build/
 *.egg-info/
 node_modules
 .playwright-mcp/
+
+# AWS 배포 비밀값·터널 상태
+deploy/aws/.env.aws
+deploy/aws/.tunnel.pid
+*.pem

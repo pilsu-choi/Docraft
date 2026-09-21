@@ -43,6 +43,10 @@ docker compose logs -f backend
 
 화면은 `http://localhost:3000`, API는 `http://127.0.0.1:8000`입니다. frontend의 nginx가 `/api`를 backend로 넘깁니다. backend는 `.env`를 읽되 `DATABASE_URL`, `DOCRAFT_DATA_DIR=/data`(`./data` bind mount), `PADDLEOCR_BASE_URL=http://paddleocr-vl-api:8080`은 컨테이너용 값으로 덮어씁니다. 로그는 파일 없이 stdout으로만 나갑니다. 공유하는 `./data`가 root 소유가 되지 않도록 backend는 `DOCKER_UID`/`DOCKER_GID`(기본 1000) 사용자로 실행됩니다. 호스트 포트는 `POSTGRES_PORT`, `BACKEND_PORT`, `FRONTEND_PORT`로 바꿀 수 있습니다. 로컬 개발 서버와 포트 8000이 겹치므로 둘 중 하나만 띄우세요.
 
+### AWS 개발 서버 배포
+
+GPU가 더 필요하면 harness-v2 개발 서버(NVIDIA L4)에 같은 compose 정의로 올립니다. `deploy/aws/.env.aws`를 채운 뒤 `deploy/aws/deploy.sh`로 배포하고, `deploy/aws/tunnel.sh --bg`로 `http://localhost:13000`에 접속합니다. 자세한 절차와 harness와 나눠 쓰는 규칙은 [deploy/aws/README.md](deploy/aws/README.md)에 있습니다.
+
 ### 작업 큐(배치 처리)
 
 파싱·추출은 `backend/jobs.py`의 `enqueue()`로 넘어가고, 실행 위치는 `QUEUE_BACKEND`가 정합니다.

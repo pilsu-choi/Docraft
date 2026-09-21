@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# deploy/aws/tunnel.sh — 서버의 frontend(루프백)로 SSH 터널을 연다. /api도 nginx가 backend로 넘긴다.
+#   deploy/aws/tunnel.sh          # 포그라운드(Ctrl-C로 종료)
+#   deploy/aws/tunnel.sh --bg     # 백그라운드
+#   deploy/aws/tunnel.sh --stop   # 백그라운드 터널 종료
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/_common.sh"
+
+PIDFILE="${SCRIPT_DIR}/.tunnel.pid"
+if [ "${1:-}" = "--stop" ]; then
+  if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then kill "$(cat "$PIDFILE")"; echo "[tunnel] 종료"
+  else echo "[tunnel] 실행 중인 터널이 없습니다"; fi
+  rm -f "$PIDFILE"; exit 0
+fi
+
+FORWARD=(-o ExitOnForwardFailure=yes -L "${TUNNEL_PORT}:127.0.0.1:${FRONTEND_PORT}")
+echo "[tunnel] http://localhost:${TUNNEL_PORT} → ${SSH_HOST}:${FRONTEND_PORT}"
+if [ "${1:-}" = "--bg" ]; then
+  ssh -i "$KEY_PATH" -o StrictHostKeyChecking=accept-new "${FORWARD[@]}" -fN "$REMOTE"
+  pgrep -f "ssh.*-L ${TUNNEL_PORT}:127.0.0.1:${FRONTEND_PORT}" | head -1 > "$PIDFILE"
+  echo "[tunnel] 백그라운드(pid $(cat "$PIDFILE")). 종료: $0 --stop"
+else
+  exec ssh -i "$KEY_PATH" -o StrictHostKeyChecking=accept-new "${FORWARD[@]}" -N "$REMOTE"
+fi
