@@ -9,6 +9,9 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/_common.sh"
+if [ "$FRONTEND_BIND" != 127.0.0.1 ] && [ -z "${DOCRAFT_API_KEY:-}" ]; then
+  echo "[deploy] FRONTEND_BIND=${FRONTEND_BIND}(외부 노출)인데 DOCRAFT_API_KEY가 비어 있습니다. 인증 없이 열 수 없습니다." >&2; exit 2
+fi
 
 BUILD=1
 for arg in "$@"; do
@@ -54,7 +57,7 @@ REMOTE
 
 cat <<MSG
 
-[deploy] 완료(${TAG}). 서버에는 frontend만 루프백 ${FRONTEND_PORT}로 열려 있습니다.
+[deploy] 완료(${TAG}). 서버에는 frontend만 ${FRONTEND_BIND}:${FRONTEND_PORT}로 열려 있습니다.
   deploy/aws/tunnel.sh --bg   # http://localhost:${TUNNEL_PORT}
   deploy/aws/smoke.sh         # 샘플 문서 파싱 왕복
   deploy/aws/logs.sh backend  # 로그
