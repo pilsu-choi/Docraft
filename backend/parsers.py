@@ -5,7 +5,7 @@ from pathlib import Path
 
 from docx import Document
 from openpyxl import load_workbook
-from pypdf import PdfReader
+import fitz
 import httpx
 
 from .config import ocr_settings
@@ -21,17 +21,11 @@ def block(text, kind="text", page=None, bbox=None, **extra):
 
 def parse_pdf(path):
     result = []
-    for number, page in enumerate(PdfReader(path).pages, 1):
-        width, height = float(page.mediabox.width), float(page.mediabox.height)
-
-        def visit(text, _cm, tm, _font, _size):
-            value = text.strip()
-            if value:
-                x, y = float(tm[4]), float(tm[5])
-                # pypdf exposes the text origin, not glyph extents; keep point bbox honest.
-                result.append(block(value, page=number, bbox=[x, max(0, height-y), x, max(0, height-y)], page_size=[width, height]))
-
-        page.extract_text(visitor_text=visit)
+    with fitz.open(path) as pdf:
+        for number, page in enumerate(pdf, 1):
+            for x0, y0, x1, y1, text, *_ in page.get_text("blocks"):
+                if text.strip():
+                    result.append(block(text.strip(), page=number, bbox=[x0, y0, x1, y1], page_size=[page.rect.width, page.rect.height]))
     if not result:
         if ocr_settings()["provider"] != "paddle":
             raise ParseError("스캔 PDF OCR은 비활성화되어 있습니다. PARSE_PROVIDER=paddle과 원격 endpoint를 설정해 주세요.")
