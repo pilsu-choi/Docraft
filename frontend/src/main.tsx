@@ -42,7 +42,8 @@ function App() {
   useEffect(() => { refreshProjects().catch(e => setError(err(e))) }, [section])
   useEffect(() => { api.aiStatus().then(setAi).catch(() => {}) }, [])
   useEffect(() => { setParseOptions(doc?.parse_options || {}); setRefs(doc ? [doc.id] : []) }, [doc?.id])
-  useEffect(() => { if (projectId) refreshDetail(projectId).catch(e => setError(err(e))) }, [projectId])
+  // 프로젝트가 바뀌면 이전 프로젝트의 탭·스키마 편집·선택 상태를 비운 뒤 새로 불러온다.
+  useEffect(() => { setProject(null); setDocs([]); setSchemas([]); setDoc(null); draft(); setPrompt(''); setTab('parse'); setView('work'); setSelected(null); setHovered(null); setZoom(null); if (projectId) refreshDetail(projectId).catch(e => setError(err(e))) }, [projectId])
   // 처리 중인 문서가 있으면 목록 하나만 폴링하고, 선택 문서는 목록 상태가 바뀔 때만 다시 불러온다.
   const polling = !!projectId && docs.some(busy), listed = docs.find(item => item.id === doc?.id)
   useEffect(() => { if (!polling) return; const timer = setInterval(() => api.documents(projectId).then(setDocs).catch(e => setError(err(e))), 2000); return () => clearInterval(timer) }, [polling, projectId])
