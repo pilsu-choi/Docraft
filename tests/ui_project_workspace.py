@@ -31,7 +31,7 @@ def main():
         page.goto("http://127.0.0.1:5174/", wait_until="networkidle")
         page.get_by_placeholder("프로젝트 이름 (선택)").fill(name)
         page.get_by_role("button", name="프로젝트 만들기").click()
-        page.get_by_text(name, exact=True).wait_for()
+        page.locator(".detail-identity h1").filter(has_text=name).wait_for()
 
         source = page.get_by_role("button", name="원문 패널 접기")
         before = page.locator(".work-area").bounding_box()["width"]
@@ -49,14 +49,14 @@ def main():
         assert geometry["width"] > 1 and geometry["height"] > 1
         assert page.evaluate("node => getComputedStyle(node).borderTopColor", bbox.element_handle()) == "rgb(228, 59, 50)"
 
-        page.get_by_role("button", name="▥ Schema").click()
+        page.get_by_role("button", name="02 스키마 설계").click()
         prompt = page.get_by_placeholder("예: 거래처, 날짜, 금액과 품목별 내역")
         prompt.fill("거래처와 금액")
         page.get_by_role("button", name="작업 패널 접기").click()
         page.get_by_role("button", name="작업 패널 펼치기").wait_for()
         page.get_by_role("button", name="작업 패널 펼치기").click()
         assert prompt.input_value() == "거래처와 금액"
-        assert page.get_by_role("button", name="▥ Schema").get_attribute("class").find("active") >= 0
+        assert page.get_by_role("button", name="02 스키마 설계").get_attribute("aria-current") == "step"
 
         # A parsed source is mandatory, but a prompt is optional: make a real
         # provider-backed schema from the synthetic PDF context.
@@ -65,10 +65,10 @@ def main():
         page.locator(".toast").filter(has_text="스키마를 생성했습니다.").wait_for(timeout=120_000)
         page.get_by_role("button", name="새 버전으로 저장").click()
         page.locator(".toast").filter(has_text="스키마를 저장했습니다.").wait_for(timeout=30_000)
-        page.get_by_role("combobox", name="저장된 스키마").get_by_role("option", name="Generated schema v2").wait_for()
+        assert page.get_by_role("combobox", name="저장된 스키마").locator("option").count() > 1
+        page.get_by_role("button", name="03 데이터 추출").click()
         page.get_by_role("button", name="현재 파일 추출").click()
         page.locator(".toast").filter(has_text="추출을 시작했습니다.").wait_for(timeout=30_000)
-        page.get_by_role("button", name="▤ Extract").click()
         result = page.locator(".result-field").first
         result.wait_for(timeout=120_000)
         assert result.locator("b").inner_text().strip()
@@ -77,7 +77,7 @@ def main():
         result.get_by_role("button", name="저장").click()
         page.locator(".toast").filter(has_text="수정 내용을 저장했습니다.").wait_for(timeout=30_000)
         with page.expect_download(timeout=30_000):
-            page.locator(".editor-actions").get_by_role("button", name="JSON", exact=True).click()
+            page.locator(".editor-actions").get_by_role("button", name="JSON 다운로드").click()
 
         # Closing the other panel reopens source first: never leave both panels closed.
         page.get_by_role("button", name="원문 패널 접기").click()
