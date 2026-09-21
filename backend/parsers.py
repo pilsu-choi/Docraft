@@ -51,9 +51,9 @@ def _remote_paddle(path, file_type):
     if not endpoint.endswith("/layout-parsing"):
         endpoint += "/layout-parsing"
     headers = {"Authorization": f"Bearer {settings['token']}"} if settings["token"] else {}
-    payload = {"file": base64.b64encode(Path(path).read_bytes()).decode("ascii"), "fileType": file_type}
+    payload = {"file": base64.b64encode(Path(path).read_bytes()).decode("ascii"), "fileType": file_type, "visualize": False, "returnMarkdownImages": False}
     try:
-        response = httpx.post(endpoint, json=payload, headers=headers, timeout=180)
+        response = httpx.post(endpoint, json=payload, headers=headers, timeout=settings["timeout"])
         response.raise_for_status()
         pages = response.json()["result"]["layoutParsingResults"]
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
@@ -62,9 +62,16 @@ def _remote_paddle(path, file_type):
         raise ParseError(f"PaddleOCR 원격 처리 실패{suffix}") from exc
     blocks = []
     for page_no, page in enumerate(pages, 1):
+        pruned = page.get("prunedResult") or {}
+        size = [pruned["width"], pruned["height"]] if pruned.get("width") and pruned.get("height") else None
+        regions = [r for r in pruned.get("parsing_res_list") or [] if str(r.get("block_content") or "").strip()]
+        for region in regions:
+            bbox = region.get("block_bbox")
+            kind = "table" if region.get("block_label") == "table" else "text"
+            blocks.append(block(region["block_content"].strip(), kind, page=page_no, bbox=list(bbox) if bbox and len(bbox) == 4 else None, page_size=size, source="paddleocr_remote"))
         markdown = page.get("markdown", {})
         text = markdown.get("text") if isinstance(markdown, dict) else None
-        if text and text.strip():
+        if not regions and text and text.strip():
             blocks.append(block(text.strip(), "text", page=page_no, bbox=None, source="paddleocr_remote"))
     if not blocks:
         raise ParseError("PaddleOCR 원격 응답에서 텍스트를 찾지 못했습니다.")

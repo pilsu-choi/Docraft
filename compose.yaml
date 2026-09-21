@@ -18,5 +18,45 @@ services:
       retries: 12
     shm_size: 128mb
 
+  # PaddleOCR-VL 전체 layout pipeline(NVIDIA GPU). `docker compose --profile ocr up -d`로 실행한다.
+  paddleocr-vlm-server:
+    profiles: [ocr]
+    image: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server:${PADDLEOCR_IMAGE_TAG:-latest-nvidia-gpu-offline}
+    command: paddleocr genai_server --model_name PaddleOCR-VL-1.6-0.9B --host 0.0.0.0 --port 8080 --backend vllm --backend_config /home/paddleocr/vlm_server_config.yaml
+    volumes:
+      - ./deploy/paddleocr/vllm_config.yaml:/home/paddleocr/vlm_server_config.yaml:ro
+    deploy: &gpu
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${PADDLEOCR_GPU:-0}"]
+              capabilities: [gpu]
+    shm_size: 4gb
+    user: root
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 10s
+      start_period: 300s
+
+  paddleocr-vl-api:
+    profiles: [ocr]
+    image: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-vl:${PADDLEOCR_IMAGE_TAG:-latest-nvidia-gpu-offline}
+    command: paddlex --serve --pipeline /home/paddleocr/pipeline_config_vllm.yaml
+    depends_on:
+      paddleocr-vlm-server:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${PADDLEOCR_PORT:-8080}:8080"
+    deploy: *gpu
+    shm_size: 4gb
+    user: root
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 10s
+      start_period: 120s
+
 volumes:
   docraft_postgres:
