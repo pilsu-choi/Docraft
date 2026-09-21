@@ -1,4 +1,4 @@
-import type { Document, Project, Schema } from './types'
+import type { AiStatus, Document, Project, Schema } from './types'
 
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const key = sessionStorage.getItem('docraft_api_key')
@@ -16,6 +16,7 @@ const blob = async (path: string) => {
 }
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 export const api = {
+  aiStatus: () => request<AiStatus>('/ai/status'),
   projects: () => request<Project[]>('/projects'), createProject: (name: string, description?: string) => request<Project>('/projects', json('POST', { name, description })),
   documents: (projectId: string) => request<Document[]>(`/projects/${projectId}/documents`), document: (id: string) => request<Document>(`/documents/${id}`),
   upload: (projectId: string, files: File[]) => { const body = new FormData(); files.forEach(file => body.append('files', file)); return request<Document[]>(`/projects/${projectId}/documents`, { method: 'POST', body }) },

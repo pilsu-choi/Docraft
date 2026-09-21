@@ -12,10 +12,13 @@ The OpenAPI document is available at `http://localhost:8000/docs`. Data defaults
 `backend/data`; set `DOCRAFT_DATA_DIR` to move it. Set `DOCRAFT_API_KEY` to require
 an `X-API-Key` header. Uploads are limited to 25 MiB by default (`MAX_UPLOAD_BYTES`).
 
-For an OpenAI-compatible extraction provider, set `AI_BASE_URL`, `AI_API_KEY`, and
-`AI_MODEL`. Without these values, schema generation and extraction use the explicit
-local label/value heuristic. Image OCR additionally requires the `tesseract` system
-binary; its absence is reported as a retryable parse failure.
+For an OpenAI-compatible extraction provider, set `AI_MODE=provider`, `AI_BASE_URL`,
+`AI_API_KEY`, and `AI_VLM_MODEL` (`AI_MODEL` remains a compatibility alias). The app
+loads `.env` automatically. Provider failures are exposed instead of silently using
+heuristic output. Set `AI_MODE=local` explicitly for offline development. Parsing
+defaults to existing libraries (`PARSE_PROVIDER=library`). Optional image/scanned
+PDF OCR uses an externally hosted Paddle full layout service with `PARSE_PROVIDER=paddle`;
+no local OCR model is installed.
 
-Production RBAC, webhooks, retention automation, SDKs, and OCR provider integration
+Production RBAC, webhooks, retention automation, SDKs, and OCR provider operations
 are outside the P0 implementation.

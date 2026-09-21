@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from jsonschema.exceptions import SchemaError
 
+from .config import public_ai_settings
 from . import engine
 from .db import FILES, audit, connect, decode, init_db, now
 from .parsers import ParseError, parse
@@ -107,7 +108,11 @@ def schema_row(row): return decode(row, ("json_schema",))
 
 
 @app.get("/api/health")
-def health(): return {"status": "ok"}
+def health(): return {"status": "ok", "ai": public_ai_settings()}
+
+
+@app.get("/api/ai/status", dependencies=[Depends(auth)])
+def ai_status(): return public_ai_settings()
 
 
 @app.get("/api/projects", dependencies=[Depends(auth)])
