@@ -314,6 +314,7 @@ def extract(schema, blocks, source=None):
     logger.info("extract: provider mode blocks=%d chunks=%d budget=%d pages=%s", len(blocks), len(chunks), budget, [_page_range(chunk) for chunk in chunks])
     system = (
         "Extract values using document context and layout. Never invent values. Use null when allowed and absent. "
+        "A total or sum field takes the value printed in the document's total row or labelled total cell, never a single line item's value. "
         "Return only a single JSON object that itself follows the given schema, with no wrapper key "
         "and with the schema's field order kept."
     )
@@ -338,7 +339,7 @@ def extract(schema, blocks, source=None):
         results.append(result)
     merged = _merge_chunk_results(results, schema)
     _drop_null_optionals(merged, schema)
-    return merged, _grounding_tree(merged, [(block, _block_rows(block)) for block in blocks])
+    return merged, _grounding_tree(merged, [(block, _block_rows(block)) for block in blocks], schema)
 
 
 def _normalized(text):
@@ -367,6 +368,7 @@ def _needles(value):
 
 def _rank(cells, needles):
     """2 for a whole-cell match, 1 for a substring match of a 3+ character needle or a close (>=0.85) fuzzy match of a 4+ character non-numeric needle, 0 for none."""
+    cells = [*cells, *(cell.replace("-", "") for cell in cells if "-" in cell)]  # `201-90-97318` is extracted as `2019097318`
     if any(cell == needle for cell in cells for needle in needles): return 2
     if any(needle in cell for cell in cells for needle in needles if len(needle) >= 3): return 1
     fuzzy = [needle for needle in needles if len(needle) >= 4 and not needle.isdigit()]
@@ -423,9 +425,29 @@ def _band(candidates):
     return centers[len(centers) // 2] if centers else None
 
 
-def _pick(lines, band, block):
-    """The candidate line nearest the object's band (the first one when there is no band), or the whole block box without lines."""
-    if not lines: return block.get("bbox")
+def _labels(key, schema):
+    """Normalized label texts of a field: its key and schema title."""
+    return {label for label in (_normalized(str(text).replace("_", "")) for text in (key, schema.get("title", ""))) if len(label) >= 2}
+
+
+def _labelled(lines, anchors, reach):
+    """The line beside or right under one of the field's label lines, within `reach` line heights; None when no line sits that close."""
+    def gap(line):
+        return min((abs(_center(line["bbox"]) - _center(anchor["bbox"])) for anchor in anchors if anchor is not line and anchor["bbox"][0] <= line["bbox"][2]), default=float("inf"))
+    near = [line for line in lines if gap(line) <= reach * (line["bbox"][3] - line["bbox"][1])]
+    return min(near, key=gap, default=None)
+
+
+def _pick(value, lines, band, block, anchors):
+    """The candidate line next to the field's label, else the one nearest the object's band (the first one when there is no band).
+    Without a candidate, a line under the label that still resembles the value, else the whole block box."""
+    if not lines:
+        needles = _needles(value)
+        alike = [line for line in block.get("lines") or [] if any(difflib.SequenceMatcher(None, _normalized(line["text"]), needle).ratio() >= 0.5 for needle in needles)]
+        line = _labelled(alike, anchors, 2)
+        return line["bbox"] if line else block.get("bbox")
+    line = _labelled(lines, anchors, 1) if len(lines) > 1 else None
+    if line: return line["bbox"]
     if band is None: return lines[0]["bbox"]
     return min(lines, key=lambda line: abs(_center(line["bbox"]) - band))["bbox"]
 
@@ -440,7 +462,7 @@ def _line_leaf(value, sources, band):
     return {"confidence": 1.0, "page": block.get("page"), "bbox": line["bbox"], "source_text": str(value)}
 
 
-def _leaf(value, hits, agreed, strict, sources, band=None):
+def _leaf(value, hits, agreed, strict, sources, band=None, labels=()):
     """Leaf grounding; inside an array item a value found only outside the agreed row drops to 0.5 unless a nearby OCR line confirms it."""
     if value is None: return {"confidence": 0, "page": None, "bbox": None, "source_text": None}
     position = _position(hits, agreed)
@@ -450,24 +472,29 @@ def _leaf(value, hits, agreed, strict, sources, band=None):
         if fallback: return fallback
     if position is None: return {"confidence": 0.0, "page": None, "bbox": None, "source_text": str(value)}
     block = sources[position[0]][0]
+    anchors = [line for other, _ in sources if other.get("page") == block.get("page") for line in other.get("lines") or []
+               if any(label in _normalized(line["text"]) for label in labels)]
     return {
         "confidence": 1.0 if confirmed else 0.5,
         "page": block.get("page"),
-        "bbox": _pick(_value_lines(value, hits, agreed, sources), band, block),
+        "bbox": _pick(value, _value_lines(value, hits, agreed, sources), band, block, anchors),
         "source_text": str(value),
     }
 
 
-def _grounding_tree(value, sources, taken=None, strict=False):
-    """Ground every leaf of the result against the rows of the source blocks; booleans are derived values absent from the source text, so they stay out of the tree."""
+def _grounding_tree(value, sources, schema, taken=None, strict=False):
+    """Ground every leaf of the result against the rows of the source blocks; booleans are derived values absent from the source text, so they stay out of the tree.
+    Outside arrays a repeated value goes to the line next to the field's label; array item keys are column headers, so their rows stay with the sibling band."""
     if isinstance(value, list):
         taken = set()
-        return {str(index): _grounding_tree(item, sources, taken, True) for index, item in enumerate(value) if not isinstance(item, bool)}
+        return {str(index): _grounding_tree(item, sources, schema.get("items", {}), taken, True) for index, item in enumerate(value) if not isinstance(item, bool)}
     if isinstance(value, dict):
         hits = {key: _hits(sub, sources) for key, sub in value.items() if sub is not None and not isinstance(sub, (bool, dict, list))}
         agreed = _agreed_row(hits, set() if taken is None else taken)
         band = _band([_value_lines(value[key], positions, agreed, sources) for key, positions in hits.items()])
-        return {key: _grounding_tree(sub, sources) if isinstance(sub, (dict, list)) else _leaf(sub, hits.get(key, []), agreed, strict, sources, band)
+        props = schema.get("properties", {})
+        return {key: _grounding_tree(sub, sources, props.get(key, {})) if isinstance(sub, (dict, list))
+                else _leaf(sub, hits.get(key, []), agreed, strict, sources, band, () if strict else _labels(key, props.get(key, {})))
                 for key, sub in value.items() if not isinstance(sub, bool)}
     return _leaf(value, _hits(value, sources), None, False, sources)
 
