@@ -74,7 +74,8 @@ def ai_settings() -> dict:
     mode = os.getenv("AI_MODE", "provider")
     key = os.getenv("AI_API_KEY", "")
     configured = mode == "local" or bool(base_url and key and model)
-    return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured}
+    chunk_chars = int(os.getenv("EXTRACT_CHUNK_CHARS", "40000"))
+    return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars}
 
 
 def ocr_settings() -> dict:

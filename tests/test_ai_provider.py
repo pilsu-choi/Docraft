@@ -11,6 +11,7 @@ from backend import engine
 
 class FakeClient:
     response = None
+    responses = None
     requests = []
 
     def __init__(self, *args, **kwargs):
@@ -24,21 +25,30 @@ class FakeClient:
 
     def post(self, url, **kwargs):
         self.requests.append((url, kwargs))
+        if self.responses is not None:
+            return self.responses[len(self.requests) - 1]
         return self.response
 
 
-def install_response(monkeypatch, content, *, status_code=200, finish_reason="stop"):
-    response = httpx.Response(
+def _response(content, status_code, finish_reason):
+    return httpx.Response(
         status_code,
-        json={
-            "choices": [{
-                "message": {"content": content},
-                "finish_reason": finish_reason,
-            }],
-        },
+        json={"choices": [{"message": {"content": content}, "finish_reason": finish_reason}]},
         request=httpx.Request("POST", "https://provider.invalid/v1/chat/completions"),
     )
-    FakeClient.response = response
+
+
+def install_response(monkeypatch, content, *, status_code=200, finish_reason="stop"):
+    FakeClient.response = _response(content, status_code, finish_reason)
+    FakeClient.responses = None
+    FakeClient.requests = []
+    monkeypatch.setattr(engine.httpx, "Client", FakeClient)
+
+
+def install_responses(monkeypatch, contents, *, status_code=200, finish_reason="stop"):
+    """One JSON response body per expected provider call, returned in call order."""
+    FakeClient.responses = [_response(content, status_code, finish_reason) for content in contents]
+    FakeClient.response = None
     FakeClient.requests = []
     monkeypatch.setattr(engine.httpx, "Client", FakeClient)
 
@@ -270,16 +280,94 @@ def test_extract_drops_null_optional_field_and_passes_validation(monkeypatch):
     assert engine.validate(result, schema, groundings) == []
 
 
-def test_extract_block_list_is_truncated_on_block_boundaries(monkeypatch, caplog):
+def test_extract_small_document_is_a_single_provider_call(monkeypatch):
+    """The common case (document fits the budget) makes exactly one call, with no "part N of M" note."""
     configure(monkeypatch)
+    install_response(monkeypatch, '{"hospital": "서울병원"}')
+    schema = {"type": "object", "properties": {"hospital": {"type": "string"}}}
+    blocks = [{"text": "병원: 서울병원", "page": 1, "bbox": None}, {"text": "추가 정보", "page": 2, "bbox": None}]
+
+    result, _ = engine.extract(schema, blocks)
+
+    assert result == {"hospital": "서울병원"}
+    assert len(FakeClient.requests) == 1
+    system_content = FakeClient.requests[0][1]["json"]["messages"][0]["content"]
+    assert "part" not in system_content
+
+
+def test_extract_splits_multi_page_document_into_chunks_on_page_boundaries(monkeypatch, caplog):
+    configure(monkeypatch)
+    monkeypatch.setenv("EXTRACT_CHUNK_CHARS", "50")
+    install_responses(monkeypatch, ['{"hospital": null}', '{"hospital": "서울병원"}'])
+    schema = {"type": "object", "properties": {"hospital": {"type": "string"}}}
+    blocks = [
+        {"text": "A" * 20, "page": 1, "bbox": None},
+        {"text": "B" * 20, "page": 1, "bbox": None},
+        {"text": "C" * 20, "page": 2, "bbox": None},
+    ]
+
+    with caplog.at_level(logging.INFO, logger="backend.engine"):
+        result, _ = engine.extract(schema, blocks)
+
+    assert len(FakeClient.requests) == 2
+    assert result == {"hospital": "서울병원"}
+    first_system = FakeClient.requests[0][1]["json"]["messages"][0]["content"]
+    second_system = FakeClient.requests[1][1]["json"]["messages"][0]["content"]
+    assert "part 1 of 2" in first_system and "page(s) 1" in first_system
+    assert "part 2 of 2" in second_system and "page(s) 2" in second_system
+    first_evidence = FakeClient.requests[0][1]["json"]["messages"][1]["content"]
+    assert "A" * 20 in first_evidence and "B" * 20 in first_evidence and "C" * 20 not in first_evidence
+    second_evidence = FakeClient.requests[1][1]["json"]["messages"][1]["content"]
+    assert "C" * 20 in second_evidence and "A" * 20 not in second_evidence
+    assert "chunks=2" in caplog.text
+
+
+def test_extract_merges_chunk_results_array_concat_and_scalar_first_non_null(monkeypatch):
+    configure(monkeypatch)
+    monkeypatch.setenv("EXTRACT_CHUNK_CHARS", "35")
+    install_responses(monkeypatch, [
+        json.dumps({"title": None, "items": [{"code": "A"}, {"code": "B"}]}, ensure_ascii=False),
+        json.dumps({"title": "문서 제목", "items": [{"code": "B"}, {"code": "C"}]}, ensure_ascii=False),
+    ])
+    schema = {"type": "object", "properties": {
+        "title": {"type": "string"},
+        "items": {"type": "array", "items": {"type": "object", "properties": {"code": {"type": "string"}}}},
+    }}
+    blocks = [{"text": "X" * 30, "page": 1, "bbox": None}, {"text": "Y" * 30, "page": 2, "bbox": None}]
+
+    result, _ = engine.extract(schema, blocks)
+
+    assert len(FakeClient.requests) == 2
+    # "title" keeps the first non-null value in document order; the "B" item duplicated at the chunk
+    # boundary is dropped once, but a real repeat within a chunk's own list is never touched.
+    assert result == {"title": "문서 제목", "items": [{"code": "A"}, {"code": "B"}, {"code": "C"}]}
+
+
+def test_extract_splits_an_oversize_page_at_block_boundaries(monkeypatch):
+    configure(monkeypatch)
+    monkeypatch.setenv("EXTRACT_CHUNK_CHARS", "50")
+    install_responses(monkeypatch, ["{}", "{}", "{}"])
+    blocks = [{"text": "Z" * 30, "page": 1, "bbox": None} for _ in range(3)]
+
+    engine.extract({"type": "object", "properties": {}}, blocks)
+
+    # One page (93 chars) over the 50-char budget must split into several same-page chunks, never drop blocks.
+    assert len(FakeClient.requests) == 3
+    for _, request in FakeClient.requests:
+        system_content = request["json"]["messages"][0]["content"]
+        assert "page(s) 1" in system_content
+
+
+def test_extract_truncates_a_single_block_that_alone_exceeds_the_budget(monkeypatch, caplog):
+    configure(monkeypatch)
+    monkeypatch.setenv("EXTRACT_CHUNK_CHARS", "50")
     install_response(monkeypatch, "{}")
-    blocks = [{"text": "가" * 5000, "page": 1, "bbox": None} for _ in range(12)]
+    blocks = [{"text": "가" * 100, "page": 1, "bbox": None}]
 
     with caplog.at_level(logging.WARNING, logger="backend.engine"):
         engine.extract({"type": "object", "properties": {}}, blocks)
 
-    lines = FakeClient.requests[0][1]["json"]["messages"][1]["content"].split("Source blocks:\n", 1)[1].split("\n")
-    assert 0 < len(lines) < len(blocks)
-    assert all(line == "가" * 5000 for line in lines)
-    assert sum(len(line) for line in lines) <= 40000
-    assert "truncated" in caplog.text
+    assert len(FakeClient.requests) == 1
+    evidence = FakeClient.requests[0][1]["json"]["messages"][1]["content"].split("Source blocks:\n", 1)[1]
+    assert len(evidence) == 50
+    assert "truncat" in caplog.text

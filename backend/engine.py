@@ -4,6 +4,7 @@ import re
 import time
 from collections import Counter
 from copy import deepcopy
+from itertools import groupby
 
 import httpx
 from jsonschema import Draft202012Validator
@@ -155,17 +156,74 @@ def _local_extract(schema, blocks):
     return result, groundings
 
 
-def _block_lines(blocks, budget=40000):
-    """Serialize block texts as lines, dropping whole blocks beyond the character budget."""
-    lines, used = [], 0
-    for index, block in enumerate(blocks):
-        line = block["text"]
-        if used + len(line) > budget:
-            logger.warning("extract: block list truncated at %d/%d blocks (budget=%d)", index, len(blocks), budget)
-            break
-        lines.append(line)
-        used += len(line) + 1
-    return "\n".join(lines)
+def _page_chunks(blocks, budget=40000):
+    """Group blocks into chunks of whole pages whose serialized text fits the budget, keeping page boundaries and block order.
+    A page that alone exceeds the budget is split at block boundaries; a single block that alone exceeds the budget
+    becomes its own chunk (truncated later when serialized)."""
+    pages = [list(group) for _, group in groupby(blocks, key=lambda b: b.get("page"))]
+    chunks, current, current_len = [], [], 0
+    for page_blocks in pages:
+        page_len = sum(len(b["text"]) + 1 for b in page_blocks)
+        if page_len > budget:
+            if current:
+                chunks.append(current)
+                current, current_len = [], 0
+            sub, sub_len = [], 0
+            for block in page_blocks:
+                block_len = len(block["text"]) + 1
+                if sub and sub_len + block_len > budget:
+                    chunks.append(sub)
+                    sub, sub_len = [], 0
+                sub.append(block)
+                sub_len += block_len
+            if sub:
+                chunks.append(sub)
+        elif current_len + page_len > budget:
+            chunks.append(current)
+            current, current_len = list(page_blocks), page_len
+        else:
+            current.extend(page_blocks)
+            current_len += page_len
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _chunk_text(chunk_blocks, budget):
+    """Serialize a chunk's block texts as lines; truncates only the pathological case of a single block over budget."""
+    text = "\n".join(b["text"] for b in chunk_blocks)
+    if len(text) > budget:
+        logger.warning("extract: chunk still exceeds budget after page split, truncating (%d > %d chars, blocks=%d)", len(text), budget, len(chunk_blocks))
+        text = text[:budget]
+    return text
+
+
+def _page_range(chunk_blocks):
+    pages = sorted({b.get("page") for b in chunk_blocks if b.get("page") is not None})
+    if not pages:
+        return "unknown"
+    return f"{pages[0]}-{pages[-1]}" if pages[0] != pages[-1] else str(pages[0])
+
+
+def _merge_chunk_results(results, schema):
+    """Merge per-chunk extraction results by schema: object recurses per key, array concatenates in chunk
+    order (dropping an exact duplicate item at a chunk boundary), scalar keeps the first non-null value."""
+    kind = schema.get("type")
+    if kind == "object":
+        merged = {}
+        for key, sub_schema in schema.get("properties", {}).items():
+            values = [r.get(key) if isinstance(r, dict) else None for r in results]
+            merged[key] = _merge_chunk_results(values, sub_schema)
+        return merged
+    if kind == "array":
+        items = []
+        for r in results:
+            if not isinstance(r, list):
+                continue
+            chunk_items = r[1:] if r and items and r[0] == items[-1] else r
+            items.extend(chunk_items)
+        return items
+    return next((value for value in results if value is not None), None)
 
 
 def _drop_null_optionals(value, schema):
@@ -189,20 +247,35 @@ def extract(schema, blocks):
     if ai_settings()["mode"] == "local":
         logger.debug("extract: local mode blocks=%d", len(blocks))
         return _local_extract(schema, blocks)
-    evidence = _block_lines(blocks)
-    logger.debug("extract: provider mode blocks=%d evidence_chars=%d", len(blocks), len(evidence))
-    result = _provider([
-        {"role": "system", "content": (
-            "Extract values using document context and layout. Never invent values. Use null when allowed and absent. "
-            "Return only a single JSON object that itself follows the given schema, with no wrapper key "
-            "and with the schema's field order kept."
-        )},
-        {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks:\n{evidence}"},
-    ])
-    if not isinstance(result, dict):
-        raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
-    _drop_null_optionals(result, schema)
-    return result, _grounding_tree(result, [(block, _block_rows(block)) for block in blocks])
+    budget = ai_settings()["chunk_chars"]
+    chunks = _page_chunks(blocks, budget) or [[]]
+    logger.info("extract: provider mode blocks=%d chunks=%d budget=%d pages=%s", len(blocks), len(chunks), budget, [_page_range(chunk) for chunk in chunks])
+    system = (
+        "Extract values using document context and layout. Never invent values. Use null when allowed and absent. "
+        "Return only a single JSON object that itself follows the given schema, with no wrapper key "
+        "and with the schema's field order kept."
+    )
+    results = []
+    for index, chunk in enumerate(chunks):
+        page_range = _page_range(chunk)
+        evidence = _chunk_text(chunk, budget)
+        logger.debug("extract: chunk %d/%d pages=%s blocks=%d evidence_chars=%d", index + 1, len(chunks), page_range, len(chunk), len(evidence))
+        chunk_system = system
+        if len(chunks) > 1:
+            chunk_system += (
+                f" This is part {index + 1} of {len(chunks)} of the document, covering page(s) {page_range}; "
+                "return null/empty for fields not present in this part."
+            )
+        result = _provider([
+            {"role": "system", "content": chunk_system},
+            {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks:\n{evidence}"},
+        ])
+        if not isinstance(result, dict):
+            raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
+        results.append(result)
+    merged = _merge_chunk_results(results, schema)
+    _drop_null_optionals(merged, schema)
+    return merged, _grounding_tree(merged, [(block, _block_rows(block)) for block in blocks])
 
 
 def _normalized(text):
