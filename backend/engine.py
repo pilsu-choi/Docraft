@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import time
+from collections import Counter
 from copy import deepcopy
 
 import httpx
@@ -201,32 +202,84 @@ def extract(schema, blocks):
     if not isinstance(result, dict):
         raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
     _drop_null_optionals(result, schema)
-    return result, _grounding_tree(result, [(_normalized(block["text"]), block) for block in blocks])
+    return result, _grounding_tree(result, [(block, _block_rows(block)) for block in blocks])
 
 
 def _normalized(text):
-    """Drop whitespace and thousands separators so `12,380`, `12380` and `전액\\n본인부담` compare equal."""
-    return re.sub(r"[\s,]+", "", str(text))
+    """Drop whitespace, thousands separators and literal `\\n` so `12,380`, `12380` and `전액\\n본인부담` compare equal."""
+    return re.sub(r"[\s,]+|\\n", "", str(text))
 
 
-def _grounding_tree(value, sources):
-    """Ground every leaf of the result by locating its value inside a source block's text."""
-    if isinstance(value, dict):
-        return {key: _grounding_tree(sub, sources) for key, sub in value.items()}
-    if isinstance(value, list):
-        return {str(index): _grounding_tree(item, sources) for index, item in enumerate(value)}
-    if value is None:
-        return {"confidence": 0, "page": None, "bbox": None, "source_text": None}
-    needles = {_normalized(value)}
-    if isinstance(value, float) and value.is_integer():  # the model returns 1.0 where the document shows 1
-        needles.add(_normalized(int(value)))
-    source = next((block for text, block in sources if any(needle and needle in text for needle in needles)), None)
+def _block_rows(block):
+    """Read a block as rows of normalized cells: parsed table rows, table HTML `<tr>`, or one row of the text and its tokens."""
+    if block.get("rows"): return [[_normalized(cell) for cell in row] for row in block["rows"]]
+    text = block["text"]
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", text, re.S) or ([text] if re.search(r"<t[dh][\s>]", text) else [])
+    if rows: return [[_normalized(re.sub(r"<[^>]+>", "", cell)) for cell in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)] for row in rows]
+    return [[_normalized(text), *(_normalized(token) for token in text.split())]]
+
+
+def _needles(value):
+    """Normalized forms of a value: `1.0` ↔ `1`, date separator variants, a trailing currency or unit sign."""
+    forms = {str(value)}
+    if isinstance(value, float) and value.is_integer(): forms.add(str(int(value)))  # the model returns 1.0 where the document shows 1
+    for form in list(forms):
+        forms.add(re.sub(r"[원₩%]$", "", form.strip()))
+        if re.fullmatch(r"\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}", form): forms.update(re.sub(r"[.\-/]", separator, form) for separator in ".-/")
+    return {needle for needle in map(_normalized, forms) if needle}
+
+
+def _hits(value, sources):
+    """Rows holding the value; whole-cell matches win and substring matches need a needle of 3+ characters."""
+    needles, exact, loose = _needles(value), [], []
+    for index, (_, rows) in enumerate(sources):
+        for row_no, cells in enumerate(rows):
+            if any(cell == needle for cell in cells for needle in needles): exact.append((index, row_no))
+            elif any(needle in cell for cell in cells for needle in needles if len(needle) >= 3): loose.append((index, row_no))
+    return exact or loose
+
+
+def _agreed_row(hits, taken):
+    """The row most of an object's leaves agree on; ties prefer a row no earlier array item took."""
+    counts = Counter(position for positions in hits.values() for position in positions)
+    if not counts: return None
+    agreed = min(counts, key=lambda position: (-counts[position], position in taken, position))
+    taken.add(agreed)
+    return agreed
+
+
+def _row_bbox(bbox, row_no, total):
+    """Split the block box into equal horizontal bands, one per row; rowspan and uneven row heights are ignored."""
+    if not bbox or total <= 1: return bbox
+    x0, y0, x1, y1 = bbox
+    return [x0, y0 + (y1 - y0) * row_no / total, x1, y0 + (y1 - y0) * (row_no + 1) / total]
+
+
+def _leaf(value, hits, agreed, strict, sources):
+    """Leaf grounding; inside an array item a value found only outside the agreed row drops to 0.5."""
+    if value is None: return {"confidence": 0, "page": None, "bbox": None, "source_text": None}
+    position = agreed if agreed in hits else (hits[0] if hits else None)
+    if position is None: return {"confidence": 0.0, "page": None, "bbox": None, "source_text": str(value)}
+    block, rows = sources[position[0]]
     return {
-        "confidence": 1.0 if source else 0.0,
-        "page": source.get("page") if source else None,
-        "bbox": source.get("bbox") if source else None,
+        "confidence": 1.0 if position == agreed or not strict else 0.5,
+        "page": block.get("page"),
+        "bbox": _row_bbox(block.get("bbox"), position[1], len(rows)),
         "source_text": str(value),
     }
+
+
+def _grounding_tree(value, sources, taken=None, strict=False):
+    """Ground every leaf of the result against the rows of the source blocks."""
+    if isinstance(value, list):
+        taken = set()
+        return {str(index): _grounding_tree(item, sources, taken, True) for index, item in enumerate(value)}
+    if isinstance(value, dict):
+        hits = {key: _hits(sub, sources) for key, sub in value.items() if sub is not None and not isinstance(sub, (dict, list))}
+        agreed = _agreed_row(hits, set() if taken is None else taken)
+        return {key: _grounding_tree(sub, sources) if isinstance(sub, (dict, list)) else _leaf(sub, hits.get(key, []), agreed, strict, sources)
+                for key, sub in value.items()}
+    return _leaf(value, _hits(value, sources), None, False, sources)
 
 
 def validate(result, schema, groundings):

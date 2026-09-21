@@ -178,6 +178,76 @@ def test_extract_grounding_tree_mirrors_arrays_and_nesting(monkeypatch):
     assert groundings["항목정보"]["1"]["금액"] == {"confidence": 0, "page": None, "bbox": None, "source_text": None}
 
 
+TABLE_BLOCK = {
+    "text": (
+        "<table>"
+        "<tr><td>항목</td><td>금액</td><td>횟수</td></tr>"
+        "<tr><td>진찰료</td><td>12,380</td><td>1</td></tr>"
+        "<tr><td>약품비</td><td>0</td><td>3</td></tr>"
+        "<tr><td>주사료</td><td>15</td><td>2</td></tr>"
+        "</table>"
+    ),
+    "type": "table",
+    "page": 1,
+    "bbox": [0, 0, 100, 400],
+}
+ROW_SCHEMA = {"type": "object", "properties": {"항목정보": {"type": "array", "items": {"type": "object", "properties": {
+    "항목": {"type": "string"}, "금액": {"type": "number"}, "횟수": {"type": "number"}}}}}}
+
+
+def test_extract_grounds_each_array_item_on_its_own_table_row(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({"항목정보": [
+        {"항목": "진찰료", "금액": 12380, "횟수": 1},
+        {"항목": "약품비", "금액": 0, "횟수": 3},
+    ]}, ensure_ascii=False))
+
+    _, groundings = engine.extract(ROW_SCHEMA, [TABLE_BLOCK])
+
+    # The row box is the block box split by <tr> index: 4 rows over y 0..400.
+    assert groundings["항목정보"]["0"]["항목"] == {"confidence": 1.0, "page": 1, "bbox": [0, 100.0, 100, 200.0], "source_text": "진찰료"}
+    assert groundings["항목정보"]["0"]["횟수"]["bbox"] == [0, 100.0, 100, 200.0]
+    # `0` must not be found inside the `12,380` cell of the row above.
+    assert groundings["항목정보"]["1"]["금액"] == {"confidence": 1.0, "page": 1, "bbox": [0, 200.0, 100, 300.0], "source_text": "0"}
+
+
+def test_extract_marks_array_item_value_taken_from_another_row(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({"항목정보": [{"항목": "주사료", "금액": 12380, "횟수": 2}]}, ensure_ascii=False))
+
+    result, groundings = engine.extract(ROW_SCHEMA, [TABLE_BLOCK])
+
+    item = groundings["항목정보"]["0"]
+    assert item["항목"]["bbox"] == [0, 300.0, 100, 400.0]
+    assert item["금액"] == {"confidence": 0.5, "page": 1, "bbox": [0, 100.0, 100, 200.0], "source_text": "12380"}
+    assert engine.validate(result, ROW_SCHEMA, groundings) == [
+        {"path": "/항목정보/0/금액", "code": "low_confidence", "message": "원문 근거 또는 추출 신뢰도가 낮습니다."},
+    ]
+
+
+def test_extract_grounds_values_inside_sentences_and_date_separator_variants(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({"신청인": "이현창", "일자": "2023-03-11"}, ensure_ascii=False))
+    schema = {"type": "object", "properties": {"신청인": {"type": "string"}, "일자": {"type": "string"}}}
+    blocks = [{"text": "신청인 이현창(환자와의 관계: 본인)의 요청에 따라 2023.03.11 발급합니다.", "page": 2, "bbox": [1, 2, 3, 4]}]
+
+    _, groundings = engine.extract(schema, blocks)
+
+    assert groundings["신청인"] == {"confidence": 1.0, "page": 2, "bbox": [1, 2, 3, 4], "source_text": "이현창"}
+    assert groundings["일자"]["confidence"] == 1.0
+
+
+def test_extract_top_level_leaves_may_come_from_different_blocks(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({"제목": "진료비 세부산정내역", "항목": "진찰료"}, ensure_ascii=False))
+    schema = {"type": "object", "properties": {"제목": {"type": "string"}, "항목": {"type": "string"}}}
+
+    _, groundings = engine.extract(schema, [{"text": "진료비 세부산정내역", "page": 1, "bbox": [0, 0, 10, 10]}, TABLE_BLOCK])
+
+    assert groundings["제목"] == {"confidence": 1.0, "page": 1, "bbox": [0, 0, 10, 10], "source_text": "진료비 세부산정내역"}
+    assert groundings["항목"] == {"confidence": 1.0, "page": 1, "bbox": [0, 100.0, 100, 200.0], "source_text": "진찰료"}
+
+
 def test_extract_response_that_is_not_an_object_raises(monkeypatch):
     configure(monkeypatch)
     install_response(monkeypatch, json.dumps(["서울병원"], ensure_ascii=False))
