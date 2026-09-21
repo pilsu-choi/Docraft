@@ -1,3 +1,4 @@
+import difflib
 import json
 import logging
 import re
@@ -303,9 +304,12 @@ def _needles(value):
 
 
 def _rank(cells, needles):
-    """2 when a whole normalized cell equals a needle, 1 for a substring match of a 3+ character needle, 0 for none."""
+    """2 for a whole-cell match, 1 for a substring match of a 3+ character needle or a close (>=0.85) fuzzy match of a 4+ character non-numeric needle, 0 for none."""
     if any(cell == needle for cell in cells for needle in needles): return 2
-    return 1 if any(needle in cell for cell in cells for needle in needles if len(needle) >= 3) else 0
+    if any(needle in cell for cell in cells for needle in needles if len(needle) >= 3): return 1
+    fuzzy = [needle for needle in needles if len(needle) >= 4 and not needle.isdigit()]
+    return 1 if any(abs(len(cell) - len(needle)) <= 2 and difflib.SequenceMatcher(None, cell, needle).ratio() >= 0.85
+                     for cell in cells for needle in fuzzy) else 0
 
 
 def _hits(value, sources):
@@ -336,14 +340,19 @@ def _center(bbox):
     return (bbox[1] + bbox[3]) / 2
 
 
+def _ranked_lines(value, blocks):
+    """(block, line) pairs across `blocks` whose OCR line text best matches the value; empty when nothing matches."""
+    needles = _needles(value)
+    ranked = [(_rank([_normalized(line["text"])], needles), block, line) for block in blocks for line in block.get("lines") or []]
+    best = max((rank for rank, _, _ in ranked), default=0)
+    return [(block, line) for rank, block, line in ranked if rank == best] if best else []
+
+
 def _value_lines(value, hits, agreed, sources):
     """OCR line boxes of the matched block that hold the value, whole-line matches first; empty when the parser collected no lines."""
     position = _position(hits, agreed)
     if position is None: return []
-    needles = _needles(value)
-    ranked = [(_rank([_normalized(line["text"])], needles), line) for line in sources[position[0]][0].get("lines") or []]
-    best = max((rank for rank, _ in ranked), default=0)
-    return [line for rank, line in ranked if rank == best] if best else []
+    return [line for _, line in _ranked_lines(value, [sources[position[0]][0]])]
 
 
 def _band(candidates):
@@ -359,14 +368,28 @@ def _pick(lines, band, block):
     return min(lines, key=lambda line: abs(_center(line["bbox"]) - band))["bbox"]
 
 
+def _line_leaf(value, sources, band):
+    """A leaf built straight from an OCR line matching the value, for when the row match failed or missed the agreed row; None unless a candidate line sits inside the object's band (or there is no band)."""
+    candidates = _ranked_lines(value, [block for block, _ in sources])
+    if band is not None:
+        candidates = [(block, line) for block, line in candidates if abs(_center(line["bbox"]) - band) <= line["bbox"][3] - line["bbox"][1]]
+    if not candidates: return None
+    block, line = candidates[0]
+    return {"confidence": 1.0, "page": block.get("page"), "bbox": line["bbox"], "source_text": str(value)}
+
+
 def _leaf(value, hits, agreed, strict, sources, band=None):
-    """Leaf grounding; inside an array item a value found only outside the agreed row drops to 0.5."""
+    """Leaf grounding; inside an array item a value found only outside the agreed row drops to 0.5 unless a nearby OCR line confirms it."""
     if value is None: return {"confidence": 0, "page": None, "bbox": None, "source_text": None}
     position = _position(hits, agreed)
+    confirmed = position is not None and (position == agreed or not strict)
+    if not confirmed:
+        fallback = _line_leaf(value, sources, band)
+        if fallback: return fallback
     if position is None: return {"confidence": 0.0, "page": None, "bbox": None, "source_text": str(value)}
     block = sources[position[0]][0]
     return {
-        "confidence": 1.0 if position == agreed or not strict else 0.5,
+        "confidence": 1.0 if confirmed else 0.5,
         "page": block.get("page"),
         "bbox": _pick(_value_lines(value, hits, agreed, sources), band, block),
         "source_text": str(value),
