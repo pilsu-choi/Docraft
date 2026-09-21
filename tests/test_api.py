@@ -3,6 +3,7 @@ import time
 
 from fastapi.testclient import TestClient
 
+from backend.db import connect
 from backend.main import app
 
 
@@ -149,3 +150,36 @@ def test_parse_failure_is_visible_as_async_failed_status():
     document_id = upload(project_id, "broken.pdf", b"not a PDF")
     failed = wait_for(document_id, "failed")
     assert failed["error"]
+
+
+def test_document_list_is_lightweight():
+    project_id = project("lightweight-list")
+    document_id = upload(project_id)
+    wait_for(document_id, "parsed")
+    response = client.get(f"/api/projects/{project_id}/documents")
+    assert response.status_code == 200
+    listed = response.json()[0]
+    assert "markdown" not in listed and "blocks" not in listed and "groundings" not in listed
+    assert "result" in listed and "validation" in listed
+
+
+def test_document_delete_removes_row_and_file_but_not_while_busy():
+    project_id = project("delete-document")
+    document_id = upload(project_id)
+    wait_for(document_id, "parsed")
+
+    with connect() as db:
+        db.execute("UPDATE documents SET status='extracting' WHERE id=?", (document_id,))
+    busy = client.delete(f"/api/documents/{document_id}")
+    assert busy.status_code == 409, busy.text
+    assert busy.json()["detail"] == "처리 중인 문서는 삭제할 수 없습니다."
+    with connect() as db:
+        db.execute("UPDATE documents SET status='parsed' WHERE id=?", (document_id,))
+
+    response = client.get(f"/api/documents/{document_id}/file")
+    assert response.status_code == 200
+
+    deleted = client.delete(f"/api/documents/{document_id}")
+    assert deleted.status_code == 204
+    assert client.get(f"/api/documents/{document_id}").status_code == 404
+    assert client.get(f"/api/documents/{document_id}/file").status_code == 404
