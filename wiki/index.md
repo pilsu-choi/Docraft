@@ -30,7 +30,7 @@ okf_version: "0.2"
 
 * [원문 근거 상자 표시 수정](2026-09-21-bbox-rendering-fix.md) - 원문 근거 상자가 정규화 좌표로 오인돼 잘못 그려지던 문제의 원인과 수정
 * [추출 실패: VLM 응답 JSON 파싱 오류](2026-09-21-extract-json-parse-failure.md) - VLM 추출 응답 JSON 파싱 실패(Expecting ',' delimiter)의 원인 분석과 대응 후보
-* [추출 grounding 블록 id 전환과 json_object 계약 전환](2026-09-21-extract-grounding-block-id.md) - extract() grounding을 블록 id 참조로 바꾸고, 재현 테스트로 해로움이 확인된 strict json_schema 대신 response_format: json_object로 전환한 기록
+* [추출 grounding 서버 측 계산 전환과 json_object 계약](2026-09-21-extract-grounding-block-id.md) - extract()를 json_object 단일 결과 계약으로 바꾸고, grounding을 모델 응답 대신 서버가 원문 블록에서 값을 찾아 계산하도록 전환한 기록
 * [원본 문서 미리보기 크기 수정](2026-09-21-ui-preview-fix.md) - 원본 PDF·이미지 미리보기가 패널보다 커지던 문제의 원인과 수정
 
 # 테스트 기록

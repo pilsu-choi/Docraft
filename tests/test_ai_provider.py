@@ -122,71 +122,74 @@ def test_extract_provider_errors_are_not_hidden_by_local_fallback(monkeypatch):
         engine.extract(schema, [{"text": "hospital: Local", "page": None, "bbox": None}])
 
 
-def test_extract_grounding_block_ids_fill_page_bbox_and_source_text(monkeypatch):
+def test_extract_grounds_leaves_by_normalized_text_match(monkeypatch):
     configure(monkeypatch)
-    install_response(monkeypatch, json.dumps({
-        "result": {"hospital": "서울병원", "code": None},
-        "groundings": [
-            {"path": "/hospital", "confidence": 0.9, "block": "1"},  # quoted id, as qwen3-vl returns
-            {"path": "/code", "confidence": 0.2, "block": 7},  # out of range
-        ],
-    }, ensure_ascii=False))
-    schema = {"type": "object", "properties": {"hospital": {"type": "string"}, "code": {"type": "string"}}, "required": ["hospital", "code"]}
+    install_response(monkeypatch, json.dumps({"hospital": "전액 본인부담", "amount": 12380, "count": 1.0}, ensure_ascii=False))
+    schema = {"type": "object", "properties": {"hospital": {"type": "string"}, "amount": {"type": "number"}, "count": {"type": "number"}}, "required": ["hospital", "amount", "count"]}
     blocks = [
         {"text": "환자명: 홍길동", "page": 1, "bbox": [0, 0, 10, 10]},
-        {"text": "병원: 서울병원", "page": 2, "bbox": [1, 2, 3, 4]},
+        {"text": "<td>전액\n본인부담</td><td>12,380</td><td>1</td>", "page": 2, "bbox": [1, 2, 3, 4]},
     ]
 
     result, groundings = engine.extract(schema, blocks)
 
-    assert result == {"hospital": "서울병원", "code": None}
-    assert groundings["hospital"] == {"confidence": 0.9, "page": 2, "bbox": [1, 2, 3, 4], "source_text": "서울병원"}
-    assert groundings["code"] == {"confidence": 0.2, "page": None, "bbox": None, "source_text": None}
+    assert result == {"hospital": "전액 본인부담", "amount": 12380, "count": 1.0}
+    assert groundings["hospital"] == {"confidence": 1.0, "page": 2, "bbox": [1, 2, 3, 4], "source_text": "전액 본인부담"}
+    assert groundings["amount"] == {"confidence": 1.0, "page": 2, "bbox": [1, 2, 3, 4], "source_text": "12380"}
+    assert groundings["count"] == {"confidence": 1.0, "page": 2, "bbox": [1, 2, 3, 4], "source_text": "1.0"}
     body = FakeClient.requests[0][1]["json"]
     assert body["response_format"] == {"type": "json_object"}
     assert "provider" not in body
-    assert "[1] 병원: 서울병원" in body["messages"][1]["content"]
+    assert "groundings" not in json.dumps(body["messages"], ensure_ascii=False)
 
 
-def test_extract_ignores_missing_or_malformed_groundings(monkeypatch):
+def test_extract_marks_values_absent_from_blocks_as_low_confidence(monkeypatch):
     configure(monkeypatch)
-    install_response(monkeypatch, json.dumps({
-        "result": {"hospital": "서울병원", "code": "A1"},
-        "groundings": [
-            "not-an-object",
-            {"path": "/hospital", "confidence": "high", "block": 0},
-            {"confidence": 0.9, "block": 0},  # missing path
-            {"path": "/code", "block": 0},  # missing confidence
-        ],
-    }, ensure_ascii=False))
+    install_response(monkeypatch, json.dumps({"hospital": "서울병원", "code": "없는값"}, ensure_ascii=False))
     schema = {"type": "object", "properties": {"hospital": {"type": "string"}, "code": {"type": "string"}}, "required": ["hospital", "code"]}
     blocks = [{"text": "병원: 서울병원", "page": 1, "bbox": [0, 0, 1, 1]}]
 
     result, groundings = engine.extract(schema, blocks)
 
-    assert result == {"hospital": "서울병원", "code": "A1"}
-    assert groundings["hospital"] == {"confidence": 0, "page": 1, "bbox": [0, 0, 1, 1], "source_text": "서울병원"}
-    assert groundings["code"] == {"confidence": 0, "page": 1, "bbox": [0, 0, 1, 1], "source_text": "A1"}
+    assert result == {"hospital": "서울병원", "code": "없는값"}
+    assert groundings["code"] == {"confidence": 0.0, "page": None, "bbox": None, "source_text": "없는값"}
+    assert engine.validate(result, schema, groundings) == [
+        {"path": "/code", "code": "low_confidence", "message": "원문 근거 또는 추출 신뢰도가 낮습니다."},
+    ]
 
 
-def test_extract_raises_when_result_is_missing(monkeypatch):
+def test_extract_grounding_tree_mirrors_arrays_and_nesting(monkeypatch):
     configure(monkeypatch)
-    install_response(monkeypatch, json.dumps({"groundings": []}))
+    install_response(monkeypatch, json.dumps({
+        "환자": {"이름": "홍길동"},
+        "항목정보": [{"코드": "AA254", "금액": 12380}, {"코드": "BB100", "금액": None}],
+    }, ensure_ascii=False))
+    schema = {"type": "object", "properties": {
+        "환자": {"type": "object", "properties": {"이름": {"type": "string"}}, "required": ["이름"]},
+        "항목정보": {"type": "array", "items": {"type": "object", "properties": {"코드": {"type": "string"}, "금액": {"type": ["number", "null"]}}, "required": ["코드", "금액"]}},
+    }, "required": ["환자", "항목정보"]}
+    blocks = [{"text": "홍길동 AA254 12,380 BB100", "page": 3, "bbox": [5, 6, 7, 8]}]
+
+    _, groundings = engine.extract(schema, blocks)
+
+    assert groundings["환자"]["이름"]["page"] == 3
+    assert list(groundings["항목정보"]) == ["0", "1"]
+    assert groundings["항목정보"]["0"]["금액"] == {"confidence": 1.0, "page": 3, "bbox": [5, 6, 7, 8], "source_text": "12380"}
+    assert groundings["항목정보"]["1"]["금액"] == {"confidence": 0, "page": None, "bbox": None, "source_text": None}
+
+
+def test_extract_response_that_is_not_an_object_raises(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps(["서울병원"], ensure_ascii=False))
     schema = {"type": "object", "properties": {"hospital": {"type": "string"}}}
 
-    with pytest.raises(RuntimeError, match="result"):
+    with pytest.raises(RuntimeError, match="JSON object"):
         engine.extract(schema, [{"text": "병원: 서울병원", "page": 1, "bbox": None}])
 
 
 def test_extract_drops_null_optional_field_and_passes_validation(monkeypatch):
     configure(monkeypatch)
-    install_response(monkeypatch, json.dumps({
-        "result": {"hospital": "서울병원", "code": None},
-        "groundings": [
-            {"path": "/hospital", "confidence": 0.9, "block": 0},
-            {"path": "/code", "confidence": 0.9, "block": 0},
-        ],
-    }, ensure_ascii=False))
+    install_response(monkeypatch, json.dumps({"hospital": "서울병원", "code": None}, ensure_ascii=False))
     schema = {"type": "object", "properties": {"hospital": {"type": "string"}, "code": {"type": "string"}}, "required": ["hospital"]}
     blocks = [{"text": "병원: 서울병원", "page": 1, "bbox": [0, 0, 1, 1]}]
 
@@ -199,14 +202,14 @@ def test_extract_drops_null_optional_field_and_passes_validation(monkeypatch):
 
 def test_extract_block_list_is_truncated_on_block_boundaries(monkeypatch, caplog):
     configure(monkeypatch)
-    install_response(monkeypatch, '{"result": {}, "groundings": []}')
+    install_response(monkeypatch, "{}")
     blocks = [{"text": "가" * 5000, "page": 1, "bbox": None} for _ in range(12)]
 
     with caplog.at_level(logging.WARNING, logger="backend.engine"):
         engine.extract({"type": "object", "properties": {}}, blocks)
 
-    lines = FakeClient.requests[0][1]["json"]["messages"][1]["content"].split("([id] text):\n", 1)[1].split("\n")
+    lines = FakeClient.requests[0][1]["json"]["messages"][1]["content"].split("Source blocks:\n", 1)[1].split("\n")
     assert 0 < len(lines) < len(blocks)
-    assert all(line == f"[{index}] " + "가" * 5000 for index, line in enumerate(lines))
+    assert all(line == "가" * 5000 for line in lines)
     assert sum(len(line) for line in lines) <= 40000
     assert "truncated" in caplog.text

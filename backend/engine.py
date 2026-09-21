@@ -155,10 +155,10 @@ def _local_extract(schema, blocks):
 
 
 def _block_lines(blocks, budget=40000):
-    """Serialize blocks as `[id] text` lines, dropping whole blocks beyond the character budget."""
+    """Serialize block texts as lines, dropping whole blocks beyond the character budget."""
     lines, used = [], 0
     for index, block in enumerate(blocks):
-        line = f"[{index}] {block['text']}"
+        line = block["text"]
         if used + len(line) > budget:
             logger.warning("extract: block list truncated at %d/%d blocks (budget=%d)", index, len(blocks), budget)
             break
@@ -190,73 +190,43 @@ def extract(schema, blocks):
         return _local_extract(schema, blocks)
     evidence = _block_lines(blocks)
     logger.debug("extract: provider mode blocks=%d evidence_chars=%d", len(blocks), len(evidence))
-    ai = _provider([
+    result = _provider([
         {"role": "system", "content": (
             "Extract values using document context and layout. Never invent values. Use null when allowed and absent. "
-            "Return only a single JSON object with exactly two keys: "
-            "`result`, an object following the given schema (keep the schema's field order); and "
-            "`groundings`, an array of {path, confidence, block} items, one per extracted leaf. "
-            "`path` is a JSON Pointer to the leaf in `result`. `confidence` is a number from 0 to 1. "
-            "`block` is the id of the source block, or null when no block supports the value. "
-            "Never copy source text or coordinates."
+            "Return only a single JSON object that itself follows the given schema, with no wrapper key "
+            "and with the schema's field order kept."
         )},
-        {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks ([id] text):\n{evidence}"},
+        {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks:\n{evidence}"},
     ])
-    result = ai.get("result") if isinstance(ai, dict) else None
     if not isinstance(result, dict):
-        raise RuntimeError("AI provider 응답에서 result를 찾을 수 없습니다.")
+        raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
     _drop_null_optionals(result, schema)
-    groundings = []
-    for item in ai.get("groundings") or []:
-        if not isinstance(item, dict) or not isinstance(item.get("path"), str):
-            continue
-        value = _pointer_value(result, item["path"])
-        if value is _MISSING:
-            continue
-        block_id = item.get("block")
-        if isinstance(block_id, str) and block_id.strip("[] ").isdigit():  # models often quote ids: "1", "[1]"
-            block_id = int(block_id.strip("[] "))
-        source = blocks[block_id] if isinstance(block_id, int) and 0 <= block_id < len(blocks) else {}
-        confidence = item.get("confidence")
-        groundings.append({
-            "path": item["path"],
-            "confidence": confidence if isinstance(confidence, (int, float)) else 0,
-            "block": block_id,
-            "page": source.get("page"),
-            "bbox": source.get("bbox"),
-            "source_text": None if value is None else str(value),
-        })
-    return result, _grounding_tree(groundings)
+    return result, _grounding_tree(result, [(_normalized(block["text"]), block) for block in blocks])
 
 
-def _pointer_parts(pointer):
-    return [part.replace("~1", "/").replace("~0", "~") for part in pointer.strip("/").split("/") if part]
+def _normalized(text):
+    """Drop whitespace and thousands separators so `12,380`, `12380` and `전액\\n본인부담` compare equal."""
+    return re.sub(r"[\s,]+", "", str(text))
 
 
-_MISSING = object()
-
-
-def _pointer_value(document, pointer):
-    target = document
-    for part in _pointer_parts(pointer):
-        try:
-            target = target[int(part)] if isinstance(target, list) else target[part]
-        except (KeyError, IndexError, ValueError, TypeError):
-            return _MISSING
-    return target
-
-
-def _grounding_tree(items):
-    root = {}
-    for item in items:
-        parts = _pointer_parts(item["path"])
-        if not parts:
-            continue
-        target = root
-        for part in parts[:-1]:
-            target = target.setdefault(part, {})
-        target[parts[-1]] = {key: item.get(key) for key in ("confidence", "page", "bbox", "source_text")}
-    return root
+def _grounding_tree(value, sources):
+    """Ground every leaf of the result by locating its value inside a source block's text."""
+    if isinstance(value, dict):
+        return {key: _grounding_tree(sub, sources) for key, sub in value.items()}
+    if isinstance(value, list):
+        return {str(index): _grounding_tree(item, sources) for index, item in enumerate(value)}
+    if value is None:
+        return {"confidence": 0, "page": None, "bbox": None, "source_text": None}
+    needles = {_normalized(value)}
+    if isinstance(value, float) and value.is_integer():  # the model returns 1.0 where the document shows 1
+        needles.add(_normalized(int(value)))
+    source = next((block for text, block in sources if any(needle and needle in text for needle in needles)), None)
+    return {
+        "confidence": 1.0 if source else 0.0,
+        "page": source.get("page") if source else None,
+        "bbox": source.get("bbox") if source else None,
+        "source_text": str(value),
+    }
 
 
 def validate(result, schema, groundings):

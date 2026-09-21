@@ -49,14 +49,15 @@ OCR 결과(`markdown`)에는 표 전체가 정상으로 들어 있었다. 실패
 최종 적용 상태는 [extract-grounding-block-id](2026-09-21-extract-grounding-block-id.md)에 기록했다. 요약하면:
 
 - **적용됨**
-  - grounding을 블록 id 참조로 전환: 모델은 `{path, confidence, block}`만 반환하고, `page`·`bbox`·`source_text`는 서버가 `block` id/`path`로 채운다.
+  - `extract()`를 `response_format: json_object`로 전환하고, 응답 JSON object 자체가 스키마를 따르는 결과(래핑 키 없음, 필드 순서 유지)라는 계약을 system prompt로 지시.
+  - grounding은 모델에 요청하지 않고 **서버가 계산한다**. `result`의 모든 leaf에 대해 값 문자열을 원문 블록에서 찾아 `page`·`bbox`를 채우고, 못 찾으면 `confidence: 0.0`으로 남겨 `validate()`가 `low_confidence` 이슈로 드러내게 한다. 비교는 양쪽 모두 공백·쉼표를 제거한 정규화 문자열의 부분 문자열 포함이다.
   - 모델 입력을 블록 단위로 평문화·예산 자르기(`_block_lines`, 기본 40000자).
-  - `extract()`를 `response_format: json_object`로 전환하고, `result`(스키마 필드 순서 유지)와 `groundings`(`{path, confidence, block}` 배열) 계약을 system prompt로 지시.
   - optional 필드가 `null`로 오면 원본 스키마 기준으로 결과에서 제거(`_drop_null_optionals`).
 - **철회됨** (재현 테스트로 해로움이 확인돼 제거)
   - strict `json_schema` 정규화(`_strict_schema`)와 OpenRouter `provider.require_parameters: true`. 둘 다 Alibaba provider에서 키 정렬 강제 → 컬럼 오정렬 → degeneration 루프로 이어져 삭제했다.
+  - 모델에게 `{path, confidence, block}` grounding을 받는 중간 단계. 응답 시간이 41초 → 150~200초로 늘고, 돌아온 grounding 204개가 전부 block 1·confidence 1.0이라 정보량이 없었으며, 모델이 block id를 문자열로 주면 조용히 `page`/`bbox`가 `null`이 됐다. 서버 측 계산으로 대체한 뒤 같은 문서가 61초에 leaf 199개 전부 `bbox` 채워짐·이슈 0건으로 끝났다.
 - **남은 후보**
-  - grounding 생성이 응답 시간 대부분을 차지한다(실험 3 41초 → 실험 4 200초). 이 문서에선 204개 grounding이 전부 block 1·confidence 1.0이라 정보량이 없다. 서버 측에서 값 텍스트를 블록에서 찾아 grounding을 계산하는 방식(모델에 요청하지 않는 방식)을 검토할 만하다.
+  - grounding 해상도가 OCR 블록 단위라, 표 전체가 블록 하나인 이 문서에서는 모든 leaf가 같은 `bbox`를 가리킨다. 셀 단위 근거는 파서가 블록을 더 잘게 나눠야 가능하다.
+  - 부분 문자열 매칭이라 `0`, `1` 같은 짧은 값은 블록이 여러 개인 문서에서 엉뚱한 블록에 먼저 걸릴 수 있다.
   - `_block_lines`는 예산을 넘는 블록 하나를 만나면 그 지점에서 멈추므로, 그 블록 자체가 예산보다 크면 이후 블록이 전부 빠진다.
-  - 응답의 `block` id가 범위를 벗어나면 `page`/`bbox`가 조용히 `null`로 채워질 뿐, 별도 로깅은 없다.
-  - `_provider()`의 httpx `timeout=90`초에 비해 실험 4의 실응답은 200초 걸렸다. 실제 provider 호출 시 타임아웃 초과 가능성이 있다.
+  - `_provider()`의 httpx `timeout=90`초는 현재 응답(61초)에는 여유가 있지만, 표가 더 긴 문서에서는 다시 빠듯해질 수 있다.
