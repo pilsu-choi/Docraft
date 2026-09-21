@@ -253,6 +253,49 @@ def test_extract_picks_the_repeated_value_line_closest_to_its_siblings(monkeypat
     assert item["금액"] == {"confidence": 1.0, "page": 1, "bbox": [40, 210, 70, 230], "source_text": "47300"}
 
 
+LABEL_LINES = [
+    {"text": "환자등록번호", "bbox": [100, 10, 240, 40]},
+    {"text": "670925*", "bbox": [105, 50, 250, 75]},
+    {"text": "⑧환자부담 총액", "bbox": [1000, 100, 1200, 130]}, {"text": "47,300", "bbox": [1370, 105, 1450, 135]},
+    {"text": "⑩납부할금액", "bbox": [1000, 200, 1200, 230]}, {"text": "47,300", "bbox": [1370, 205, 1450, 235]},
+    {"text": "카드i", "bbox": [1100, 300, 1200, 330]}, {"text": "47,300", "bbox": [1370, 300, 1450, 330]},
+    {"text": "201-90-97318", "bbox": [700, 400, 880, 430]},
+]
+LABEL_BLOCK = {
+    "text": "<table><tr><td>환자등록번호</td></tr><tr><td>670825********</td></tr><tr><td>환자부담 총액</td><td>47,300</td></tr>"
+            "<tr><td>납부할 금액</td><td>47,300</td></tr><tr><td>카드</td><td>47,300</td></tr><tr><td>201-90-97318</td></tr></table>",
+    "page": 1, "bbox": [0, 0, 1500, 500], "lines": LABEL_LINES,
+}
+LABEL_SCHEMA = {"type": "object", "properties": {
+    "patient_burden_total": {"title": "환자부담 총액"}, "납부할금액": {}, "납부한금액": {"type": "object", "properties": {"카드": {}}},
+    "환자등록번호": {}, "사업자등록번호": {},
+}}
+
+
+def test_extract_sends_a_repeated_value_to_the_line_beside_each_field_label(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({"patient_burden_total": 47300, "납부할금액": 47300, "납부한금액": {"카드": 47300}}, ensure_ascii=False))
+
+    _, groundings = engine.extract(LABEL_SCHEMA, [LABEL_BLOCK])
+
+    # The key or the schema title names the label line; each `47,300` lands on its own row.
+    assert groundings["patient_burden_total"]["bbox"] == [1370, 105, 1450, 135]
+    assert groundings["납부할금액"]["bbox"] == [1370, 205, 1450, 235]
+    assert groundings["납부한금액"]["카드"]["bbox"] == [1370, 300, 1450, 330]
+
+
+def test_extract_grounds_a_value_the_line_ocr_misread_on_the_line_under_its_label(monkeypatch):
+    configure(monkeypatch)
+    install_response(monkeypatch, json.dumps({"환자등록번호": "670825********", "사업자등록번호": "2019097318"}, ensure_ascii=False))
+
+    _, groundings = engine.extract(LABEL_SCHEMA, [LABEL_BLOCK])
+
+    assert groundings["환자등록번호"] == {"confidence": 1.0, "page": 1, "bbox": [105, 50, 250, 75], "source_text": "670825********"}
+    # Hyphens printed in the document do not hide a value extracted without them.
+    assert groundings["사업자등록번호"]["confidence"] == 1.0
+    assert groundings["사업자등록번호"]["bbox"] == [700, 400, 880, 430]
+
+
 def test_extract_without_line_boxes_grounds_on_the_whole_block(monkeypatch):
     configure(monkeypatch)
     install_response(monkeypatch, json.dumps({"항목정보": [

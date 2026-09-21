@@ -148,7 +148,7 @@ python -m pytest tests -q --ignore=tests/ui_smoke.py --ignore=tests/ui_preview_l
 | `/items/1/insurance_burden` | 6504 | 1.0 | [504, 726, 574, 760] | ✅ 같은 행 |
 | `/items/2/patient_burden` | 40000 | 1.0 | [912, 1239, 990, 1273] | ✅ 수액 행(합계 행 1437 아님) |
 | `/total_medical_cost` | 64600 | 1.0 | [1374, 351, 1449, 381] | ✅ |
-| `/amount_to_pay` 등 `47,300` 4개 leaf | 47300 | 1.0 | [1374, 426, 1449, 456] | ✅ 같은 형제 대역 |
+| `/amount_to_pay` 등 `47,300` 4개 leaf | 47300 | 1.0 | [1374, 426, 1449, 456] | ❌ 오판 — 네 leaf는 서로 다른 셀이다. [label-grounding](2026-09-22-label-grounding.md)에서 라벨 기준으로 수정 |
 
 `40,000`은 줄 후보가 2곳(y 1239, y 1437), `47,300`은 4곳이었고 형제 대역 규칙이 올바른 쪽을 골랐다.
 
