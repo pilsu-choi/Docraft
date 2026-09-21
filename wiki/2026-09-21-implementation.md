@@ -1,3 +1,11 @@
+---
+type: Implementation Log
+title: "구현 기록"
+description: "PRD P0 요구사항과 검증 근거 매핑, 통합 검증 결과"
+tags: [p0, test]
+status: stable
+---
+
 # 구현 기록
 
 ## 범위
@@ -52,6 +60,6 @@ PRD P0의 Upload, Parse, Schema, Schema 기반 Extract, JSON 결과, grounding, 
 - 프론트 `npm run build`: 통과.
 - Chrome 일반 모드와 API 키 강제 모드: 신규 프로젝트 → 실제 TXT 업로드/파싱 → 스키마 생성/선택 → 추출 → 이름을 Janet Doe로 수정 → 승인 → JSON 다운로드 통과. 다운로드 내용을 파싱해 수정값을 확인했다.
 - 재현 스크립트: `tests/ui_smoke.py`. 테스트용 서버는 종료했다.
-- PDF/DOCX/XLSX 파싱, 중첩 표 배열 및 검증 실패 후 수정/승인 점검의 상세 근거는 `backend-implementation.md` 참조.
+- PDF/DOCX/XLSX 파싱, 중첩 표 배열 및 검증 실패 후 수정/승인 점검의 상세 근거는 [backend-implementation](2026-09-21-backend-implementation.md) 참조.
 - 외부 AI 제공자 실호출과 Tesseract OCR은 환경에 키/실행 파일이 없어 검증하지 않았다. 로컬 추출은 휴리스틱이며 일반 문서에서 AI 추론 품질을 보장하지 않는다.
 - RBAC, webhook, 고급 validation agent, feedback learning 등은 후속 범위로 남는다.

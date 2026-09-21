@@ -1,3 +1,11 @@
+---
+type: Implementation Log
+title: "프로젝트 작업공간 백엔드 변경 기록"
+description: "PostgreSQL 전환, 프로젝트·스키마 CRUD, SQLite 이관 도구 기록"
+tags: [backend, postgresql]
+status: stable
+---
+
 # 프로젝트 작업공간 백엔드 변경 기록
 
 - 데이터베이스를 PostgreSQL로 전환했다. `docker compose up -d postgres`로 로컬 DB를 시작하고 `DATABASE_URL`로 연결한다. 업로드 원본은 기존 `DOCRAFT_DATA_DIR/files`에 둔다.

@@ -1,0 +1,38 @@
+---
+okf_version: "0.2"
+---
+
+# Docraft wiki
+
+작업 기록은 Open Knowledge Format v0.2(`type` 등 YAML frontmatter + markdown 본문)을 따르며, 파일명은 `YYYY-MM-DD-<주제>.md`다. 변경 이력은 [log.md](log.md)에 남긴다.
+
+
+# 계획과 구현 기록
+
+* [Backend P0 implementation (2026-09-21)](2026-09-21-backend-implementation.md) - FastAPI 백엔드 P0 최초 구현(SQLite·Tesseract 시기) 기록 (deprecated)
+* [dev 통합 및 UI 확인](2026-09-21-dev-merge.md) - P0 구현을 dev 브랜치로 통합하고 UI를 실행한 작업 기록
+* [피드백 UI 반영](2026-09-21-feedback-ui.md) - feedback.md 4개 항목(필드 근거 호버, Markdown·JSON 토글, 스키마 설명 편집) 반영
+* [Agentic OCR 2.0.1 fixture conversion](2026-09-21-fixture-conversion.md) - Agentic OCR 2.0.1 PNG fixture를 텍스트 레이어 포함 PDF로 변환한 절차
+* [PRD 구현 작업](2026-09-21-implementation-session.md) - PRD P0 구현 세션의 브랜치·역할 분배·완료 범위
+* [구현 기록](2026-09-21-implementation.md) - PRD P0 요구사항과 검증 근거 매핑, 통합 검증 결과
+* [백엔드 로깅과 Docker 전체 스택](2026-09-21-logging-docker.md) - 백엔드 레벨별 로깅(docraft.log)과 postgres·backend·frontend Docker 전체 스택 구성
+* [PaddleOCR-VL 로컬 Docker 호스팅](2026-09-21-paddleocr-docker.md) - PaddleOCR-VL을 compose ocr profile로 로컬 GPU에 호스팅한 구성과 검증
+* [PDF 근거 상자 정밀화](2026-09-21-pdf-line-bbox.md) - PDF 근거 상자를 텍스트 블록에서 줄 단위로 정밀화
+* [프로젝트 작업공간 백엔드 변경 기록](2026-09-21-project-workspace-backend.md) - PostgreSQL 전환, 프로젝트·스키마 CRUD, SQLite 이관 도구 기록
+* [프로젝트 작업공간 개편](2026-09-21-project-workspace-plan.md) - 프로젝트 작업공간 개편의 사용자 요구와 작업 분배
+* [UI 개편 제안 및 진행 상태](2026-09-21-ui-redesign-plan.md) - 단순하고 직관적인 UI 개편 방향과 진행 상태
+
+# 조사
+
+* [PaddleOCR 호환성 조사](2026-09-21-paddleocr-compatibility.md) - PaddleOCR 원격·on-prem layout-parsing HTTP 계약과 Docraft adapter 출력 규약 조사
+
+# 장애와 버그 수정
+
+* [원문 근거 상자 표시 수정](2026-09-21-bbox-rendering-fix.md) - 원문 근거 상자가 정규화 좌표로 오인돼 잘못 그려지던 문제의 원인과 수정
+* [추출 실패: VLM 응답 JSON 파싱 오류](2026-09-21-extract-json-parse-failure.md) - VLM 추출 응답 JSON 파싱 실패(Expecting ',' delimiter)의 원인 분석과 대응 후보
+* [원본 문서 미리보기 크기 수정](2026-09-21-ui-preview-fix.md) - 원본 PDF·이미지 미리보기가 패널보다 커지던 문제의 원인과 수정
+
+# 테스트 기록
+
+* [AI provider 검증 기록](2026-09-21-ai-provider-validation.md) - OpenAI 호환 AI provider 계약 테스트와 OpenRouter Qwen 실호출 검증
+* [프로젝트 작업공간 테스트 기록](2026-09-21-project-workspace-tests.md) - 프로젝트 작업공간의 PostgreSQL 격리 통합 테스트와 E2E 결과

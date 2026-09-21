@@ -1,3 +1,11 @@
+---
+type: Investigation
+title: "PaddleOCR 호환성 조사"
+description: "PaddleOCR 원격·on-prem layout-parsing HTTP 계약과 Docraft adapter 출력 규약 조사"
+tags: [ocr, paddleocr]
+status: stable
+---
+
 # PaddleOCR 호환성 조사
 
 ## 2026-09-21
@@ -28,6 +36,6 @@
 - 사내 서비스는 PaddleX serving의 `paddlex --serve --pipeline OCR` 또는 PaddleOCR MCP의 `self_hosted` source로 구성할 수 있다. Docraft adapter는 base URL/API key/model을 설정으로 받고 서비스 응답을 Docraft block 계약으로 변환한다.
 - 현재 OpenRouter의 승인된 Qwen 모델은 PaddleOCR 모델이 아니므로 PaddleOCR-VL 대체로 자동 사용하지 않는다. Paddle OCR이 필요하면 공식 API 또는 별도 Paddle self-hosted endpoint를 명시적으로 설정한다.
 
-공식 PaddleOCR-VL/PaddleX 서비스의 full document parsing HTTP 계약은 `POST /layout-parsing`이며 JSON body의 `file`은 서버가 접근 가능한 URL 또는 Base64 파일 내용, `fileType`은 PDF `0`/이미지 `1`이다. 성공 응답은 `result.layoutParsingResults[]` 아래 `prunedResult`와 `markdown.text`를 제공하고, PDF 각 페이지가 결과 원소가 된다. Docraft remote adapter는 업로드 파일을 Base64로 보내고(`visualize`/`returnMarkdownImages`는 끔) `prunedResult.parsing_res_list`의 영역별 `block_content`·`block_bbox`와 `prunedResult.width/height`(page_size)를 block으로 저장한다. 영역 목록이 없는 응답에서만 `markdown.text`를 bbox `null`인 페이지 block으로 쓴다. HTTP 오류나 누락 결과는 `ParseError`로 반환한다. 로컬 Docker 호스팅은 [paddleocr-docker.md](paddleocr-docker.md)를 참고한다.
+공식 PaddleOCR-VL/PaddleX 서비스의 full document parsing HTTP 계약은 `POST /layout-parsing`이며 JSON body의 `file`은 서버가 접근 가능한 URL 또는 Base64 파일 내용, `fileType`은 PDF `0`/이미지 `1`이다. 성공 응답은 `result.layoutParsingResults[]` 아래 `prunedResult`와 `markdown.text`를 제공하고, PDF 각 페이지가 결과 원소가 된다. Docraft remote adapter는 업로드 파일을 Base64로 보내고(`visualize`/`returnMarkdownImages`는 끔) `prunedResult.parsing_res_list`의 영역별 `block_content`·`block_bbox`와 `prunedResult.width/height`(page_size)를 block으로 저장한다. 영역 목록이 없는 응답에서만 `markdown.text`를 bbox `null`인 페이지 block으로 쓴다. HTTP 오류나 누락 결과는 `ParseError`로 반환한다. 로컬 Docker 호스팅은 [paddleocr-docker.md](2026-09-21-paddleocr-docker.md)를 참고한다.
 
 공식 근거: [PaddlePaddle macOS pip 설치](https://www.paddlepaddle.org.cn/documentation/docs/en/install/pip/macos-pip_en.html), [PaddleOCR quick start](https://www.paddleocr.ai/main/en/quick_start.html), [PaddleOCR-VL hardware/API service](https://www.paddleocr.ai/main/en/version3.x/pipeline_usage/PaddleOCR-VL.html), [PaddleOCR official Python API](https://www.paddleocr.ai/main/en/version3.x/inference_deployment/serving/paddleocr_official_api/python.html), [PaddleX serving](https://paddlepaddle.github.io/PaddleOCR/main/en/version3.x/deployment/serving.html), [PaddleOCR MCP self-hosted/Ai Studio](https://paddlepaddle.github.io/PaddleOCR/main/en/version3.x/deployment/mcp_server.html), [PaddleOCR/PaddleX/Paddle 호환표](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/paddleocr_and_paddlex.md), [PaddleOCR 3.3.0 PyPI wheel](https://pypi.org/project/paddleocr/3.3.0/).

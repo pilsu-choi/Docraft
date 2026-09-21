@@ -1,3 +1,11 @@
+---
+type: Plan
+title: "UI 개편 제안 및 진행 상태"
+description: "단순하고 직관적인 UI 개편 방향과 진행 상태"
+tags: [plan, frontend, design]
+status: stable
+---
+
 # UI 개편 제안 및 진행 상태
 
 ## 요청

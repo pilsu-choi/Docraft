@@ -47,7 +47,7 @@ docker compose logs -f backend
 
 ## OCR 변환 샘플
 
-`samples/agentic-ocr-2.0.1-results/pdf/`에는 UI에서 바로 업로드해 볼 수 있는 의료 문서 PNG 5개의 검색 가능 PDF가 있습니다. 같은 이미지 원본은 `samples/agentic-ocr-2.0.1-results/images/`에 문서 종류별로 보관합니다. PDF는 macOS Vision이 만든 보이지 않는 텍스트 레이어를 포함하므로 현재 `PARSE_PROVIDER=library` 설정에서도 파싱됩니다. 샘플 바이너리는 개인정보 보호를 위해 Git에서 제외됩니다. 생성 방식과 검증 결과는 [wiki/fixture-conversion.md](wiki/fixture-conversion.md)에서 확인할 수 있습니다.
+`samples/agentic-ocr-2.0.1-results/pdf/`에는 UI에서 바로 업로드해 볼 수 있는 의료 문서 PNG 5개의 검색 가능 PDF가 있습니다. 같은 이미지 원본은 `samples/agentic-ocr-2.0.1-results/images/`에 문서 종류별로 보관합니다. PDF는 macOS Vision이 만든 보이지 않는 텍스트 레이어를 포함하므로 현재 `PARSE_PROVIDER=library` 설정에서도 파싱됩니다. 샘플 바이너리는 개인정보 보호를 위해 Git에서 제외됩니다. 생성 방식과 검증 결과는 [wiki/2026-09-21-fixture-conversion.md](wiki/2026-09-21-fixture-conversion.md)에서 확인할 수 있습니다.
 
 ## 화면에서 전체 흐름 실행
 
@@ -116,11 +116,11 @@ curl http://127.0.0.1:8080/health   # paddleocr-vl-api가 healthy가 되면 사�
 
 `.env`에는 `PARSE_PROVIDER=paddle`, `PADDLEOCR_BASE_URL=http://127.0.0.1:8080`을 설정합니다. `paddleocr-vlm-server`(vLLM, PaddleOCR-VL-1.6-0.9B)와 `paddleocr-vl-api`(PP-DocLayoutV3 layout + `/layout-parsing`) 두 컨테이너가 같은 GPU를 씁니다. 12GB GPU 기준으로 `deploy/paddleocr/vllm_config.yaml`의 `gpu-memory-utilization`을 0.5로 낮춰 두었습니다. GPU 번호와 호스트 포트는 `PADDLEOCR_GPU`, `PADDLEOCR_PORT`로 바꿀 수 있습니다. 서빙 모델은 `.env`의 `PADDLEOCR_MODEL` 하나로 정해집니다. compose가 같은 `.env`를 읽어 vLLM `--model_name`과 pipeline의 VL 모델명에 넣고, 앱 상태 표시도 이 값을 씁니다. 바꾼 뒤에는 `docker compose --profile ocr up -d --force-recreate`로 다시 띄웁니다. 응답의 영역별 `block_bbox`는 원문 미리보기의 근거 상자로 표시됩니다.
 
-서비스는 `POST /layout-parsing` 계약을 지원해야 합니다. 설정하지 않은 상태에서 이미지 또는 스캔 PDF를 업로드하면 명시적인 설정 오류가 표시됩니다. 자세한 계약과 근거는 [wiki/paddleocr-compatibility.md](wiki/paddleocr-compatibility.md)를 참고하세요.
+서비스는 `POST /layout-parsing` 계약을 지원해야 합니다. 설정하지 않은 상태에서 이미지 또는 스캔 PDF를 업로드하면 명시적인 설정 오류가 표시됩니다. 자세한 계약과 근거는 [wiki/2026-09-21-paddleocr-compatibility.md](wiki/2026-09-21-paddleocr-compatibility.md)를 참고하세요.
 
 ## 프로젝트 문서
 
-구현 요구사항과 검증 근거는 [wiki/implementation.md](wiki/implementation.md)에 기록합니다.
+구현 요구사항과 검증 근거는 [wiki/2026-09-21-implementation.md](wiki/2026-09-21-implementation.md)에 기록합니다.
 
 검증 결과: 실제 PostgreSQL의 격리된 테스트 schema에서 백엔드 테스트 28개가 통과했고 프론트엔드 빌드도 통과했습니다. 합성 PDF 기반 Chrome E2E는 프로젝트 CRUD, 파싱 후 빈 프롬프트 스키마 생성, 빨간 원문 근거 박스, 패널 접기·펼치기를 검증합니다. 이미지·스캔 OCR은 `ocr` profile의 로컬 PaddleOCR-VL 컨테이너로 합성 영수증 PNG·스캔 PDF 업로드부터 영역 bbox 저장까지 확인했습니다.
 

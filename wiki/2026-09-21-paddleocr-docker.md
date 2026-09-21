@@ -1,3 +1,11 @@
+---
+type: Implementation Log
+title: "PaddleOCR-VL 로컬 Docker 호스팅"
+description: "PaddleOCR-VL을 compose ocr profile로 로컬 GPU에 호스팅한 구성과 검증"
+tags: [ocr, paddleocr, docker]
+status: stable
+---
+
 # PaddleOCR-VL 로컬 Docker 호스팅
 
 ## 2026-09-21

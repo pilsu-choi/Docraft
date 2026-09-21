@@ -1,3 +1,11 @@
+---
+type: Test Record
+title: "AI provider 검증 기록"
+description: "OpenAI 호환 AI provider 계약 테스트와 OpenRouter Qwen 실호출 검증"
+tags: [ai-provider, test]
+status: stable
+---
+
 # AI provider 검증 기록
 
 ## 2026-09-21

@@ -1,3 +1,11 @@
+---
+type: Incident
+title: "원문 근거 상자 표시 수정"
+description: "원문 근거 상자가 정규화 좌표로 오인돼 잘못 그려지던 문제의 원인과 수정"
+tags: [frontend, bbox]
+status: stable
+---
+
 # 원문 근거 상자 표시 수정
 
 2026-09-21

@@ -1,3 +1,11 @@
+---
+type: Implementation Log
+title: "PRD 구현 작업"
+description: "PRD P0 구현 세션의 브랜치·역할 분배·완료 범위"
+tags: [p0, session]
+status: stable
+---
+
 # PRD 구현 작업
 
 - 작업 브랜치: `feat/prd-implementation`

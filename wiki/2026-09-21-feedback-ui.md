@@ -1,3 +1,11 @@
+---
+type: Implementation Log
+title: "피드백 UI 반영"
+description: "feedback.md 4개 항목(필드 근거 호버, Markdown·JSON 토글, 스키마 설명 편집) 반영"
+tags: [frontend, feedback]
+status: stable
+---
+
 # 피드백 UI 반영
 
 2026-09-21 · 브랜치 `feat/feedback-ui` (워크트리 `.worktrees/feedback-ui`)
