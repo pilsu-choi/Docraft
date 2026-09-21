@@ -1,3 +1,11 @@
+---
+type: Implementation Log
+title: "PDF 근거 상자 정밀화"
+description: "PDF 근거 상자를 텍스트 블록에서 줄 단위로 정밀화"
+tags: [backend, bbox, pdf]
+status: stable
+---
+
 # PDF 근거 상자 정밀화
 
 - 기존 PyMuPDF 텍스트 **블록** bbox는 여러 줄을 한꺼번에 포함해 빨간 상자가 사진·문서의 큰 영역을 덮을 수 있었다.

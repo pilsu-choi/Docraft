@@ -1,3 +1,11 @@
+---
+type: Test Record
+title: "프로젝트 작업공간 테스트 기록"
+description: "프로젝트 작업공간의 PostgreSQL 격리 통합 테스트와 E2E 결과"
+tags: [test, postgresql]
+status: stable
+---
+
 # 프로젝트 작업공간 테스트 기록
 
 ## 목적

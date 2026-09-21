@@ -1,8 +1,17 @@
+---
+type: Implementation Log
+title: "백엔드 로깅과 Docker 전체 스택"
+description: "백엔드 레벨별 로깅(docraft.log)과 postgres·backend·frontend Docker 전체 스택 구성"
+tags: [backend, logging, docker]
+generated: {by: claude-code/claude-opus-5, at: 2026-09-21}
+status: stable
+---
+
 # 백엔드 로깅과 Docker 전체 스택
 
 ## 2026-09-21
 
-[[extract-json-parse-failure]]를 조사할 때 서버 로그가 uvicorn access log뿐이어서, 추출이 왜 실패했는지와 VLM이 무엇을 돌려줬는지 확인할 수 없었다.
+[extract-json-parse-failure](2026-09-21-extract-json-parse-failure.md)를 조사할 때 서버 로그가 uvicorn access log뿐이어서, 추출이 왜 실패했는지와 VLM이 무엇을 돌려줬는지 확인할 수 없었다.
 
 ### 로깅
 - `config.setup_logging()`이 `backend` logger 하나만 설정한다. 각 모듈은 `logging.getLogger(__name__)`을 쓴다. `propagate=False`로 두어 uvicorn/root logger와 중복 출력되지 않게 했고, httpx·httpcore·fitz 로그는 WARNING 이상만 남긴다.

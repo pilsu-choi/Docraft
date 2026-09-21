@@ -1,3 +1,11 @@
+---
+type: Incident
+title: "원본 문서 미리보기 크기 수정"
+description: "원본 PDF·이미지 미리보기가 패널보다 커지던 문제의 원인과 수정"
+tags: [frontend, preview]
+status: stable
+---
+
 # 원본 문서 미리보기 크기 수정
 
 2026-09-21

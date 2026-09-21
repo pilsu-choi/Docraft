@@ -1,3 +1,12 @@
+---
+type: Incident
+title: "추출 실패: VLM 응답 JSON 파싱 오류"
+description: "VLM 추출 응답 JSON 파싱 실패(Expecting ',' delimiter)의 원인 분석과 대응 후보"
+tags: [extraction, ai-provider, incident]
+generated: {by: claude-code/claude-opus-5, at: 2026-09-21}
+status: stable
+---
+
 # 추출 실패: VLM 응답 JSON 파싱 오류
 
 ## 2026-09-21 발생
@@ -24,7 +33,7 @@ OCR 결과(`markdown`)에는 표 전체가 정상으로 들어 있었다. 실패
 
 ## 대응
 
-- 백엔드 로깅 추가를 `feat/logging-docker` 브랜치에서 진행 중이다. 적용되면 `_provider()`가 JSON 파싱 실패 시 응답 길이, `finish_reason`, 원본 응답의 앞뒤 일부를 ERROR로 남기므로, 같은 오류가 다시 나면 `docraft.log`에서 원인을 바로 확인할 수 있다.
+- 백엔드 로깅을 추가했다([logging-docker](2026-09-21-logging-docker.md)). 이제 `_provider()`가 JSON 파싱 실패 시 응답 길이, `finish_reason`, 원본 응답의 앞뒤 일부를 ERROR로 남기므로 같은 오류가 다시 나면 `docraft.log`에서 원인을 바로 확인할 수 있다.
 - 남은 후보 대응:
   - grounding에 `source_text` 대신 블록 id를 쓰게 해서 응답 크기와 escape 위험을 함께 줄인다.
   - 파싱에 실패하면 한 번 재시도한다.

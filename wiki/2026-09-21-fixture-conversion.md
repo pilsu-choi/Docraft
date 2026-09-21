@@ -1,3 +1,11 @@
+---
+type: Implementation Log
+title: "Agentic OCR 2.0.1 fixture conversion"
+description: "Agentic OCR 2.0.1 PNG fixture를 텍스트 레이어 포함 PDF로 변환한 절차"
+tags: [samples, ocr]
+status: stable
+---
+
 # Agentic OCR 2.0.1 fixture conversion
 
 The five supplied PNG fixtures are copied without modification to `samples/agentic-ocr-2.0.1-results/images/<document category>/`.

@@ -1,3 +1,11 @@
+---
+type: Plan
+title: "프로젝트 작업공간 개편"
+description: "프로젝트 작업공간 개편의 사용자 요구와 작업 분배"
+tags: [plan, frontend, backend]
+status: stable
+---
+
 # 프로젝트 작업공간 개편
 
 ## 최종 사용자 요구

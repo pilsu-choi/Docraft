@@ -1,4 +1,14 @@
+---
+type: Implementation Log
+title: "Backend P0 implementation (2026-09-21)"
+description: "FastAPI 백엔드 P0 최초 구현(SQLite·Tesseract 시기) 기록"
+tags: [backend, p0]
+status: deprecated
+---
+
 # Backend P0 implementation (2026-09-21)
+
+> 현재와 다름: 이후 PostgreSQL 전환([project-workspace-backend](2026-09-21-project-workspace-backend.md))과 PaddleOCR 도입으로 SQLite·Tesseract 내용은 현재와 다르다.
 
 - Added a FastAPI and SQLite service for isolated projects, documents, versioned JSON Schemas, corrections, and audit records.
 - Added real PDF, DOCX, XLSX, CSV, text, and optional Tesseract image parsing with normalized blocks and source coordinates where available.
