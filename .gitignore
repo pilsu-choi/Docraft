@@ -1,0 +1,15 @@
+.venv/
+.worktrees/
+data/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+.env
+*.db
+uploads/
+dist/
+build/
+*.tsbuildinfo
+*.egg-info/
+node_modules/
