@@ -211,11 +211,11 @@ def _normalized(text):
 
 
 def _block_rows(block):
-    """Read a block as rows of normalized cells: parsed table rows, table HTML `<tr>`, or one row of the text and its tokens."""
-    if block.get("rows"): return [[_normalized(cell) for cell in row] for row in block["rows"]]
+    """Read a block as rows of normalized cells: table HTML `<tr>` (every row kept, so row indexes stay geometric), parsed table rows, or one row of the text and its tokens."""
     text = block["text"]
     rows = re.findall(r"<tr[^>]*>(.*?)</tr>", text, re.S) or ([text] if re.search(r"<t[dh][\s>]", text) else [])
     if rows: return [[_normalized(re.sub(r"<[^>]+>", "", cell)) for cell in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)] for row in rows]
+    if block.get("rows"): return [[_normalized(cell) for cell in row] for row in block["rows"]]
     return [[_normalized(text), *(_normalized(token) for token in text.split())]]
 
 

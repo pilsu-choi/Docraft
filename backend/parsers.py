@@ -1,8 +1,11 @@
 import csv
 import io
 import base64
+import html
 import logging
 import time
+import uuid
+from html.parser import HTMLParser
 from pathlib import Path
 
 from docx import Document
@@ -14,6 +17,13 @@ from .config import ocr_settings
 
 logger = logging.getLogger(__name__)
 
+LABEL_TYPES = {
+    "table": "table", "doc_title": "heading", "paragraph_title": "heading",
+    "image": "figure", "chart": "figure", "figure_title": "figure", "header_image": "figure", "footer_image": "figure",
+    "header": "marginalia", "footer": "marginalia", "number": "marginalia", "footnote": "marginalia", "aside_text": "marginalia",
+    "formula": "formula",
+}
+
 
 class ParseError(ValueError):
     pass
@@ -23,33 +33,77 @@ def block(text, kind="text", page=None, bbox=None, **extra):
     return {"type": kind, "page": page, "bbox": bbox, "text": str(text), **extra}
 
 
-def parse_pdf(path):
-    result = []
+def _pages_from_range(spec, total):
+    """"1-3,5" (1-based) -> sorted page numbers within [1, total]; drops out-of-range pages."""
+    pages = set()
+    for part in spec.split(","):
+        start, _, end = part.partition("-")
+        start, end = int(start), int(end or start)
+        pages.update(range(start, end + 1))
+    return sorted(p for p in pages if 1 <= p <= total)
+
+
+def _page_pdf(path, pages):
+    """A temporary single-use PDF containing only `pages` (1-based); caller deletes it."""
+    with fitz.open(path) as src, fitz.open() as sub:
+        for number in pages:
+            sub.insert_pdf(src, from_page=number - 1, to_page=number - 1)
+        target = Path(path).with_name(f".{uuid.uuid4().hex}.pdf")
+        sub.save(target)
+    return target
+
+
+def parse_pdf(path, provider="auto", pages=None):
     with fitz.open(path) as pdf:
-        for number, page in enumerate(pdf, 1):
-            for region in page.get_text("dict")["blocks"]:
-                for line in region.get("lines", []):
-                    text = "".join(span["text"] for span in line["spans"]).strip()
-                    if text:
-                        result.append(block(text, page=number, bbox=list(line["bbox"]), page_size=[page.rect.width, page.rect.height]))
-    if not result:
-        if ocr_settings()["provider"] != "paddle":
+        total = len(pdf)
+    selected = _pages_from_range(pages, total) if pages else list(range(1, total + 1))
+    if not selected:
+        raise ParseError("선택한 페이지 범위에 유효한 페이지가 없습니다.")
+    result = []
+    if provider != "paddle":
+        with fitz.open(path) as pdf:
+            for number in selected:
+                page = pdf[number - 1]
+                for region in page.get_text("dict")["blocks"]:
+                    for line in region.get("lines", []):
+                        text = "".join(span["text"] for span in line["spans"]).strip()
+                        if text:
+                            result.append(block(text, page=number, bbox=list(line["bbox"]), page_size=[page.rect.width, page.rect.height]))
+        if result:
+            return result
+        if provider == "library" or ocr_settings()["provider"] != "paddle":
             raise ParseError("스캔 PDF OCR은 비활성화되어 있습니다. PARSE_PROVIDER=paddle과 원격 endpoint를 설정해 주세요.")
-        result = _remote_paddle(path, 0)
+    subset = _page_pdf(path, selected) if pages else None
+    try:
+        result = _remote_paddle(subset or path, 0, page_map=selected if subset else None)
+    finally:
+        if subset:
+            subset.unlink(missing_ok=True)
     if not result:
         raise ParseError("PaddleOCR가 스캔 PDF에서 텍스트를 찾지 못했습니다.")
     return result
 
 
-def parse_image(path):
-    if ocr_settings()["provider"] != "paddle":
+def parse_image(path, provider="auto"):
+    if provider == "library" or (provider == "auto" and ocr_settings()["provider"] != "paddle"):
         raise ParseError("이미지 OCR은 비활성화되어 있습니다. PARSE_PROVIDER=paddle과 원격 endpoint를 설정해 주세요.")
     return _remote_paddle(path, 1)
 
 
-def _remote_paddle(path, file_type):
+def _html_table_rows(content):
+    if "<table" not in content.lower():
+        return None
+    parser = _HtmlBlocks()
+    parser.feed(content)
+    parser.close()
+    parser.flush()
+    table = next((b for b in parser.blocks if b["type"] == "table"), None)
+    return table["rows"] if table else None
+
+
+def _remote_paddle(path, file_type, page_map=None):
     settings = ocr_settings()
-    if not settings["configured"]:
+    if not settings["base_url"]:
         raise ParseError("PaddleOCR 원격 서비스가 설정되지 않았습니다. PADDLEOCR_BASE_URL을 설정해 주세요.")
     endpoint = settings["base_url"]
     if not endpoint.endswith("/layout-parsing"):
@@ -69,14 +123,22 @@ def _remote_paddle(path, file_type):
         raise ParseError(f"PaddleOCR 원격 처리 실패{suffix}") from exc
     logger.debug("paddleocr response: elapsed=%.2fs pages=%d", time.monotonic() - started, len(pages))
     blocks = []
-    for page_no, page in enumerate(pages, 1):
+    for index, page in enumerate(pages, 1):
+        page_no = page_map[index - 1] if page_map else index
         pruned = page.get("prunedResult") or {}
         size = [pruned["width"], pruned["height"]] if pruned.get("width") and pruned.get("height") else None
         regions = [r for r in pruned.get("parsing_res_list") or [] if str(r.get("block_content") or "").strip()]
         for region in regions:
             bbox = region.get("block_bbox")
-            kind = "table" if region.get("block_label") == "table" else "text"
-            blocks.append(block(region["block_content"].strip(), kind, page=page_no, bbox=list(bbox) if bbox and len(bbox) == 4 else None, page_size=size, source="paddleocr_remote"))
+            label = region.get("block_label")
+            kind = LABEL_TYPES.get(label, "text")
+            content = region["block_content"].strip()
+            extra = {"label": label}
+            if kind == "table":
+                rows = _html_table_rows(content)
+                if rows is not None:
+                    extra["rows"] = rows
+            blocks.append(block(content, kind, page=page_no, bbox=list(bbox) if bbox and len(bbox) == 4 else None, page_size=size, source="paddleocr_remote", **extra))
         markdown = page.get("markdown", {})
         text = markdown.get("text") if isinstance(markdown, dict) else None
         if not regions and text and text.strip():
@@ -118,25 +180,94 @@ def parse_text(path):
     return [block(line) for line in text.splitlines() if line.strip()]
 
 
-def parse(path, filename, media_type):
+class _HtmlBlocks(HTMLParser):
+    BLOCKS = {"p", "div", "li", "br", "section", "article", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6"}
+
+    def __init__(self):
+        super().__init__()
+        self.blocks, self.text, self.rows, self.skip = [], "", None, 0
+
+    def flush(self, kind="text"):
+        if self.text.strip():
+            self.blocks.append(block(" ".join(self.text.split()), kind))
+        self.text = ""
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"script", "style", "head"}:
+            self.skip += 1
+        elif tag == "table":
+            self.flush()
+            self.rows = []
+        elif self.rows is not None and tag == "tr":
+            self.rows.append([])
+        elif self.rows is not None and tag in {"td", "th"}:
+            self.text = ""
+        elif tag in self.BLOCKS:
+            self.flush()
+
+    def handle_endtag(self, tag):
+        if tag in {"script", "style", "head"}:
+            self.skip = max(0, self.skip - 1)
+        elif tag == "table" and self.rows is not None:
+            rows = [row for row in self.rows if any(row)]
+            self.rows, self.text = None, ""
+            if rows:
+                self.blocks.append(block("\n".join(" | ".join(row) for row in rows), "table", rows=rows))
+        elif self.rows is not None and tag in {"td", "th"} and self.rows:
+            self.rows[-1].append(" ".join(self.text.split()))
+            self.text = ""
+        elif self.rows is None and tag in self.BLOCKS:
+            self.flush("heading" if tag[0] == "h" and tag[1:].isdigit() else "text")
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.text += data
+
+
+def parse_html(path):
+    parser = _HtmlBlocks()
+    parser.feed(Path(path).read_text(encoding="utf-8", errors="replace"))
+    parser.close()
+    parser.flush()
+    return parser.blocks
+
+
+def _markdown(item, table_format="markdown"):
+    rows = item.get("rows")
+    if item["type"] == "heading":
+        return f"## {item['text']}"
+    if item["type"] != "table" or not rows:
+        return item["text"]
+    if table_format == "html":
+        return "<table>" + "".join("<tr>" + "".join(f"<td>{html.escape(cell)}</td>" for cell in row) + "</tr>" for row in rows) + "</table>"
+    width = max(map(len, rows))
+    lines = ["| " + " | ".join(cell.replace("|", "\\|").replace("\n", " ") for cell in row + [""] * (width - len(row))) + " |" for row in rows]
+    return "\n".join([lines[0], "|" + " --- |" * width, *lines[1:]])
+
+
+def parse(path, filename, media_type, options=None):
+    options = options or {}
+    pages, provider, table_format = options.get("pages"), options.get("provider", "auto"), options.get("table_format", "markdown")
     suffix = Path(filename).suffix.lower()
     if suffix == ".pdf":
-        blocks = parse_pdf(path)
+        blocks = parse_pdf(path, provider, pages)
     elif suffix in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}:
-        blocks = parse_image(path)
+        blocks = parse_image(path, provider)
     elif suffix == ".docx":
         blocks = parse_docx(path)
     elif suffix == ".xlsx":
         blocks = parse_xlsx(path)
     elif suffix == ".csv":
         blocks = parse_csv(path)
+    elif suffix in {".html", ".htm"}:
+        blocks = parse_html(path)
     elif suffix in {".txt", ".md"} or media_type.startswith("text/"):
         blocks = parse_text(path)
     else:
         raise ParseError(f"지원하지 않는 파일 형식입니다: {suffix or media_type}")
     if not blocks:
         raise ParseError("문서에서 내용을 찾지 못했습니다.")
-    separator = "\n" if suffix == ".pdf" else "\n\n"
-    markdown = separator.join(b["text"] if b["type"] != "table" else f"```text\n{b['text']}\n```" for b in blocks)
+    separator = "\n" if suffix in {".pdf", ".txt", ".md"} else "\n\n"
+    markdown = separator.join(_markdown(item, table_format) for item in blocks)
     logger.debug("parse: suffix=%s blocks=%d markdown_chars=%d", suffix, len(blocks), len(markdown))
     return markdown, blocks

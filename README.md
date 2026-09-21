@@ -51,24 +51,24 @@ docker compose logs -f backend
 
 ## 화면에서 전체 흐름 실행
 
-1. 홈에서 새 프로젝트를 만들거나 프로젝트 목록에서 기존 프로젝트를 열고, 상세 화면의 문서·스키마 탭에서 작업합니다. 프로젝트 이름은 바꾸거나 삭제할 수 있습니다.
-2. TXT/PDF/Office/스프레드시트/이미지 파일을 업로드합니다. 파싱(OCR 포함)이 `parsed`가 된 문서를 하나 이상 선택한 뒤 `스키마` 탭에서 추출할 필드를 설명하고 `AI 스키마 생성`을 누릅니다. 프롬프트는 비워도 되지만 파싱 완료 참조 문서는 필수입니다.
-3. 저장된 스키마를 선택하고 `이 스키마로 추출 실행`을 누릅니다. `review` 탭에서 결과·신뢰도·원문 근거를 확인합니다.
-   - 문서 분석 결과와 추출 결과는 `Markdown | JSON`, `필드 | JSON` 토글로 전환해 봅니다.
-   - 스키마 편집기에서 필드마다 설명을 수정할 수 있고, AI 스키마 생성은 한국어 제목·설명을 우선 생성합니다.
-   - 추출 필드에 마우스를 올리면 원문에서 해당 근거 상자가 강조되고, 원문의 근거 상자에 올리면 해당 필드가 강조됩니다.
+1. 홈에서 새 프로젝트를 만들거나 프로젝트 목록에서 기존 프로젝트를 엽니다. 프로젝트 이름은 바꾸거나 삭제할 수 있고, 파일 목록의 `×`로 처리 중이 아닌 문서를 삭제할 수 있습니다.
+2. TXT/Markdown/HTML/PDF/Office/스프레드시트/이미지 파일을 업로드합니다. `01 문서 분석` 탭의 `분석 설정`에서 페이지 범위(PDF, 예: `1-3,5`), 파서(자동·기본 라이브러리·PaddleOCR), 표 형식(Markdown·HTML)을 정해 다시 분석할 수 있습니다.
+   - 분석 결과는 `미리보기 | Markdown | HTML | JSON`으로 봅니다. 미리보기는 블록을 `번호 - 유형`(텍스트·제목·표·그림·여백·수식) 카드로 보여 주고, 카드와 원문 상자가 양방향으로 연결됩니다. 카드를 누르면 원문이 해당 페이지·위치로 이동합니다.
+3. `02 스키마 설계` 탭에서 파싱이 끝난 참고 문서를 하나 이상 골라 `AI 스키마 생성`을 누르거나, JSON Schema 파일을 불러오거나, 직접 필드를 구성합니다. 필드마다 설명·허용 값(enum)·순서를 편집할 수 있습니다.
+4. `03 데이터 추출` 탭에서 스키마를 골라 추출합니다. `신뢰도 기준` 슬라이더보다 낮은 필드는 주황색으로 표시되고, 필드를 누르면 원문 근거 위치로 스크롤됩니다. 값을 수정·승인한 뒤 JSON·CSV·XLSX로 내려받습니다.
    - 근거 상자는 표의 행 단위입니다. 서버가 값이 들어 있는 행을 찾아 블록 상자를 행 수만큼 나눠 표시하고, 표의 한 행에서 와야 할 값이 다른 행에서만 발견되면 신뢰도 0.5로 낮춰 `review`에 드러냅니다.
-4. 필요한 값을 수정하고 승인한 뒤 JSON 또는 CSV 내보내기 링크를 사용합니다.
-5. `API` 탭에서는 선택한 문서와 스키마에 해당하는 curl 요청 예시를 확인할 수 있습니다.
+5. 상세 화면 상단의 `결과 표`에서는 프로젝트 문서 전체를 스키마 필드 기준 표로 비교·검색·정렬하고, 문서를 골라 `선택 문서 추출`로 한 번에 추출하며, 프로젝트 결과를 CSV·XLSX·JSON으로 내보냅니다. 객체 목록 필드는 CSV·XLSX에서 여러 행으로 펼쳐집니다.
+6. `04 API` 탭에서는 현재 프로젝트·문서·스키마에 맞춘 cURL·Python·JavaScript 예시를 복사할 수 있습니다.
 
 ## API 흐름
 
 1. `POST /api/projects`로 프로젝트를 만들고 `PATCH`/`DELETE /api/projects/{project_id}`로 관리합니다.
 2. `POST /api/projects/{project_id}/documents`에 `multipart/form-data`의 `files` 필드로 업로드합니다.
 3. `POST /api/projects/{project_id}/schemas`에 JSON Schema를 등록합니다. `PATCH /api/schemas/{schema_id}`는 새 id/버전을 만들며, 문서가 사용한 버전은 삭제할 수 없습니다.
-4. `POST /api/documents/{document_id}/extract`에 schema id를 전달해 추출합니다.
+4. `POST /api/documents/{document_id}/extract`에 schema id를 전달해 추출합니다. 여러 문서는 `POST /api/projects/{project_id}/extract`에 `{schema_id, document_ids}`(빈 목록은 전체)를 보내며, 응답의 `queued`·`skipped`로 결과를 확인합니다.
 5. 결과의 근거와 검증 상태를 확인한 뒤 correction endpoint로 값을 수정합니다.
-6. `GET /api/documents/{document_id}/export?format=json|csv`로 JSON 또는 CSV를 내려받습니다.
+6. `GET /api/documents/{document_id}/export?format=json|csv|xlsx` 또는 `GET /api/projects/{project_id}/export?format=json|csv|xlsx&schema_id=<선택>`으로 내려받습니다.
+7. `POST /api/documents/{document_id}/parse`에 `{pages, provider, table_format}`을 보내 옵션을 바꿔 다시 파싱하고, `DELETE /api/documents/{document_id}`로 문서를 삭제합니다.
 
 정확한 요청/응답 모델은 실행 중인 `/docs`를 기준으로 하며, API 키가 필요한 배포에서는 `X-API-Key` 헤더를 사용합니다.
 
@@ -76,7 +76,7 @@ docker compose logs -f backend
 
 `AI_MODE=local`이면 외부 AI 키 없이 로컬 heuristic 추출을 사용합니다. 기본값은 `provider`이며 이 모드에서는 provider 설정이 없거나 응답이 잘못된 경우 로컬 결과로 조용히 대체하지 않고 오류를 표시합니다. MVP의 로컬 parser는 agentic AI 추론이나 완전한 OCR을 보장하지 않습니다. Office 문서, 복잡한 표, 손글씨 및 비정형 이미지 품질은 배포 전 별도 provider와 평가가 필요합니다.
 
-문서 상태는 queued/parsing/parsed/extracting/validating/completed/failed 계열로 저장되며 업로드와 추출은 BackgroundTasks 기반 비동기로 실행됩니다. `DOCRAFT_API_KEY`를 설정하면 `X-API-Key` 인증이 활성화됩니다. RBAC, webhook, batch API, feedback learning, workflow builder는 후속 범위입니다.
+문서 상태는 queued/parsing/parsed/extracting/validating/completed/failed 계열로 저장되며 업로드와 추출은 BackgroundTasks 기반 비동기로 실행됩니다. `DOCRAFT_API_KEY`를 설정하면 `X-API-Key` 인증이 활성화됩니다. RBAC, webhook, 작업 큐 기반 batch, feedback learning, workflow builder는 후속 범위입니다.
 
 ## 설정
 
@@ -123,6 +123,6 @@ curl http://127.0.0.1:8080/health   # paddleocr-vl-api가 healthy가 되면 사�
 
 구현 요구사항과 검증 근거는 [wiki/2026-09-21-implementation.md](wiki/2026-09-21-implementation.md)에 기록합니다.
 
-검증 결과: 실제 PostgreSQL의 격리된 테스트 schema에서 백엔드 테스트 28개가 통과했고 프론트엔드 빌드도 통과했습니다. 합성 PDF 기반 Chrome E2E는 프로젝트 CRUD, 파싱 후 빈 프롬프트 스키마 생성, 빨간 원문 근거 박스, 패널 접기·펼치기를 검증합니다. 이미지·스캔 OCR은 `ocr` profile의 로컬 PaddleOCR-VL 컨테이너로 합성 영수증 PNG·스캔 PDF 업로드부터 영역 bbox 저장까지 확인했습니다.
+검증 결과: 실제 PostgreSQL의 격리된 테스트 schema에서 백엔드 테스트 47개가 통과했고 프론트엔드 빌드도 통과했습니다. 합성 PDF 기반 Chrome E2E는 프로젝트 CRUD, 파싱 후 빈 프롬프트 스키마 생성, 빨간 원문 근거 박스, 패널 접기·펼치기를 검증합니다. 이미지·스캔 OCR은 `ocr` profile의 로컬 PaddleOCR-VL 컨테이너로 합성 영수증 PNG·스캔 PDF 업로드부터 영역 bbox 저장까지 확인했습니다.
 
 원문 미리보기의 너비 맞춤·확대·근거 상자는 오프라인 Chrome 회귀 테스트로 확인할 수 있습니다. `frontend`에서 `npm run dev -- --host 127.0.0.1 --port 5175`를 실행한 뒤 저장소 루트에서 `python tests/ui_preview_layout.py`를 실행하세요. API 응답은 합성 PDF·이미지로 전부 모킹하며 프로젝트 데이터나 AI provider를 사용하지 않습니다. 다른 포트는 `DOCRAFT_UI_URL`로 지정할 수 있습니다.
