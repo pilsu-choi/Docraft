@@ -1,3 +1,4 @@
+import base64
 import difflib
 import json
 import logging
@@ -6,13 +7,24 @@ import time
 from collections import Counter
 from copy import deepcopy
 from itertools import groupby
+from pathlib import Path
 
+import fitz
 import httpx
 from jsonschema import Draft202012Validator
 
 from .config import ai_settings
 
 logger = logging.getLogger(__name__)
+
+VISION_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
+VISION_MAX_IMAGES = 4  # Page images per provider call.
+VISION_MAX_EDGE = 2000  # Longest side of an attached page image, in pixels.
+VISION_SCHEMA_PAGES = [1, 2]  # Pages taken from each reference document when generating a schema.
+VISION_NOTE = (
+    " The page image is attached: read the table structure (merged cells, column headers) from the image, "
+    "and use the OCR text only as a spelling aid."
+)
 
 
 class ProviderConfigurationError(RuntimeError):
@@ -23,13 +35,51 @@ def _truncate(text, limit=2000):
     return text if len(text) <= limit * 2 else f"{text[:limit]}...<truncated>...{text[-limit:]}"
 
 
+def _message_text(content):
+    """The text of a message; attached image data stays out of logs and character counts."""
+    return "".join(part.get("text", "") for part in content) if isinstance(content, list) else content or ""
+
+
+def _data_url(page):
+    """One rendered page as a base64 JPEG data URL, scaled so its longest side stays within VISION_MAX_EDGE."""
+    zoom = min(VISION_MAX_EDGE / max(page.rect.width, page.rect.height), 2.0)
+    pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    return "data:image/jpeg;base64," + base64.b64encode(pixmap.tobytes("jpeg", jpg_quality=90)).decode()
+
+
+def _page_images(source, pages):
+    """Page images of the document file `source` for the given 1-based page numbers (the same numbering the
+    parser puts on blocks). Empty when vision is off, the format has no page image (docx/xlsx/csv/txt/html),
+    or rendering fails — the call then falls back to the OCR text alone."""
+    if not source or not ai_settings()["vision"] or Path(source).suffix.lower() not in VISION_SUFFIXES:
+        return []
+    pages = list(pages)
+    if len(pages) > VISION_MAX_IMAGES:
+        logger.warning("vision: %d pages exceed the %d image limit, attaching the first %d", len(pages), VISION_MAX_IMAGES, VISION_MAX_IMAGES)
+        pages = pages[:VISION_MAX_IMAGES]
+    try:
+        with fitz.open(source) as document:
+            return [_data_url(document[number - 1]) for number in pages if 1 <= number <= len(document)]
+    except Exception as exc:
+        logger.warning("vision: page image rendering failed for %s: %s", Path(source).name, exc)
+        return []
+
+
+def _user(text, images):
+    """A user message; attached page images turn its content into the OpenAI content array."""
+    if not images:
+        return {"role": "user", "content": text}
+    return {"role": "user", "content": [*({"type": "image_url", "image_url": {"url": url}} for url in images), {"type": "text", "text": text}]}
+
+
 def _provider(messages):
     settings = ai_settings()
     if not settings["configured"] or settings["mode"] == "local":
         raise ProviderConfigurationError("AI provider가 설정되지 않았습니다. AI_BASE_URL, AI_API_KEY, AI_VLM_MODEL을 확인해 주세요.")
     body = {"model": settings["model"], "messages": messages, "temperature": 0, "response_format": {"type": "json_object"}}
-    prompt_chars = sum(len(m.get("content") or "") for m in messages)
-    logger.debug("provider call: model=%s messages=%d prompt_chars=%d", settings["model"], len(messages), prompt_chars)
+    prompt_chars = sum(len(_message_text(m.get("content"))) for m in messages)
+    images = sum(1 for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url")
+    logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", settings["model"], len(messages), images, prompt_chars)
     started = time.monotonic()
     with httpx.Client(timeout=90, transport=httpx.HTTPTransport(retries=2)) as client:
         response = client.post(f"{settings['base_url']}/chat/completions", headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body)
@@ -64,8 +114,8 @@ def _field_name(label):
     return name or "field"
 
 
-def generate_schema(prompt, document_text=""):
-    logger.debug("generate_schema: mode=%s prompt_chars=%d doc_chars=%d", ai_settings()["mode"], len(prompt), len(document_text))
+def generate_schema(prompt, document_text="", images=()):
+    logger.debug("generate_schema: mode=%s prompt_chars=%d doc_chars=%d images=%d", ai_settings()["mode"], len(prompt), len(document_text), len(images))
     if ai_settings()["mode"] != "local":
         system = (
             "Return only a JSON object containing a practical JSON Schema draft 2020-12. Include title, type object, properties and required. "
@@ -73,7 +123,12 @@ def generate_schema(prompt, document_text=""):
             "Every property, including nested and array item properties, must have a title and a description that explains what to extract and in which format. "
             "Write titles and descriptions in Korean first; keep other languages only for proper nouns, codes or units. Property keys stay short snake_case identifiers."
         )
-        generated = _provider([{"role": "system", "content": system}, {"role": "user", "content": f"Request:\n{prompt}\n\nDocument sample:\n{document_text[:12000]}"}])
+        if images:
+            system += (
+                " The page images are attached: follow the real column header structure shown there (merged headers included), "
+                "giving every value column its own field, and never turn a column into a boolean flag."
+            )
+        generated = _provider([{"role": "system", "content": system}, _user(f"Request:\n{prompt}\n\nDocument sample:\n{document_text[:12000]}", images)])
         generated.setdefault("$schema", "https://json-schema.org/draft/2020-12/schema")
         return generated
     terms = re.split(r"[,，、\n]|(?:와|과|및|그리고)|\band\b", prompt, flags=re.I)
@@ -97,7 +152,8 @@ def generate_schema_from_documents(prompt, docs):
     text = "\n\n".join(f"Document {doc['filename']}:\n{doc.get('markdown') or ''}" for doc in docs)
     if ai_settings()["mode"] == "local":
         return generate_schema(prompt, text)
-    return generate_schema(prompt or "Infer useful structured fields from these parsed documents.", text)
+    images = [url for doc in docs for url in _page_images(doc.get("file_path"), VISION_SCHEMA_PAGES)][:VISION_MAX_IMAGES]
+    return generate_schema(prompt or "Infer useful structured fields from these parsed documents.", text, images)
 
 
 def _coerce(value, schema):
@@ -199,8 +255,12 @@ def _chunk_text(chunk_blocks, budget):
     return text
 
 
+def _pages(chunk_blocks):
+    return sorted({b.get("page") for b in chunk_blocks if b.get("page") is not None})
+
+
 def _page_range(chunk_blocks):
-    pages = sorted({b.get("page") for b in chunk_blocks if b.get("page") is not None})
+    pages = _pages(chunk_blocks)
     if not pages:
         return "unknown"
     return f"{pages[0]}-{pages[-1]}" if pages[0] != pages[-1] else str(pages[0])
@@ -244,7 +304,8 @@ def _drop_null_optionals(value, schema):
     return value
 
 
-def extract(schema, blocks):
+def extract(schema, blocks, source=None):
+    """`source` is the original document file path; its page images are attached to each chunk call when available."""
     if ai_settings()["mode"] == "local":
         logger.debug("extract: local mode blocks=%d", len(blocks))
         return _local_extract(schema, blocks)
@@ -260,8 +321,9 @@ def extract(schema, blocks):
     for index, chunk in enumerate(chunks):
         page_range = _page_range(chunk)
         evidence = _chunk_text(chunk, budget)
-        logger.debug("extract: chunk %d/%d pages=%s blocks=%d evidence_chars=%d", index + 1, len(chunks), page_range, len(chunk), len(evidence))
-        chunk_system = system
+        images = _page_images(source, _pages(chunk))
+        logger.debug("extract: chunk %d/%d pages=%s blocks=%d evidence_chars=%d images=%d", index + 1, len(chunks), page_range, len(chunk), len(evidence), len(images))
+        chunk_system = system + (VISION_NOTE if images else "")
         if len(chunks) > 1:
             chunk_system += (
                 f" This is part {index + 1} of {len(chunks)} of the document, covering page(s) {page_range}; "
@@ -269,7 +331,7 @@ def extract(schema, blocks):
             )
         result = _provider([
             {"role": "system", "content": chunk_system},
-            {"role": "user", "content": f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks:\n{evidence}"},
+            _user(f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks:\n{evidence}", images),
         ])
         if not isinstance(result, dict):
             raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")

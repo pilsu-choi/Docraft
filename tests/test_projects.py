@@ -78,7 +78,7 @@ def test_schema_versions_are_project_scoped_and_used_version_cannot_be_deleted(m
     document_id = upload(first)
     wait_for(document_id, "parsed")
     # The worker is deterministic here; this test exercises the API's reference guard.
-    monkeypatch.setattr("backend.main.engine.extract", lambda _schema, _blocks: ({"name": "fixture"}, {"name": {"confidence": 1, "page": None, "bbox": None, "source_text": "name: fixture"}}))
+    monkeypatch.setattr("backend.main.engine.extract", lambda _schema, _blocks, _source=None: ({"name": "fixture"}, {"name": {"confidence": 1, "page": None, "bbox": None, "source_text": "name: fixture"}}))
     assert client.post(f"/api/documents/{document_id}/extract", json={"schema_id": first_v2.json()["id"]}).status_code == 202
     wait_for(document_id, "completed")
     assert client.delete(f"/api/schemas/{first_v2.json()['id']}").status_code == 409
@@ -116,7 +116,7 @@ def test_schema_generation_requires_a_parsed_same_project_reference(monkeypatch)
 
 
 def test_batch_extract_explicit_ids_skip_other_project_and_unknown(monkeypatch):
-    monkeypatch.setattr("backend.main.engine.extract", lambda _schema, _blocks: ({"name": "fixture"}, {}))
+    monkeypatch.setattr("backend.main.engine.extract", lambda _schema, _blocks, _source=None: ({"name": "fixture"}, {}))
     project_id, other_id = project("batch-explicit"), project("batch-other")
     doc_a = upload(project_id); wait_for(doc_a, "parsed")
     doc_b = upload(project_id); wait_for(doc_b, "parsed")
@@ -138,7 +138,7 @@ def test_batch_extract_explicit_ids_skip_other_project_and_unknown(monkeypatch):
 
 
 def test_batch_extract_default_scope_covers_project_and_skips_unparsed(monkeypatch):
-    monkeypatch.setattr("backend.main.engine.extract", lambda _schema, _blocks: ({"name": "fixture"}, {}))
+    monkeypatch.setattr("backend.main.engine.extract", lambda _schema, _blocks, _source=None: ({"name": "fixture"}, {}))
     project_id = project("batch-default")
     ready_doc = upload(project_id); wait_for(ready_doc, "parsed")
     stuck_doc = upload(project_id); wait_for(stuck_doc, "parsed")
@@ -164,7 +164,7 @@ def test_batch_extract_rejects_schema_from_another_project():
 
 
 def test_project_export_json_csv_and_schema_filter(monkeypatch):
-    monkeypatch.setattr("backend.main.engine.extract", lambda _schema, _blocks: ({"name": "A"}, {}))
+    monkeypatch.setattr("backend.main.engine.extract", lambda _schema, _blocks, _source=None: ({"name": "A"}, {}))
     project_id = project("export project")
     schema_a = schema(project_id, "schema-a")["id"]
     schema_b = schema(project_id, "schema-b")["id"]

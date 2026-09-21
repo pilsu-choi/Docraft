@@ -189,7 +189,7 @@ def test_document_export_expands_object_list_rows_and_supports_xlsx(monkeypatch)
     schema_id = schema(project_id)
     monkeypatch.setattr(
         "backend.main.engine.extract",
-        lambda _schema, _blocks: (
+        lambda _schema, _blocks, _source=None: (
             {"hospital": "ABC Hospital", "items": [{"name": "Apple", "qty": 1}, {"name": "Banana", "qty": 2}]},
             {},
         ),

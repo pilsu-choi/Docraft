@@ -419,7 +419,7 @@ def run_extract(document_id, schema_id):
     logger.info("extract start: document=%s schema=%s", document_id, schema_id)
     started = time.monotonic()
     try:
-        with heartbeat(document_id): result, groundings = engine.extract(schema["json_schema"], doc["blocks"])
+        with heartbeat(document_id): result, groundings = engine.extract(schema["json_schema"], doc["blocks"], doc["file_path"])
         with connect() as db: db.execute("UPDATE documents SET status='validating',result=?,groundings=?,updated_at=? WHERE id=?", (json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), now(), document_id))
         issues = engine.validate(result, schema["json_schema"], groundings)
         status = "needs_review" if issues else "completed"

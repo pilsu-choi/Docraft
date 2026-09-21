@@ -4,6 +4,7 @@ import json
 import logging
 from copy import deepcopy
 
+import fitz
 import httpx
 import pytest
 
@@ -479,6 +480,114 @@ def test_extract_splits_an_oversize_page_at_block_boundaries(monkeypatch):
     for _, request in FakeClient.requests:
         system_content = request["json"]["messages"][0]["content"]
         assert "page(s) 1" in system_content
+
+
+def _page_file(tmp_path, name, pages=1):
+    """A real single-page image or multi-page PDF written with fitz, so nothing here depends on a fixture file."""
+    document = fitz.open()
+    for number in range(1, pages + 1):
+        page = document.new_page(width=300, height=400)
+        page.insert_text((40, 60), f"page {number} 진찰료 4,593")
+    target = tmp_path / name
+    if target.suffix == ".pdf":
+        document.save(target)
+    else:
+        document[0].get_pixmap(alpha=False).save(target)
+    document.close()
+    return str(target)
+
+
+def _user_content(request_index=0):
+    return FakeClient.requests[request_index][1]["json"]["messages"][1]["content"]
+
+
+def test_extract_attaches_the_page_image_of_an_image_document(monkeypatch, tmp_path):
+    configure(monkeypatch)
+    install_response(monkeypatch, '{"hospital": "서울병원"}')
+    schema = {"type": "object", "properties": {"hospital": {"type": "string"}}}
+
+    engine.extract(schema, [{"text": "병원: 서울병원", "page": 1, "bbox": None}], _page_file(tmp_path, "receipt.png"))
+
+    content = _user_content()
+    assert [part["type"] for part in content] == ["image_url", "text"]
+    assert content[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert "Source blocks:" in content[1]["text"]
+    assert "page image is attached" in FakeClient.requests[0][1]["json"]["messages"][0]["content"]
+
+
+def test_extract_without_vision_keeps_the_plain_text_message(monkeypatch, tmp_path):
+    configure(monkeypatch)
+    monkeypatch.setenv("AI_VISION", "false")
+    install_response(monkeypatch, '{"hospital": "서울병원"}')
+    schema = {"type": "object", "properties": {"hospital": {"type": "string"}}}
+
+    engine.extract(schema, [{"text": "병원: 서울병원", "page": 1, "bbox": None}], _page_file(tmp_path, "receipt.png"))
+
+    assert isinstance(_user_content(), str)
+    assert "page image is attached" not in FakeClient.requests[0][1]["json"]["messages"][0]["content"]
+
+
+def test_extract_attaches_only_the_pages_of_each_chunk(monkeypatch, tmp_path):
+    configure(monkeypatch)
+    monkeypatch.setenv("EXTRACT_CHUNK_CHARS", "50")
+    install_responses(monkeypatch, ['{"hospital": null}', '{"hospital": "서울병원"}'])
+    source = _page_file(tmp_path, "report.pdf", pages=3)
+    # Pages 2 and 3 only, as a document parsed with a page range leaves them numbered.
+    blocks = [{"text": "B" * 40, "page": 2, "bbox": None}, {"text": "C" * 40, "page": 3, "bbox": None}]
+
+    engine.extract({"type": "object", "properties": {"hospital": {"type": "string"}}}, blocks, source)
+
+    with fitz.open(source) as pdf:
+        expected = [engine._data_url(pdf[1]), engine._data_url(pdf[2])]
+    assert [[part["image_url"]["url"] for part in _user_content(index) if part["type"] == "image_url"] for index in (0, 1)] == [[expected[0]], [expected[1]]]
+
+
+def test_extract_of_a_format_without_a_page_image_stays_text_only(monkeypatch, tmp_path):
+    configure(monkeypatch)
+    install_response(monkeypatch, '{"hospital": "서울병원"}')
+    source = tmp_path / "notes.txt"
+    source.write_text("병원: 서울병원")
+
+    engine.extract({"type": "object", "properties": {"hospital": {"type": "string"}}}, [{"text": "병원: 서울병원", "page": 1, "bbox": None}], str(source))
+
+    assert isinstance(_user_content(), str)
+
+
+def test_extract_falls_back_to_text_when_the_page_image_cannot_be_rendered(monkeypatch, tmp_path, caplog):
+    configure(monkeypatch)
+    install_response(monkeypatch, '{"hospital": "서울병원"}')
+    broken = tmp_path / "broken.pdf"
+    broken.write_text("not a pdf")
+
+    with caplog.at_level(logging.WARNING, logger="backend.engine"):
+        result, _ = engine.extract({"type": "object", "properties": {"hospital": {"type": "string"}}}, [{"text": "병원: 서울병원", "page": 1, "bbox": None}], str(broken))
+
+    assert result == {"hospital": "서울병원"}
+    assert isinstance(_user_content(), str)
+    assert "page image rendering failed" in caplog.text
+
+
+def test_generate_schema_from_documents_attaches_reference_page_images(monkeypatch, tmp_path):
+    configure(monkeypatch)
+    install_response(monkeypatch, '{"type":"object","properties":{}}')
+    docs = [{"filename": "receipt.png", "markdown": "진찰료 4,593", "file_path": _page_file(tmp_path, "receipt.png")}]
+
+    engine.generate_schema_from_documents("항목별 금액", docs)
+
+    content = _user_content()
+    assert [part["type"] for part in content] == ["image_url", "text"]
+    assert "boolean flag" in FakeClient.requests[0][1]["json"]["messages"][0]["content"]
+
+
+def test_attached_image_data_never_reaches_the_debug_log(monkeypatch, tmp_path, caplog):
+    configure(monkeypatch)
+    install_response(monkeypatch, '{"hospital": "서울병원"}')
+
+    with caplog.at_level(logging.DEBUG, logger="backend.engine"):
+        engine.extract({"type": "object", "properties": {"hospital": {"type": "string"}}}, [{"text": "병원: 서울병원", "page": 1, "bbox": None}], _page_file(tmp_path, "receipt.png"))
+
+    assert "images=1" in caplog.text
+    assert "base64" not in caplog.text and "data:image" not in caplog.text
 
 
 def test_extract_truncates_a_single_block_that_alone_exceeds_the_budget(monkeypatch, caplog):

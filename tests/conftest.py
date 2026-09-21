@@ -40,6 +40,7 @@ os.environ.pop("DOCRAFT_API_KEY", None)
 os.environ["AI_MODE"] = "local"
 os.environ["PARSE_PROVIDER"] = "library"
 os.environ["PADDLEOCR_LINES_URL"] = ""  # a developer .env must not switch line OCR on inside tests
+os.environ["AI_VISION"] = "true"  # ...nor switch page images off
 
 from backend.db import init_db
 

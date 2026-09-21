@@ -76,9 +76,10 @@ QUEUE_BACKEND=celery docker compose --profile app --profile queue up -d --build 
 1. 홈에서 새 프로젝트를 만들거나 프로젝트 목록에서 기존 프로젝트를 엽니다. 프로젝트 이름은 바꾸거나 삭제할 수 있고, 파일 목록의 `×`로 처리 중이 아닌 문서를 삭제할 수 있습니다.
 2. TXT/Markdown/HTML/PDF/Office/스프레드시트/이미지 파일을 업로드합니다. `01 문서 분석` 탭의 `분석 설정`에서 페이지 범위(PDF, 예: `1-3,5`), 파서(자동·기본 라이브러리·PaddleOCR), 표 형식(Markdown·HTML)을 정해 다시 분석할 수 있습니다.
    - 분석 결과는 `미리보기 | Markdown | HTML | JSON`으로 봅니다. 미리보기는 블록을 `번호 - 유형`(텍스트·제목·표·그림·여백·수식) 카드로 보여 주고, 카드와 원문 상자가 양방향으로 연결됩니다. 카드를 누르면 원문이 해당 페이지·위치로 이동합니다.
-3. `02 스키마 설계` 탭에서 파싱이 끝난 참고 문서를 하나 이상 골라 `AI 스키마 생성`을 누르거나, JSON Schema 파일을 불러오거나, 직접 필드를 구성합니다. `JSON Schema 내보내기`로 편집 중인 스키마를 파일로 내려받을 수 있습니다(스키마 이름은 `title`로 저장되어 다시 불러와도 유지됩니다). 필드마다 설명·허용 값(enum)·순서를 편집할 수 있습니다.
+3. `02 스키마 설계` 탭에서 파싱이 끝난 참고 문서를 하나 이상 골라 `AI 스키마 생성`을 누르거나(참고 문서의 앞 2페이지 이미지도 함께 전달되어 표의 실제 열 구조대로 필드를 만듭니다), JSON Schema 파일을 불러오거나, 직접 필드를 구성합니다. `JSON Schema 내보내기`로 편집 중인 스키마를 파일로 내려받을 수 있습니다(스키마 이름은 `title`로 저장되어 다시 불러와도 유지됩니다). 필드마다 설명·허용 값(enum)·순서를 편집할 수 있습니다.
 4. `03 데이터 추출` 탭에서 스키마를 골라 추출합니다. `신뢰도 기준` 슬라이더보다 낮은 필드는 주황색으로 표시되고, 필드를 누르면 원문 근거 위치로 스크롤됩니다. 값을 수정·승인한 뒤 JSON·CSV·XLSX로 내려받습니다.
    - 근거 상자는 값이 적힌 줄 단위입니다. 서버가 값이 들어 있는 표의 행을 찾고, 그 블록에 줄 단위 OCR 좌표(`PADDLEOCR_LINES_URL`)가 있으면 값과 일치하는 줄 상자를, 없으면 블록 상자를 표시합니다. 표의 한 행에서 와야 할 값이 다른 행에서만 발견되면 신뢰도 0.5로 낮춰 `review`에 드러냅니다. 원문에 그대로 적히지 않는 불리언 필드는 근거 대상에서 제외합니다.
+   - 추출 요청에는 그 페이지의 원본 이미지(PDF는 렌더링, 이미지 파일은 그 자체)가 OCR 텍스트와 함께 첨부됩니다. 모델이 병합 헤더 같은 표 구조를 문서에서 직접 읽어 열별 합계나 빈칸을 지어내지 않습니다(`AI_VISION`, 아래 설정 참고). 페이지 이미지가 없는 형식(DOCX·XLSX·CSV·TXT·HTML)은 기존대로 텍스트만 보냅니다.
    - 긴 문서는 페이지 경계를 지켜 여러 호출로 나눠 추출합니다(기본 40000자, `EXTRACT_CHUNK_CHARS`로 조정). 결과는 객체는 필드별, 배열은 호출 순서대로 이어 붙이고 경계에서 겹치는 항목만 제거하며, 스칼라 값은 처음 나온 값을 채택해 하나로 합칩니다.
 5. 상세 화면 상단의 `결과 표`에서는 프로젝트 문서 전체를 스키마 필드 기준 표로 비교·검색·정렬하고, 문서를 골라 `선택 문서 추출`로 한 번에 추출하며, 프로젝트 결과를 CSV·XLSX·JSON으로 내보냅니다. 객체 목록 필드는 CSV·XLSX에서 여러 행으로 펼쳐집니다.
 6. `04 API` 탭에서는 현재 프로젝트·문서·스키마에 맞춘 cURL·Python·JavaScript 예시를 복사할 수 있습니다.
@@ -114,7 +115,10 @@ AI_MODE=provider
 AI_BASE_URL=https://openrouter.ai/api/v1
 AI_API_KEY=<OpenRouter API key>
 AI_VLM_MODEL=qwen/qwen3-vl-32b-instruct
+AI_VISION=true
 ```
+
+`AI_VISION`(기본 `true`)은 추출·스키마 생성 요청에 PDF·이미지 문서의 페이지 이미지를 OCR 텍스트와 함께 보냅니다. 긴 변 2000px 이하 JPEG로 축소해 요청당 최대 4장까지 붙이며, 페이지당 prompt 토큰이 약 2,500 늘어납니다. **문서 페이지 이미지가 외부 provider로 전송되므로**(OCR 텍스트는 이전에도 전송됨) 민감 문서를 외부 API로 보낼 수 없는 환경에서는 `AI_VISION=false`로 끄거나 내부망 모델을 쓰세요. 근거와 효과는 [wiki/2026-09-22-vision-extract.md](wiki/2026-09-22-vision-extract.md)에 있습니다.
 
 `AI_VLM_MODEL`이 우선하며 기존 `AI_MODEL`도 호환 alias로 지원합니다. OpenRouter quickstart와 OpenAI structured outputs 안내를 함께 참고하세요: [OpenRouter Quickstart](https://openrouter.ai/docs/quickstart), [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 
