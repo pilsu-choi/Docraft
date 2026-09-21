@@ -14,3 +14,4 @@ build/
 *.tsbuildinfo
 *.egg-info/
 node_modules
+.playwright-mcp/
