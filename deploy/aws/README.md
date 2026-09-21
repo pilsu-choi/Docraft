@@ -10,7 +10,7 @@ harness-v2 개발 서버와 **같은 EC2**를 쓴다.
 - 디스크: 루트가 8.8GB라 스택은 데이터 디스크의 `REMOTE_ROOT=/mnt/data/docraft`에 둔다. docker 저장소도 `/mnt/data/docker`에 있다.
 
 harness와 겹치지 않게 다음을 지킨다.
-- **포트**: harness가 9010·5433·8124·9001을 쓴다. Docraft는 호스트 포트를 frontend(`127.0.0.1:3000`) 하나만 열고, 접근은 SSH 터널로 한다.
+- **포트**: harness가 9010·5433·8124·9001을 쓴다. Docraft는 호스트 포트를 frontend(3000) 하나만 연다. 기본은 루프백이고 SSH 터널로 접근한다.
 - **GPU**: harness의 임베딩 vLLM이 약 3.5GB를 쓴다. PaddleOCR vLLM은 `vllm_config.aws.yaml`의 `gpu-memory-utilization: 0.35`(약 8GB)로 줄였다.
 - **docker**: `provision.sh`는 아무것도 설치하지 않고 확인만 한다. 공유 서버의 docker를 재시작하면 harness도 같이 내려간다.
 
@@ -39,6 +39,20 @@ deploy/aws/down.sh            # 정지. GPU를 harness에 돌려줄 때도 이�
 | `tunnel.sh` | 로컬 `TUNNEL_PORT`(13000)를 서버 frontend로 연결한다(`--bg`/`--stop`) |
 | `smoke.sh` | `aws-smoke` 프로젝트에 샘플을 올려 파싱 결과를 확인한다 |
 | `logs.sh` / `down.sh` | 로그 / 정지(`--volumes`는 DB까지 삭제) |
+
+## 외부 접근
+
+`.env.aws`에서 바인드 주소를 고른다.
+
+| `FRONTEND_BIND` | 접근 방법 | 비고 |
+| --- | --- | --- |
+| `127.0.0.1` (기본) | `tunnel.sh`의 SSH 터널 → `http://localhost:13000` | 보안그룹을 건드리지 않는다 |
+| `0.0.0.0` | `http://<서버>:3000` 직접 | 보안그룹에서 3000을 열어야 한다. `DOCRAFT_API_KEY`가 비면 `deploy.sh`가 거부한다 |
+
+외부에 열면 UI 왼쪽 아래 `API 키 설정`에 `DOCRAFT_API_KEY`를 넣어야 API가 동작한다. 정적 화면은 키 없이도 보인다.
+아직 TLS가 없어 키와 업로드 문서가 평문으로 오간다. 보안그룹 소스 IP를 사내 대역으로 제한하고, 실데이터를 받기 전에 TLS(ALB+ACM 등)를 붙인다.
+
+`AI_API_KEY`(OpenRouter)는 backend 컨테이너 환경변수에만 있다. `/api/health`·`/api/ai/status`는 provider 호스트명과 모델명만 돌려주고, 로그에도 키를 남기지 않는다.
 
 ## 주의
 

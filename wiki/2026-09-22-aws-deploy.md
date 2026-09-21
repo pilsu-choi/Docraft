@@ -65,3 +65,12 @@ status: stable
 
 - 첫 smoke에서 약제비영수증 오른쪽 표가 `ruled 2×2`로 VLM 26행을 덮어쓴 것을 발견했다. 격자 행이 VLM 행의 절반 미만이면 VLM을 유지하도록 고쳐 재배포했다([ruled-table-grid](2026-09-22-ruled-table-grid.md)). 재배포는 backend 이미지만 교체돼 1분 안에 끝났다.
 - 줄 OCR 서비스가 큰 PDF에서 재시작되는 문제는 이번 smoke가 PNG만 써서 확인하지 않았다.
+
+## 외부 접근 (FRONTEND_BIND)
+
+- 사용자 요청으로 SSH 키 없이 URL로 접속할 수 있게 `FRONTEND_BIND`를 추가했다. 기본은 `127.0.0.1`이고, `0.0.0.0`이면 `http://<서버>:3000`으로 열린다. harness의 `API_BIND`와 같은 방식이다.
+- `0.0.0.0`인데 `DOCRAFT_API_KEY`가 비어 있으면 `deploy.sh`가 배포를 거부한다.
+- 보안그룹 3000 포트는 사용자가 직접 연다.
+- TLS가 없으므로 소스 IP 제한이 전제다.
+- OpenRouter 키(`AI_API_KEY`)는 backend 환경변수에만 있다. `public_ai_settings()`는 호스트명·모델명만 공개한다. 배포 후 실제 응답·프론트 번들·로그에 키 문자열이 없는지 확인했다.
+

@@ -12,6 +12,7 @@ set -a; source "${ENV_FILE}"; set +a
 : "${SSH_USER:=ec2-user}"
 : "${REMOTE_ROOT:=/mnt/data/docraft}"
 : "${FRONTEND_PORT:=3000}"
+: "${FRONTEND_BIND:=127.0.0.1}"
 : "${TUNNEL_PORT:=13000}"
 
 KEY_PATH="${SSH_KEY/#\~/$HOME}"
