@@ -1,4 +1,4 @@
-// 여러 화면에서 함께 쓰는 아이콘과 상태 표기.
+// 여러 화면에서 함께 쓰는 아이콘, 상태 표기, 세그먼트 전환.
 export const statusText: Record<string, string> = { queued: '대기 중', parsing: '문서 분석 중', parsed: '분석 완료', extracting: '추출 중', validating: '검증 중', needs_review: '검토 필요', completed: '완료', failed: '처리 실패' }
 export function Icon({ name, size = 18 }: { name: 'grid' | 'plus' | 'file' | 'arrow' | 'chevron' | 'refresh' | 'key' | 'spark' | 'check' | 'search' | 'upload' | 'folder'; size?: number }) {
   const paths: Record<typeof name, React.ReactNode> = {
@@ -9,4 +9,7 @@ export function Icon({ name, size = 18 }: { name: 'grid' | 'plus' | 'file' | 'ar
     check: <path d="m4 12 5 5L20 6"/>, search: <><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></>, upload: <><path d="M12 16V3m-5 5 5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></>, folder: <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3z"/>,
   }
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
+}
+export function Segments<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: [T, string][]; onChange: (value: T) => void }) {
+  return <div className="segments" role="tablist" aria-label={label}>{options.map(([key, text]) => <button key={key} role="tab" aria-selected={value === key} className={value === key ? 'active' : ''} onClick={() => onChange(key)}>{text}</button>)}</div>
 }

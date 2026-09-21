@@ -125,3 +125,36 @@
 .results-actions .primary{flex:1}
 .results-scroll .empty{margin:16px 12px}
 }
+.pane details.parse-settings{margin:0 0 16px}
+.parse-settings summary{display:flex;align-items:center;gap:8px;list-style:none}
+.parse-settings summary::before{content:'›';font-size:16px;line-height:1;color:#5a786b;transition:transform .15s}
+.parse-settings[open] summary::before{transform:rotate(90deg)}
+.parse-settings summary::-webkit-details-marker{display:none}
+.parse-settings summary small{font-weight:700;color:#087d65;background:#eef7f2;border-radius:6px;padding:2px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.parse-settings[open] summary small{display:none}
+.parse-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;padding:0 15px 12px}
+.parse-fields label{display:grid;gap:6px;font-size:11px;font-weight:800;color:#5a786b}
+.parse-fields input,.parse-fields select{padding:8px 11px;font-size:12px;min-width:0}
+.parse-settings>small{display:block;padding:0 15px 13px;font-size:11px}
+.reference-docs{display:grid;gap:6px;max-height:190px;overflow:auto}
+.reference .reference-doc{display:flex;gap:10px;font-weight:500;cursor:pointer}
+.reference-doc input{flex:none;width:15px;height:15px;padding:0;accent-color:#0b8068;box-shadow:none}
+.reference-doc small{display:block;color:#83958a;margin-top:2px}
+.reference-docs .muted{margin:0;font-size:11px}
+.schema-pick{display:flex;gap:8px;align-items:center;min-width:0}
+.schema-pick .quiet{white-space:nowrap}
+.schema-field{grid-template-columns:minmax(0,1fr)}
+.schema-field .schema-move{font-size:10px;padding:4px 3px;color:#8aa096}
+.schema-field .schema-move:hover:not(:disabled){color:#087d65}
+.schema-editor .schema-enum{display:flex;align-items:center;gap:10px;font-size:11px;color:#5a786b;white-space:nowrap}
+.schema-enum input{flex:1;min-width:0;font-size:12px;padding:8px 13px;background:#fbfdfc}
+.api-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.pane pre.api-code{max-height:none;white-space:pre;word-break:normal;font-size:11.5px}
+.api-note{font-size:11px;line-height:1.6;margin:10px 0 0}
+@media(max-width:520px){
+.schema-pick{width:100%;flex-wrap:wrap}
+.schema-pick select{flex:1;min-width:0}
+.schema-field-main{gap:4px}
+.schema-field-main input{min-width:0}
+.schema-field-main select{min-width:0;max-width:92px;padding-inline:8px}
+}

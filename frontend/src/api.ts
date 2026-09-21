@@ -1,4 +1,4 @@
-import type { AiStatus, Document, Format, Project, Schema } from './types'
+import type { AiStatus, Document, Format, ParseOptions, Project, Schema } from './types'
 
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const key = sessionStorage.getItem('docraft_api_key')
@@ -28,10 +28,10 @@ export const api = {
   project: (id: string) => request<Project>(`/projects/${id}`), updateProject: (id: string, name: string) => request<Project>(`/projects/${id}`, json('PATCH', { name })), deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
   documents: (projectId: string) => request<Document[]>(`/projects/${projectId}/documents`), document: (id: string) => request<Document>(`/documents/${id}`), deleteDocument: (id: string) => request<void>(`/documents/${id}`, { method: 'DELETE' }),
   upload: (projectId: string, files: File[]) => { const body = new FormData(); files.forEach(file => body.append('files', file)); return request<Document[]>(`/projects/${projectId}/documents`, { method: 'POST', body }) },
-  parse: (id: string) => request<Document>(`/documents/${id}/parse`, { method: 'POST' }),
+  parse: (id: string, options: ParseOptions = {}) => request<Document>(`/documents/${id}/parse`, json('POST', options)),
   schemas: (projectId: string) => request<Schema[]>(`/projects/${projectId}/schemas`), createSchema: (projectId: string, name: string, json_schema: Record<string, unknown>) => request<Schema>(`/projects/${projectId}/schemas`, json('POST', { name, json_schema })),
   updateSchema: (id: string, name: string, json_schema: Record<string, unknown>) => request<Schema>(`/schemas/${id}`, json('PATCH', { name, json_schema })), deleteSchema: (id: string) => request<void>(`/schemas/${id}`, { method: 'DELETE' }),
-  generateSchema: (projectId: string, prompt: string, document_id?: string) => request<Schema>(`/projects/${projectId}/schemas/generate`, json('POST', { prompt, document_id })),
+  generateSchema: (projectId: string, prompt: string, document_ids: string[]) => request<Schema>(`/projects/${projectId}/schemas/generate`, json('POST', { prompt, document_ids })),
   extract: (id: string, schema_id: string) => request<Document>(`/documents/${id}/extract`, json('POST', { schema_id })), review: (id: string, path: string, value: unknown) => request<Document>(`/documents/${id}/review`, json('PATCH', { path, value })), approve: (id: string) => request<Document>(`/documents/${id}/approve`, { method: 'POST' }),
   extractBatch: (projectId: string, schema_id: string, document_ids: string[]) => request<{ queued: string[]; skipped: { id: string; filename: string; reason: string }[] }>(`/projects/${projectId}/extract`, json('POST', { schema_id, document_ids })),
   file: (id: string) => file(`/documents/${id}/file`).then(response => response.blob()),
