@@ -118,9 +118,12 @@ AI_BASE_URL=https://openrouter.ai/api/v1
 AI_API_KEY=<OpenRouter API key>
 AI_VLM_MODEL=qwen/qwen3-vl-32b-instruct
 AI_VISION=true
+TABLE_REFINE=true
 ```
 
 `AI_VISION`(기본 `true`)은 추출·스키마 생성 요청에 PDF·이미지 문서의 페이지 이미지를 OCR 텍스트와 함께 보냅니다. 긴 변 2000px 이하 JPEG로 축소해 요청당 최대 4장까지 붙이며, 페이지당 prompt 토큰이 약 2,500 늘어납니다. **문서 페이지 이미지가 외부 provider로 전송되므로**(OCR 텍스트는 이전에도 전송됨) 민감 문서를 외부 API로 보낼 수 없는 환경에서는 `AI_VISION=false`로 끄거나 내부망 모델을 쓰세요. 근거와 효과는 [wiki/2026-09-22-vision-extract.md](wiki/2026-09-22-vision-extract.md)에 있습니다.
+
+`TABLE_REFINE`(기본 `false`)을 켜면 PaddleOCR 표를 파싱할 때 셀 텍스트를 `AI_VLM_MODEL`로 한 번 더 교정합니다(`진 찰 로`→`진찰료`, `670825`→`670925` 등). 표 구조(행·열·병합)는 PaddleOCR-VL 결과를 그대로 두고 셀 번호별 교정만 받습니다. 셀을 비우거나 새로 채우는 교정, 원문과 크게 다른 교정(다른 셀의 텍스트 이동), 직인·사진 같은 이미지 셀은 반영하지 않습니다. 표마다 provider 호출이 한 번 늘고(2~40초) 표 영역 이미지가 provider로 전송됩니다. 8B급 모델은 값을 지우거나 약품명을 지어내므로 32B급 이상을 권장합니다. 근거는 [wiki/2026-09-22-table-refine.md](wiki/2026-09-22-table-refine.md)에 있습니다.
 
 `AI_VLM_MODEL`이 우선하며 기존 `AI_MODEL`도 호환 alias로 지원합니다. OpenRouter quickstart와 OpenAI structured outputs 안내를 함께 참고하세요: [OpenRouter Quickstart](https://openrouter.ai/docs/quickstart), [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 

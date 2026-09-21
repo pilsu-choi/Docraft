@@ -40,6 +40,7 @@ status: stable
   - 괘선 격자가 나오면 표의 `rows`·`spans`·`text`(HTML)를 교체하고 `structure: "ruled"`를 남긴다.
   - 격자가 2×2 미만이거나(괘선 없는 표), 줄 OCR이 없거나, 이미지를 못 읽으면 VLM 구조를 유지한다.
   - 추출 단계는 `block.text` HTML을 쓰므로 추출 입력도 같이 좋아진다.
+  - [TABLE_REFINE](2026-09-22-table-refine.md)은 `parse()`에서 이 HTML의 셀 글자만 교정하고 태그는 건드리지 않는다. 그래서 두 기능을 켜면 구조는 괘선 격자, 글자는 VLM 교정이 맡는다.
 - `requirements.txt`: `numpy` 추가(OpenCV 없이 구현).
 
 ## 검증
@@ -55,7 +56,7 @@ status: stable
 | 약제비영수증 | - | 괘선이 흐려 2×2 미만 → VLM 유지 |
 
 - 표 1개 처리 시간은 0.3~1.4초다(실제 파이프라인 로그 `ruled tables: elapsed`).
-- `pytest -q` 91 passed. 합성 양식으로 병합·줄 분할을 검증하는 테스트, 괘선 없는 표에서 None을 돌려주는 테스트, 파이프라인에서 VLM HTML을 교체하는 테스트를 추가했다.
+- `pytest -q` 93 passed(main의 TABLE_REFINE 병합 후). 합성 양식으로 병합·줄 분할을 검증하는 테스트, 괘선 없는 표에서 None을 돌려주는 테스트, 파이프라인에서 VLM HTML을 교체하는 테스트를 추가했다.
 
 ## 한계와 후속
 

@@ -1,5 +1,6 @@
 import base64
 import difflib
+import html
 import json
 import logging
 import re
@@ -40,10 +41,11 @@ def _message_text(content):
     return "".join(part.get("text", "") for part in content) if isinstance(content, list) else content or ""
 
 
-def _data_url(page):
-    """One rendered page as a base64 JPEG data URL, scaled so its longest side stays within VISION_MAX_EDGE."""
-    zoom = min(VISION_MAX_EDGE / max(page.rect.width, page.rect.height), 2.0)
-    pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+def _data_url(page, clip=None, max_zoom=2.0):
+    """One rendered page (or its `clip` region) as a base64 JPEG data URL, scaled so its longest side stays within VISION_MAX_EDGE."""
+    area = clip or page.rect
+    zoom = min(VISION_MAX_EDGE / max(area.width, area.height), max_zoom)
+    pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, alpha=False)
     return "data:image/jpeg;base64," + base64.b64encode(pixmap.tobytes("jpeg", jpg_quality=90)).decode()
 
 
@@ -72,7 +74,7 @@ def _user(text, images):
     return {"role": "user", "content": [*({"type": "image_url", "image_url": {"url": url}} for url in images), {"type": "text", "text": text}]}
 
 
-def _provider(messages):
+def _provider(messages, timeout=90):
     settings = ai_settings()
     if not settings["configured"] or settings["mode"] == "local":
         raise ProviderConfigurationError("AI provider가 설정되지 않았습니다. AI_BASE_URL, AI_API_KEY, AI_VLM_MODEL을 확인해 주세요.")
@@ -81,7 +83,7 @@ def _provider(messages):
     images = sum(1 for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url")
     logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", settings["model"], len(messages), images, prompt_chars)
     started = time.monotonic()
-    with httpx.Client(timeout=90, transport=httpx.HTTPTransport(retries=2)) as client:
+    with httpx.Client(timeout=timeout, transport=httpx.HTTPTransport(retries=2)) as client:
         response = client.post(f"{settings['base_url']}/chat/completions", headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body)
         elapsed = time.monotonic() - started
         try:
@@ -107,6 +109,51 @@ def _provider(messages):
         except json.JSONDecodeError:
             logger.error("provider json decode failed: len=%d finish_reason=%s content=%s", len(content), finish_reason, _truncate(content))
             raise
+
+
+TABLE_CELL = re.compile(r"(<t[dh][^>]*>)(.*?)(</t[dh]>)", re.S)
+TABLE_REFINE_PROMPT = (
+    "The image is a table. Below is a JSON object of its cells keyed by cell number in reading order (row by row, left to right), "
+    "transcribed by an OCR model that sometimes misreads Korean characters, digits and vertical text, and leaves LaTeX or literal \\n noise. "
+    "Compare every cell with the image and return {\"corrections\": {cell number: corrected text}} for the cells whose text is wrong. "
+    "Keep each cell as one cell even if it looks merged; leave correct cells out.\n\n"
+)
+
+
+def refine_table(block, source):
+    """Correct the cell text of an OCR table HTML block against the table region of the page image (`TABLE_REFINE`).
+
+    The OCR model keeps a sound grid but misreads text; a larger VLM reads text well but loses the grid. So the model
+    only returns corrections keyed by cell number and unknown numbers are ignored: the grid never changes. Returns the
+    corrected HTML, or None when refinement is off, unavailable, failed or found nothing to correct."""
+    settings = ai_settings()
+    if not settings["table_refine"] or not settings["configured"] or settings["mode"] == "local" or not block.get("bbox") or not block.get("page_size"):
+        return None
+    # Cells holding markup (a seal or drug photo <img>) stay out: models blank them or write text into them.
+    texts = {index: html.unescape(cell) for index, (_, cell, _) in enumerate(TABLE_CELL.findall(block["text"])) if "<" not in cell}
+    started = time.monotonic()
+    try:
+        with fitz.open(source) as document:
+            page = document[(block["page"] or 1) - 1]
+            scale = page.rect.width / block["page_size"][0]  # OCR image pixels -> page points
+            clip = fitz.Rect([value * scale for value in block["bbox"]]) & page.rect
+            image = _data_url(page, clip, max_zoom=1 / scale)  # no upscaling beyond the OCR image resolution
+        reply = _provider([_user(TABLE_REFINE_PROMPT + json.dumps(texts, ensure_ascii=False), [image])], timeout=300)
+        reply = reply.get("corrections", reply)  # models also answer with the bare {cell number: text} object
+        corrections = {index: str(reply[str(index)]) for index, text in texts.items() if str(index) in reply and _edit(text, str(reply[str(index)]))}
+    except Exception as exc:
+        logger.warning("table refine failed, keeping OCR text: %s", exc)
+        return None
+    logger.info("table refine: page=%s cells=%d changed=%d elapsed=%.2fs", block["page"], len(texts), len(corrections), time.monotonic() - started)
+    if not corrections:
+        return None
+    index = iter(range(len(TABLE_CELL.findall(block["text"]))))
+    return TABLE_CELL.sub(lambda m: m[1] + (html.escape(corrections[i], quote=False) if (i := next(index)) in corrections else m[2]) + m[3], block["text"])
+
+
+def _edit(old, new):
+    """A table correction must edit the OCR text, not blank, invent or replace it: otherwise models move text between cells."""
+    return old != new and bool(old.strip()) and bool(new.strip()) and (max(len(old), len(new)) <= 3 or difflib.SequenceMatcher(None, old, new).ratio() >= 0.5)
 
 
 def _field_name(label):
