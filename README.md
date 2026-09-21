@@ -91,3 +91,5 @@ PADDLEOCR_MODEL=PaddleOCR-VL-1.6
 구현 요구사항과 검증 근거는 [wiki/implementation.md](wiki/implementation.md)에 기록합니다.
 
 검증 결과: 실제 PostgreSQL의 격리된 테스트 schema에서 백엔드 테스트 26개가 통과했고 프론트엔드 빌드도 통과했습니다. 합성 PDF 기반 Chrome E2E는 프로젝트 CRUD, 파싱 후 빈 프롬프트 스키마 생성, 빨간 원문 근거 박스, 패널 접기·펼치기를 검증합니다. 이미지·스캔 OCR은 별도 PaddleOCR 원격 endpoint가 필요합니다.
+
+원문 미리보기의 너비 맞춤·확대·근거 상자는 오프라인 Chrome 회귀 테스트로 확인할 수 있습니다. `frontend`에서 `npm run dev -- --host 127.0.0.1 --port 5175`를 실행한 뒤 저장소 루트에서 `python tests/ui_preview_layout.py`를 실행하세요. API 응답은 합성 PDF·이미지로 전부 모킹하며 프로젝트 데이터나 AI provider를 사용하지 않습니다. 다른 포트는 `DOCRAFT_UI_URL`로 지정할 수 있습니다.
