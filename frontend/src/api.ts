@@ -19,7 +19,7 @@ export const api = {
   aiStatus: () => request<AiStatus>('/ai/status'),
   projects: () => request<Project[]>('/projects'), createProject: (name: string, description?: string) => request<Project>('/projects', json('POST', { name, description })),
   project: (id: string) => request<Project>(`/projects/${id}`), updateProject: (id: string, name: string) => request<Project>(`/projects/${id}`, json('PATCH', { name })), deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
-  documents: (projectId: string) => request<Document[]>(`/projects/${projectId}/documents`), document: (id: string) => request<Document>(`/documents/${id}`),
+  documents: (projectId: string) => request<Document[]>(`/projects/${projectId}/documents`), document: (id: string) => request<Document>(`/documents/${id}`), deleteDocument: (id: string) => request<void>(`/documents/${id}`, { method: 'DELETE' }),
   upload: (projectId: string, files: File[]) => { const body = new FormData(); files.forEach(file => body.append('files', file)); return request<Document[]>(`/projects/${projectId}/documents`, { method: 'POST', body }) },
   parse: (id: string) => request<Document>(`/documents/${id}/parse`, { method: 'POST' }),
   schemas: (projectId: string) => request<Schema[]>(`/projects/${projectId}/schemas`), createSchema: (projectId: string, name: string, json_schema: Record<string, unknown>) => request<Schema>(`/projects/${projectId}/schemas`, json('POST', { name, json_schema })),
