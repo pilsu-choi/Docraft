@@ -5,7 +5,9 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const headers = new Headers(init?.headers)
   if (key) headers.set('X-API-Key', key)
   const response = await fetch(`/api${path}`, { ...init, headers })
-  if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || `요청 실패 (${response.status})`)
+  // FastAPI detail은 문자열, 검증 오류 배열, 또는 {message} 객체로 온다.
+  const detail = !response.ok && (await response.json().catch(() => null))?.detail
+  if (!response.ok) throw new Error(Array.isArray(detail) ? detail.map(item => String(item.msg).replace(/^Value error, /, '')).join(' ') : detail?.message || detail || `요청 실패 (${response.status})`)
   return response.status === 204 ? undefined as T : response.json() as Promise<T>
 }
 const file = async (path: string) => {

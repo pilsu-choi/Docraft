@@ -12,7 +12,7 @@ export default function ResultsTable({ docs, schemas, schemaId, loading, open, e
   const [picked, setPicked] = useState(''), [query, setQuery] = useState(''), [status, setStatus] = useState(''), [sort, setSort] = useState<[string, number]>(['filename', 1]), [checked, setChecked] = useState<string[]>([])
   const counts = docs.reduce<Record<string, number>>((all, d) => d.schema_id ? { ...all, [d.schema_id]: (all[d.schema_id] || 0) + 1 } : all, {})
   const used = Object.keys(counts).filter(id => schemas.some(s => s.id === id)).sort((a, b) => counts[b] - counts[a])[0]
-  const schema = schemas.find(s => s.id === (picked || used || schemaId)), cols = columns(schema?.json_schema.properties as Record<string, any>)
+  const schema = schemas.find(s => s.id === (picked || used || schemaId || schemas[0]?.id)), cols = columns(schema?.json_schema.properties as Record<string, any>)
   const own = (d: Document) => !!schema && schemas.some(s => s.id === d.schema_id && s.name === schema.name)
   const raw = (d: Document, c: Column) => own(d) ? pick(d.result, c.path) : undefined, cell = (d: Document, c?: Column) => c ? text(raw(d, c), c.list) : ''
   // validation 경로는 JSON Pointer(/a/0/b)이므로 점 경로로 바꿔 해당 열 또는 그 하위와 맞춘다.
