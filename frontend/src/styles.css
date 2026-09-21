@@ -971,16 +971,24 @@ h3{
   color:#84988c
 }
 .schema-field{
-  display:flex;
-  gap:8px;
-  align-items:center;
+  display:grid;
+  gap:6px;
   padding-top:8px;
   padding-bottom:8px;
   border-top:1px solid #eff3ef
 }
-.schema-field input{
+.schema-field-main{
+  display:flex;
+  gap:8px;
+  align-items:center
+}
+.schema-field-main input{
   flex:1;
   min-width:80px
+}
+.schema-description{
+  font-size:12px;
+  color:#40574e
 }
 .schema-field select{
   max-width:150px
@@ -1038,7 +1046,7 @@ h3{
   gap:13px;
   cursor:pointer
 }
-.result-field:hover{
+.result-field:hover,.result-field.active{
   border-color:#8cc6ad;
   background:#fbfefd
 }
@@ -1364,4 +1372,31 @@ h3{
 .home-intro h1{
   font-size:31px
 }
+}
+.segments{
+  display:inline-flex;
+  gap:2px;
+  padding:3px;
+  margin:14px 0 10px;
+  border:1px solid #e3ece6;
+  border-radius:9px;
+  background:#f6f9f7
+}
+.segments button{
+  padding:6px 14px;
+  border-radius:7px;
+  font-size:12px;
+  font-weight:800;
+  color:#6b8076
+}
+.segments button.active{
+  background:#fff;
+  color:#087d65;
+  box-shadow:0 1px 3px #1d423122
+}
+.pane pre.output{
+  border:1px solid #e5ede8;
+  border-radius:10px;
+  background:#fff;
+  max-height:560px
 }

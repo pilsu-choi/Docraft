@@ -8,7 +8,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
 type Size = { width: number; height: number }
 
-export default function Preview({ doc, fileUrl, selected }: { doc: Document | null; fileUrl: string; selected: Grounding | null }) {
+export default function Preview({ doc, fileUrl, active, onHover }: { doc: Document | null; fileUrl: string; active: Grounding | null; onHover: (g: Grounding | null) => void }) {
   const [page, setPage] = useState(1), [pages, setPages] = useState(1), [zoom, setZoom] = useState(1)
   const [availableWidth, setAvailableWidth] = useState(0), [natural, setNatural] = useState<Size>({ width: 0, height: 0 })
   const [size, setSize] = useState<Size>({ width: 0, height: 0 }), [pdfReady, setPdfReady] = useState(0)
@@ -19,7 +19,7 @@ export default function Preview({ doc, fileUrl, selected }: { doc: Document | nu
 
   useEffect(() => { setPage(1); setPages(1); setZoom(1); setNatural({ width: 0, height: 0 }); setSize({ width: 0, height: 0 }) }, [doc?.id])
   useEffect(() => { if (scroll.current) { scroll.current.scrollTop = 0; scroll.current.scrollLeft = 0 } }, [doc?.id, page])
-  useEffect(() => { if (selected?.page) setPage(Math.min(selected.page, pages)) }, [selected?.page, pages])
+  useEffect(() => { if (active?.page) setPage(Math.min(active.page, pages)) }, [active?.page, pages])
   useEffect(() => {
     const node = scroll.current
     if (!node) return
@@ -82,7 +82,7 @@ export default function Preview({ doc, fileUrl, selected }: { doc: Document | nu
     const y = normalized ? display.height : display.height / basis[1]
     return { left: b[0] * x, top: b[1] * y, width: (b[2] - b[0]) * x, height: (b[3] - b[1]) * y }
   }
-  const overlays = boxes.map((g, i) => { const rect = box(g); return rect && <span key={i} className={`bbox ${selected?.path === g.path ? 'selected' : ''}`} style={rect} /> })
+  const overlays = boxes.map((g, i) => { const rect = box(g), field = g.path !== 'parse-block'; return rect && <span key={i} className={`bbox ${field ? 'field' : ''} ${active?.path === g.path ? 'selected' : ''}`} style={rect} title={field ? `${g.path}${'text' in g && g.text ? ` · ${g.text}` : ''}` : undefined} onMouseEnter={field ? () => onHover(g) : undefined} onMouseLeave={field ? () => onHover(null) : undefined} /> })
 
   return <div className="preview"><div className="preview-toolbar"><b>원본 문서</b><div><button disabled={page <= 1} onClick={() => setPage(page - 1)}>‹</button>{page} / {pages}<button disabled={page >= pages} onClick={() => setPage(page + 1)}>›</button><button onClick={() => setZoom(Math.max(.5, zoom - .25))}>−</button>{Math.round(zoom * 100)}%<button onClick={() => setZoom(Math.min(2.5, zoom + .25))}>＋</button></div></div><div className="preview-scroll" ref={scroll}>{doc && fileUrl ? isPdf ? <div className="page-image" style={display}><canvas ref={canvas} />{overlays}</div> : isImage ? <div className="page-image" style={display}><img src={fileUrl} alt={doc.filename} style={display} onLoad={e => setNatural({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })} />{overlays}</div> : <div className="empty">미리보기를 지원하지 않는 파일입니다. <a href={fileUrl} download={doc.filename}>원본 다운로드</a></div> : <div className="empty">파일을 선택하면 원본이 표시됩니다.</div>}</div></div>
 }
