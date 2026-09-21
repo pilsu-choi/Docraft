@@ -127,3 +127,39 @@ def test_merged_cells_become_a_rectangular_grid_and_render_back_with_spans(tmp_p
     assert blocks[0]["spans"] == [[0, 0, 2, 1], [0, 1, 1, 2]]
     assert markdown == ("<table><tr><td rowspan=\"2\">항목</td><td colspan=\"2\">급여</td></tr><tr><td>본인</td><td>공단</td></tr>"
                         "<tr><td>진찰료</td><td>4,593</td><td>10,717</td></tr></table>")
+
+
+def test_paddle_table_keeps_merged_cell_spans(tmp_path, monkeypatch):
+    path = tmp_path / "scan.png"
+    path.write_bytes(b"fake-image-bytes")
+    response = {"result": {"layoutParsingResults": [{"prunedResult": {"parsing_res_list": [{"block_label": "table",
+        "block_content": "<table><tr><td colspan=\"2\">급여</td></tr><tr><td>본인</td><td>공단</td></tr></table>"}]}}]}}
+    _paddle(monkeypatch, None, lines_url="")
+    monkeypatch.setattr(parsers.httpx, "post", lambda url, **_: httpx.Response(200, json=response, request=httpx.Request("POST", url)))
+    _, blocks = parse(path, path.name, "image/png")
+    assert blocks[0]["rows"] == [["급여", "급여"], ["본인", "공단"]] and blocks[0]["spans"] == [[0, 0, 1, 2]]
+
+
+def test_table_refine_corrects_cell_text_but_never_the_grid(tmp_path, monkeypatch):
+    from PIL import Image
+    from backend import engine
+    path = tmp_path / "scan.png"
+    Image.new("RGB", (100, 100), "white").save(path)
+    html = ("<table><tr><td rowspan=\"2\">진 찰 로</td><td>670825</td><td>현금영수증</td><td>⑧</td></tr>"
+            "<tr><td><img src=\"seal.jpg\"></td><td>현금영수증</td><td></td></tr></table>")
+    block = {"type": "table", "page": 1, "bbox": [0, 0, 100, 100], "page_size": [100, 100], "text": html}
+    monkeypatch.setenv("AI_MODE", "provider")
+    monkeypatch.setenv("TABLE_REFINE", "true")
+    monkeypatch.setenv("AI_BASE_URL", "http://ai.invalid")
+    monkeypatch.setenv("AI_API_KEY", "key")
+    monkeypatch.setenv("AI_VLM_MODEL", "vlm")
+    sent = []
+    # Model replies with the bare {cell: text} object, blanks a cell, moves text from another cell and writes into the empty and image cells.
+    monkeypatch.setattr(engine, "_provider", lambda messages, timeout: sent.append(messages) or
+                        {"0": "진찰료", "1": "670925", "2": "", "3": "⑥", "4": "직인", "5": "현금승인번호", "6": "40,000"})
+    refined = engine.refine_table(block, str(path))
+    assert refined == ("<table><tr><td rowspan=\"2\">진찰료</td><td>670925</td><td>현금영수증</td><td>⑥</td></tr>"
+                       "<tr><td><img src=\"seal.jpg\"></td><td>현금영수증</td><td></td></tr></table>")
+    assert '"4"' not in sent[0][0]["content"][-1]["text"]  # the image cell is never sent
+    monkeypatch.setenv("TABLE_REFINE", "false")
+    assert engine.refine_table(block, str(path)) is None

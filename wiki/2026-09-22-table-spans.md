@@ -52,3 +52,7 @@ VL의 원본 격자는 7개 표 모두 빈칸 없는 직사각형이었다. 따�
 - 잡음: 셀 안의 `\n` 문자열, `$ ^{{*}} $` 같은 LaTeX 조각.
 
 이 오류는 표 영역을 잘라 표 전용 모델(PP-StructureV3 표 모듈, TableFormer)이나 더 큰 VLM으로 다시 인식해야 줄일 수 있다. 추출 단계는 `AI_VISION`으로 페이지 이미지를 함께 보내므로 일부를 보정한다([vision-extract](2026-09-22-vision-extract.md)).
+
+## 후속 수정
+
+PaddleOCR 경로(`_remote_paddle`)는 `_html_table_rows()`로 `rows`만 받아 `spans`가 저장되지 않았다. 스캔 문서 미리보기에서 병합 셀이 합쳐지지 않았던 원인이다. [table-refine](2026-09-22-table-refine.md)에서 `_html_table()`로 바꿔 `rows`와 `spans`를 함께 저장하도록 고쳤다.
