@@ -73,7 +73,9 @@ export default function Preview({ doc, fileUrl, selected }: { doc: Document | nu
   const box = (g: Grounding & { page_size?: number[] }) => {
     const b = g.bbox
     if (!b || b.length < 4 || b.some(v => !Number.isFinite(v)) || b[2] <= b[0] || b[3] <= b[1] || !display.width) return null
-    const normalized = Math.max(...b) <= 1
+    // PDF blocks and their groundings use page points, even when every value is < 1.
+    // Only image boxes without an explicit page size may use 0–1 coordinates.
+    const normalized = isImage && !g.page_size && Math.max(...b) <= 1
     const basis = g.page_size?.length === 2 ? g.page_size : [natural.width, natural.height]
     if (!normalized && (!basis[0] || !basis[1])) return null
     const x = normalized ? display.width : display.width / basis[0]
