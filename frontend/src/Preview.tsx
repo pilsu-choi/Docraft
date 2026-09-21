@@ -78,7 +78,7 @@ export default function Preview({ doc, fileUrl, active, onHover }: { doc: Docume
     height: natural.height * Math.min(natural.width, availableWidth) / natural.width * zoom,
   } : { width: 0, height: 0 }
   const display = isImage ? imageSize : size
-  const boxes = [...(doc?.blocks || []).filter((block): block is { page?: number; bbox: number[]; page_size?: number[] } => !!block && typeof block === 'object' && !Array.isArray(block) && Array.isArray((block as { bbox?: unknown }).bbox)).map(block => ({ path: 'parse-block', ...block })), ...(doc?.groundings || [])].filter(g => (g.page || 1) === page)
+  const boxes = [...(doc?.blocks || []).filter(block => Array.isArray(block.bbox)).map(block => ({ path: 'parse-block', ...block })), ...(doc?.groundings || [])].filter(g => (g.page || 1) === page)
   const box = (g: Grounding & { page_size?: number[] }) => {
     const b = g.bbox
     if (!b || b.length < 4 || b.some(v => !Number.isFinite(v)) || b[2] <= b[0] || b[3] <= b[1] || !display.width) return null
