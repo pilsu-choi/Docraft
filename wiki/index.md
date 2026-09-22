@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [POST /api/verify에 hint_paths 필드 추가](2026-09-23-verify-hint-paths.md) - harness-v2 룰 엔진이 확정 못한 필드만 골라 Docraft 교차검증·Judge를 돌리는 선택 form 필드 `hint_paths` 구현: 추출 스키마 축소, 힌트 밖 필드는 판정 정보 없이 AO 값 그대로 반환, counts는 판정된 key만 집계
 * [룰 엔진 엣지케이스 확장](2026-09-23-rules-edge-cases.md) - 열 밀림·통째 맞바꿈·산술·근거·형식·표 구조 엣지케이스 목록과 룰별 캐시 평가 효과(세부내역서 fp 273→43, 영수증 fp 27→11), 헛경고 측정, 버린 룰, main 급여 열 관례 조정
 * [라벨 관례 정렬 결과와 추출 모델 비교](2026-09-23-label-alignment-and-model-compare.md) - 확정 관례를 76건 정답셋에 적용한 단계별 수치 변화와 분모 변경 경고, 같은 parse·라벨·코드로 채점한 `qwen3-vl-32b-instruct` vs `qwen3.5-27b`(사고 모드 off) 유형별 비교·뒤진 원인·지연·단가 해석과 권고(결정 보류)
 * [rules 후처리 흐름 예시 풀이](2026-09-23-rules-flow-example.md) - 진단서·진료비영수증 예시를 rules.apply·check·correct에 통과시켜 단계별 교정을 보여 주는 설명과 이름 도장 표시(`(인)`) 버그 수정

@@ -648,8 +648,13 @@ def frames(path):
 
 
 @app.post("/api/verify", dependencies=[Depends(auth)])
-async def verify_result(image: UploadFile = File(...), ao_result: str = Form(...), doc_type: str | None = Form(None)):
-    """AO 결과 JSON(API·UI 형식)과 원본 이미지를 받아 필드별로 교차검증·교정한 JSON을 돌려준다."""
+async def verify_result(image: UploadFile = File(...), ao_result: str = Form(...), doc_type: str | None = Form(None),
+                        hint_paths: str | None = Form(None)):
+    """AO 결과 JSON(API·UI 형식)과 원본 이미지를 받아 필드별로 교차검증·교정한 JSON을 돌려준다.
+
+    ``hint_paths``(JSON 배열 문자열, 예: ``["병원명", "항목내역"]``)를 주면 그 key만 비교·판정하고
+    나머지는 AO 값 그대로 돌려준다(판정 정보 없음). 자세한 규칙은 ``verify.run`` 참고.
+    """
     filename = Path(image.filename or "upload").name
     suffix = Path(filename).suffix.lower()
     if suffix not in IMAGES: raise HTTPException(415, f"이미지 파일만 지원합니다: {suffix or image.content_type}")
@@ -661,13 +666,21 @@ async def verify_result(image: UploadFile = File(...), ao_result: str = Form(...
         verify.document(ao)
     except (AttributeError, ValueError) as exc:
         raise HTTPException(422, "ao_result에 documents(또는 result)가 없습니다.") from exc
+    hints = None
+    if hint_paths:
+        try:
+            hints = json.loads(hint_paths)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(422, "hint_paths를 JSON으로 해석할 수 없습니다.") from exc
+        if not isinstance(hints, list) or not all(isinstance(key, str) for key in hints):
+            raise HTTPException(422, "hint_paths는 문자열 배열이어야 합니다.")
     started = time.monotonic()
     with tempfile.TemporaryDirectory() as folder:
         target = Path(folder) / f"{uid()}{suffix}"
         await save_upload(image, target)
         if frames(target) > 1: raise HTTPException(422, "다중 페이지 문서는 아직 지원하지 않습니다.")
         try:
-            result = verify.run(str(target), ao, doc_type)
+            result = verify.run(str(target), ao, doc_type, hints)
         except ValueError as exc:  # ParseError 포함
             raise HTTPException(422, str(exc)) from exc
         except Exception as exc:

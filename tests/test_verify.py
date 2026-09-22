@@ -219,6 +219,97 @@ def test_run_prefers_the_requested_document_type_over_the_ao_one(monkeypatch):
     assert calls[0][1] == "소견서"
 
 
+# --- hint_paths ------------------------------------------------------------
+
+
+def hinted_stub(monkeypatch, judged=VERDICTS, docraft=DOCRAFT):
+    """stub()에 hint_paths의 key 검증·스키마 축소에 쓰는 실제 형태의 spec/schema를 얹는다."""
+    calls = stub(monkeypatch, judged, docraft)
+    fields, tables = ["진단일", "진단명", "병원명", "면허번호", "환자명"], ["병명내역"]
+    monkeypatch.setattr(doctypes, "spec", lambda doc_type: {
+        "fields": {key: {"kind": "text"} for key in fields},
+        "tables": {"병명내역": {"병명코드": {"kind": "text"}, "병명": {"kind": "text"}}}})
+    monkeypatch.setattr(doctypes, "schema", lambda doc_type: {
+        "type": "object", "properties": dict.fromkeys([*fields, *tables], {}), "required": [*fields, *tables]})
+    schemas = []
+    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None: (schemas.append(schema) or {}, {}))
+    return calls, schemas
+
+
+def test_run_with_hint_paths_only_judges_the_given_keys(monkeypatch):
+    calls, _ = hinted_stub(monkeypatch)
+
+    document = verify.run("scan.png", AO, hint_paths=["병원명"])["documents"][0]
+
+    assert set(calls[0][2]) == {"병원명"}  # 병원명만 disputes로 Judge에 갔다
+    assert field(document, "병원명")["value"] == "고려대학교 구로병원" and field(document, "병원명")["source"] == "docraft"
+    assert "source" not in field(document, "진단명")  # 힌트 밖 필드는 판정 정보 없이 AO 값 그대로
+    assert "source" not in field(document, "진단일")
+    assert document["verify"]["counts"] == {"agree": 0, "ao": 0, "docraft": 1, "corrected": 0, "unknown": 0, "added": 0}
+
+
+def test_run_with_hint_paths_restricts_the_extraction_schema(monkeypatch):
+    _, schemas = hinted_stub(monkeypatch)
+
+    verify.run("scan.png", AO, hint_paths=["병원명", "병명내역"])
+
+    assert set(schemas[0]["properties"]) == {"병원명", "병명내역"}
+    assert set(schemas[0]["required"]) == {"병원명", "병명내역"}
+
+
+def test_run_without_hint_paths_behaves_as_before(monkeypatch):
+    calls, schemas = hinted_stub(monkeypatch)
+
+    document = verify.run("scan.png", AO)["documents"][0]
+
+    assert set(calls[0][2]) == {"진단명", "병원명", "환자명", "병명내역"}
+    assert set(schemas[0]["properties"]) == {"진단일", "진단명", "병원명", "면허번호", "환자명", "병명내역"}
+    assert document["verify"]["counts"]["docraft"] == 1
+
+
+def test_run_ignores_unknown_hint_paths_and_logs_once(monkeypatch, caplog):
+    calls, _ = hinted_stub(monkeypatch)
+
+    with caplog.at_level("WARNING"):
+        document = verify.run("scan.png", AO, hint_paths=["없는키"])["documents"][0]
+
+    assert calls == []  # 유효한 힌트가 없어 Judge를 부르지 않는다
+    assert "없는키" in caplog.text
+    assert "source" not in field(document, "병원명")
+    assert document["verify"]["counts"] == {"agree": 0, "ao": 0, "docraft": 0, "corrected": 0, "unknown": 0, "added": 0}
+
+
+def test_run_with_empty_hint_paths_behaves_as_before(monkeypatch):
+    calls, _ = hinted_stub(monkeypatch)
+
+    document = verify.run("scan.png", AO, hint_paths=[])["documents"][0]
+
+    assert set(calls[0][2]) == {"진단명", "병원명", "환자명", "병명내역"}
+    assert document["verify"]["counts"]["docraft"] == 1
+
+
+def test_verify_route_forwards_parsed_hint_paths(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None: seen.append(hint_paths) or {
+        "documents": [{"verify": {"counts": {}}}]})
+
+    response = post(_image(tmp_path), hint_paths=json.dumps(["병원명"]))
+
+    assert response.status_code == 200 and seen[0] == ["병원명"]
+
+
+def test_verify_route_rejects_invalid_hint_paths_json(tmp_path):
+    response = post(_image(tmp_path), hint_paths="not json")
+
+    assert response.status_code == 422 and "hint_paths" in response.json()["detail"]
+
+
+def test_verify_route_rejects_a_non_list_hint_paths(tmp_path):
+    response = post(_image(tmp_path), hint_paths=json.dumps({"key": "병원명"}))
+
+    assert response.status_code == 422 and "hint_paths" in response.json()["detail"]
+
+
 # --- reclassifying a format-only "corrected" verdict (real doctypes/rules) -----
 
 
@@ -363,7 +454,7 @@ def post(path, ao_result=None, **data):
 
 def test_verify_route_returns_the_corrected_result(monkeypatch, tmp_path):
     seen = []
-    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None: seen.append((image, doc_type)) or {
+    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None: seen.append((image, doc_type)) or {
         "documents": [{"verify": {"counts": {"agree": 1, "ao": 0, "docraft": 0, "corrected": 0}}}]})
 
     response = post(_image(tmp_path), doc_type="진단서")
@@ -539,7 +630,7 @@ def test_run_reports_the_checks_and_hands_the_judge_a_hint(monkeypatch):
 
 
 def test_verify_route_accepts_the_ui_result_format(monkeypatch, tmp_path):
-    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None: {"result": {"verify": {"counts": {}}}})
+    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None: {"result": {"verify": {"counts": {}}}})
 
     response = post(_image(tmp_path), ao_result=json.dumps(UI), doc_type="진료비영수증")
 

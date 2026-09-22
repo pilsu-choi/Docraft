@@ -121,14 +121,15 @@ def flatten(document: dict) -> dict:
     }
 
 
-def _add_missing(document, doc_type):
-    """doctypes에 있는데 AO 응답에 아예 없는 필드·표를 빈 원소로 끼운다. 판정은 공통 경로가 맡는다."""
+def _add_missing(document, doc_type, only=None):
+    """doctypes에 있는데 AO 응답에 아예 없는 필드·표를 빈 원소로 끼운다(``only``가 있으면 그 key만). 판정은 공통 경로가 맡는다."""
     spec, present = doctypes.spec(doc_type), set(flatten(document))
     fields_key, tables_key, _ = _keys(document)
+    wanted = lambda key: key not in present and (only is None or key in only)
     new = {
-        fields_key: [{"key": key, "value": None, "added": True} for key in spec["fields"] if key not in present],
+        fields_key: [{"key": key, "value": None, "added": True} for key in spec["fields"] if wanted(key)],
         tables_key: [{"key": key, "headers": list(columns), "rows": [], "added": True}
-                     for key, columns in spec["tables"].items() if key not in present],
+                     for key, columns in spec["tables"].items() if wanted(key)],
     }
     for key, elements in new.items():
         document[key] = [*(document.get(key) or []), *elements]
@@ -234,20 +235,41 @@ def _table_rows(table, rows, docraft_rows, source, reason):
     return out
 
 
-def run(image: str, ao: dict, doc_type: str | None = None) -> dict:
-    """이미지와 AO 응답(API·UI 형식)을 받아 교정된 AO JSON을 돌려준다. 유형을 모르면 ValueError."""
+def _restrict(schema, only):
+    """스키마를 ``only`` key로만 좁힌다(추출 비용 절감). ``only``가 None이면 그대로."""
+    if only is None:
+        return schema
+    return {**schema, "properties": {key: prop for key, prop in schema["properties"].items() if key in only},
+            "required": [key for key in schema["required"] if key in only]}
+
+
+def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str] | None = None) -> dict:
+    """이미지와 AO 응답(API·UI 형식)을 받아 교정된 AO JSON을 돌려준다. 유형을 모르면 ValueError.
+
+    ``hint_paths``를 주면(비어 있지 않은 목록) 그 key(필드·표 key)만 비교·Judge 대상으로 삼고, 추출
+    스키마도 그만큼 좁힌다. 나머지 필드·표는 AO 입력 그대로 돌아가며 ``source``·``reason`` 등 판정
+    정보가 붙지 않는다 — 그 유무로 호출자가 판정 여부를 가릴 수 있다. 정의에 없는 key는 무시하고
+    한 번 경고 로그를 남긴다.
+    """
     given = document(ao)
     doc_type = doc_type or given.get("doc_type") or given.get("predicted_doc_type")
     if doc_type not in doctypes.DOC_TYPES:
         raise ValueError(f"지원하지 않는 문서 유형입니다: {doc_type}")
+    only = None
+    if hint_paths:
+        spec = doctypes.spec(doc_type)
+        known = {*spec["fields"], *spec["tables"]}
+        only, unknown = {key for key in hint_paths if key in known}, {key for key in hint_paths if key not in known}
+        if unknown:
+            logger.warning("verify: hint_paths에 알 수 없는 key가 있습니다: %s", sorted(unknown))
     started = time.monotonic()
     _, blocks = parse(image, Path(image).name, "", {"provider": "paddle"})
-    result, _ = engine.extract(doctypes.schema(doc_type), blocks, source=image)
+    result, _ = engine.extract(_restrict(doctypes.schema(doc_type), only), blocks, source=image)
     docraft = rules.apply(doc_type, result, blocks)
 
     output = deepcopy(ao)
     target = document(output)
-    added = _add_missing(target, doc_type)
+    added = _add_missing(target, doc_type, only)
     ao_flat = flatten(target)
     checks = rules.check(doc_type, ao_flat, docraft, blocks)
     fixes = rules.correct(doc_type, checks, ao_flat, docraft)  # 확실한 이상은 Judge 없이 룰로 교정한다
@@ -258,6 +280,8 @@ def run(image: str, ao: dict, doc_type: str | None = None) -> dict:
 
     disputes = {}
     for key, value in ao_flat.items():
+        if only is not None and key not in only:
+            continue
         mine, rows = docraft.get(key), isinstance(value, list)
         diff = _row_diff(doc_type, key, value, mine) if rows else None
         if diff or (not rows and not rules.same(doctypes.kind(doc_type, key), value, mine)) or key in hints:
@@ -280,6 +304,8 @@ def run(image: str, ao: dict, doc_type: str | None = None) -> dict:
             counts["unknown"] += 1
             field.update(source="unknown", reason=UNKNOWN)
             continue
+        if only is not None and key not in only:  # 힌트 밖 필드는 AO 값 그대로, 판정 정보 없이 둔다
+            continue
         final[key], source, reason = resolve(key, ao_flat[key])
         counts[source] += 1
         _annotate(field, final[key], field.get("value"), docraft.get(key), source, reason)
@@ -287,6 +313,8 @@ def run(image: str, ao: dict, doc_type: str | None = None) -> dict:
         if not key:
             counts["unknown"] += 1
             table.update(source="unknown", reason=UNKNOWN)
+            continue
+        if only is not None and key not in only:
             continue
         final[key], source, reason = resolve(key, ao_flat[key], "rows")
         counts[source] += 1
