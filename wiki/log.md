@@ -1,5 +1,8 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-22 (17)
+* **Update**: [kv-accuracy-review](2026-09-22-kv-accuracy-review.md)에 "harness-v2 참고 자산" 절을 추가했다. 개선 우선순위 1~4와 harness-v2 자산(행 정렬 키, Arbitration 원칙, 마스터 4종·매칭 모듈, 산식 검사, 영수증 서식 판별) 대응표, 고객 보고 오류 사례 3건, 스키마 정합 확인 사항, golden 데이터 한계를 기록했다.
+
 ## 2026-09-22 (16)
 * **Creation**: [kv-accuracy-review](2026-09-22-kv-accuracy-review.md)에 76건 rules 단계 오류 분포와 코드 검토를 대조한 정확도 개선 우선순위를 기록했다(구현·재실행 없음).
 * **Update**: [index](index.md)에 새 분석 문서를 연결했다.
