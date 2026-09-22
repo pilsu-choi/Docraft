@@ -1,5 +1,11 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-22 (19)
+* **Creation**: `rules._fill`이 문서 전체에서 첫 후보를 채우며 만들던 오탐을 환자/의료기관 영역 제약, 필드 무리 상호배제, 근거 등급(라벨 셀 > 텍스트 줄)과 동률·빈 라벨 칸 미채움으로 줄인 작업을 [kv-fill-false-positives](2026-09-22-kv-fill-false-positives.md)에 기록했다(76건 rules 단계 fp 365→339, correct 7173→7175, raw→rules 신규 오탐 53→27, 261 passed).
+
+## 2026-09-22 (18)
+* **Creation**: 표 행 짝짓기 규칙을 `rules.ROW_KEYS`·`rules.pair_rows` 한 곳으로 모으고(항목내역 키에 `시작일자` 추가), `verify._rows_same`을 키 열 대응 + 셀 단위 비교(`_row_diff`)로 바꾸고, 영수증 항목 행을 파서 표의 인쇄 순서·세분 항목명으로 바로잡고(`_receipt_table`), 소계 행을 보존하도록(`_totals`) 고친 작업을 [kv-row-align](2026-09-22-kv-row-align.md)에 기록했다. 76건 rules 단계 전체 87.7%·strict 80.9→81.0%·fp 365→356, 기존 36건 94.5→94.7%·strict 87.9→88.1%·fp 142→133, holdout 40건은 변화 없음, 나빠진 지표 없음. 표준 항목명 화이트리스트 완화는 오히려 나빠져 되돌렸다(261 passed).
+
 ## 2026-09-22 (17)
 * **Update**: [kv-accuracy-review](2026-09-22-kv-accuracy-review.md)에 "harness-v2 참고 자산" 절을 추가했다. 개선 우선순위 1~4와 harness-v2 자산(행 정렬 키, Arbitration 원칙, 마스터 4종·매칭 모듈, 산식 검사, 영수증 서식 판별) 대응표, 고객 보고 오류 사례 3건, 스키마 정합 확인 사항, golden 데이터 한계를 기록했다.
 
@@ -95,4 +101,3 @@
 * **Creation**: AWS L4 서버에서 이미지 병렬 처리량(레이아웃 분당 약 12건 포화)과 100건 연속 처리(100/100 성공, 분당 10.6건)를 측정하고, UI 업로드 413과 프로젝트 삭제 시 원본 파일 잔존을 고친 작업을 [aws-throughput](2026-09-22-aws-throughput.md)에 기록했다(94 passed).
 * **Creation**: VLM(claude-sonnet-4.5)으로 문서 유형 4종 정답셋(gold 4+silver 32, 36개)을 라벨링하는 `scripts/verify_label.py`와 raw/rules/ao/final 4단계 필드 정확도를 계산하는 `scripts/verify_eval.py`를 구현하고 실제로 돌린 결과를 [ocr-verify-labels](2026-09-22-ocr-verify-labels.md)에 기록했다(라벨 36개 ok=35·skip=1·error=0, gold 4건 전 단계 및 전체 36건 raw·rules 실행 완료).
 * **Update**: 라벨 36건(gold 4+silver 32)을 전부 이미지와 대조해 검수하고 `scripts/verify_eval.py`를 보정했다. 표를 행 식별자(`항목`+`EDI코드`, `병명코드`·`수술일자`·`검사일`·`치료일`)로 먼저 짝짓고 남은 행만 순서로 잇도록 바꿨으며, 정오·오탐 판정을 `rules.same` 하나로 일원화하고 `실패 상위 20 필드` 표와 단계·이미지가 붙은 오답 목록을 추가했다. 재평가에서 raw는 진단서 79.6→82.0%·소견서 60.3→82.8%·진료비영수증 69.2→85.6%·세부내역서 80.8→94.5%로 올랐고, gold `final`은 100/90/100/98.6%, 진료비영수증 ao 오탐은 170건→12건이 됐다. [ocr-verify-labels](2026-09-22-ocr-verify-labels.md)에 검수 관례·파일별 수정량·새 평가표를 기록했다.
-* **Creation**: 표 행 짝짓기 규칙을 `rules.ROW_KEYS`·`rules.pair_rows` 한 곳으로 모으고(항목내역 키에 `시작일자` 추가), `verify._rows_same`을 키 열 대응 + 셀 단위 비교(`_row_diff`)로 바꾸고, 영수증 항목 행을 파서 표의 인쇄 순서·세분 항목명으로 바로잡고(`_receipt_table`), 소계 행을 보존하도록(`_totals`) 고친 작업을 [kv-row-align](2026-09-22-kv-row-align.md)에 기록했다. 76건 rules 단계 전체 87.7%·strict 80.9→81.0%·fp 365→356, 기존 36건 94.5→94.7%·strict 87.9→88.1%·fp 142→133, holdout 40건은 변화 없음, 나빠진 지표 없음. 표준 항목명 화이트리스트 완화는 오히려 나빠져 되돌렸다(261 passed).
