@@ -29,6 +29,7 @@ deploy/aws/deploy.sh          # 코드가 바뀌면 재배포(태그 = git 커�
 deploy/aws/tunnel.sh --bg     # http://localhost:13000 (UI와 /api)
 deploy/aws/smoke.sh           # 샘플 5종 파싱 왕복, 표마다 ruled/vlm과 행×열 출력
 deploy/aws/logs.sh backend    # 로그
+deploy/aws/collect.sh         # 이슈 케이스 수집 → data/aws-collect/<시각>/summary.md
 deploy/aws/down.sh            # 정지. GPU를 harness에 돌려줄 때도 이것으로 내린다
 ```
 
@@ -38,6 +39,7 @@ deploy/aws/down.sh            # 정지. GPU를 harness에 돌려줄 때도 이�
 | `deploy.sh` | backend·frontend 이미지를 로컬에서 빌드해 tar로 반입한다. compose·설정을 전송하고 `--profile app --profile ocr`로 기동한다 |
 | `tunnel.sh` | 로컬 `TUNNEL_PORT`(13000)를 서버 frontend로 연결한다(`--bg`/`--stop`) |
 | `smoke.sh` | `aws-smoke` 프로젝트에 샘플을 올려 파싱 결과를 확인한다 |
+| `collect.sh` | 실패·검토 필요·검증 이슈·사용자 수정 문서와 원본, DB 기록, backend 로그를 로컬 `data/aws-collect/`로 모으고 `summary.md`를 만든다(`--all`은 모든 원본) |
 | `logs.sh` / `down.sh` | 로그 / 정지(`--volumes`는 DB까지 삭제) |
 
 ## 외부 접근
@@ -53,6 +55,18 @@ deploy/aws/down.sh            # 정지. GPU를 harness에 돌려줄 때도 이�
 아직 TLS가 없어 키와 업로드 문서가 평문으로 오간다. 보안그룹 소스 IP를 사내 대역으로 제한하고, 실데이터를 받기 전에 TLS(ALB+ACM 등)를 붙인다.
 
 `AI_API_KEY`(OpenRouter)는 backend 컨테이너 환경변수에만 있다. `/api/health`·`/api/ai/status`는 provider 호스트명과 모델명만 돌려주고, 로그에도 키를 남기지 않는다.
+
+## 기록과 이슈 수집
+
+- **남는 것**: DB 볼륨과 `REMOTE_ROOT/data`에 있어 재배포해도 유지된다.
+  - 업로드 원본
+  - 파싱 결과(표 `structure` 포함)
+  - 실패 에러
+  - 추출 결과·검증 이슈
+  - 사용자 수정(`corrections`, 수정 전→후)
+  - `audit_log`
+- **로그**: 컨테이너 표준 출력은 재배포로 컨테이너가 새로 만들어질 때 지워진다. 그래서 backend는 `LOG_FILE=/data/logs/docraft.log`(10MB × 3 회전)에도 쓴다. 컨테이너 표준 출력 로그는 50MB × 3으로 제한한다.
+- **품질 문제는 실패로 남지 않는다**: 표 구조나 글자가 틀려도 상태는 `parsed`다. 추출값을 UI에서 고치면 `corrections`에 남고, 파싱 표 오류는 문서 이름만 기록해 두면 `collect.sh --all`로 원본과 결과를 함께 받을 수 있다.
 
 ## 주의
 
