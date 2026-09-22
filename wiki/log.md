@@ -1,6 +1,7 @@
 # Docraft wiki 변경 이력
 
 ## 2026-09-22 (13)
+* **Update**: 사용자 우선 목표인 정확도 96%와 유형별 추가 정답 필요량을 [rule-performance-review](2026-09-22-rule-performance-review.md)에 추가했다. 목표 단계·집계 단위는 미확정이며 속도 최적화는 후순위다.
 * **Creation**: [rule-performance-review](2026-09-22-rule-performance-review.md)에 코드·저장 평가 기반 개선 우선순위를 기록했다(구현·신규 성능 측정 없음).
 * **Update**: [index](index.md)에 분석 문서를 연결했다.
 
