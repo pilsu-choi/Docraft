@@ -5,21 +5,33 @@
 # - 이미지는 로컬에서 빌드해 tar로 올린다(build 제거).
 # - harness와 같은 서버라 호스트 포트는 frontend 하나만 연다(기본 루프백, FRONTEND_BIND로 외부 노출).
 # - vLLM GPU 메모리 몫을 서버용 설정으로 바꾼다.
+# - backend 로그를 data/logs에 남긴다. 컨테이너 로그는 재배포(재생성) 때 지워지기 때문이다(collect.sh가 수집).
+# - 컨테이너 표준 출력 로그는 크기를 제한한다.
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "50m", max-file: "3" }
 
 services:
   postgres:
     ports: !reset []
     restart: always
+    logging: *logging
 
   backend:
     build: !reset null
     image: docraft-backend:${DOCRAFT_TAG:-latest}
+    environment:
+      LOG_FILE: /data/logs/docraft.log
     ports: !reset []
     restart: always
+    logging: *logging
 
   worker:
     build: !reset null
     image: docraft-backend:${DOCRAFT_TAG:-latest}
+    environment:
+      LOG_FILE: /data/logs/worker.log
 
   frontend:
     build: !reset null
@@ -27,13 +39,17 @@ services:
     ports: !override
       - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-3000}:80"
     restart: always
+    logging: *logging
 
   paddleocr-vlm-server:
     volumes: !override
       - ./deploy/aws/vllm_config.aws.yaml:/home/paddleocr/vlm_server_config.yaml:ro
+    logging: *logging
 
   paddleocr-vl-api:
     ports: !reset []
+    logging: *logging
 
   paddleocr-lines-api:
     ports: !reset []
+    logging: *logging

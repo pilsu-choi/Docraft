@@ -74,3 +74,13 @@ status: stable
 - TLS가 없으므로 소스 IP 제한이 전제다.
 - OpenRouter 키(`AI_API_KEY`)는 backend 환경변수에만 있다. `public_ai_settings()`는 호스트명·모델명만 공개한다. 배포 후 실제 응답·프론트 번들·로그에 키 문자열이 없는지 확인했다.
 
+## 이슈 수집 (collect.sh)과 로그 보존
+
+- 서버 테스트에서 나온 이슈를 개선 작업으로 옮기려고 `deploy/aws/collect.sh`를 추가했다. 결과는 로컬 `data/aws-collect/<시각>/`(git 제외)에 쌓인다.
+  - DB 기록: `documents`·`corrections`·`audit_log`·`schemas`를 JSON으로 내보낸다.
+  - 원본: 이슈 문서(실패·검토 필요·검증 이슈·사용자 수정)만 받는다. `--all`이면 모든 문서를 받는다.
+  - backend 로그를 함께 받는다.
+  - `summary.md`: 상태별 건수, 실패 에러, 수정 전→후, 검증 이슈, 표 구조(ruled/vlm, 행×열), 로그 ERROR·WARNING을 정리한다.
+- 확인해 보니 backend 로그가 컨테이너 표준 출력에만 있어 `deploy.sh`로 재생성될 때마다 지워졌다. 오버레이에서 `LOG_FILE=/data/logs/docraft.log`를 지정해 서버 디스크에 남기도록 했다. 컨테이너 로그는 json-file 50MB × 3으로 제한했다.
+- 첫 수집(2026-09-22 09:16): 문서 11건 모두 `parsed`, 실패·수정·검증 이슈 0건. 사용자 테스트 문서 `2303000012.tif`는 ruled 29×15로 나왔다.
+
