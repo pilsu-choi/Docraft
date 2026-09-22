@@ -814,3 +814,55 @@ def test_a_table_with_many_broken_rows_is_flagged_as_low_quality():
     assert found.count("row_arith") == 3 and found.count("low_quality") == 0  # 절반이면 아직 아니다
     rows = detail(*[("1000", None, "1", "1000")] * 2, *broken)
     assert "low_quality" in [flag["code"] for flag in rules.check("세부내역서", {"항목내역": rows}, {}, [])]
+
+
+# --- FP 감사 후속(서식에 없는 열·베낀 합계·중복 소견·번호 형식) --------------------
+
+DETAIL_HEADER = [block(rows=[["항목", "일자", "코드", "명칭", "횟수", "일수", "총액", "본인부담금", "공단부담금"]], kind="table")]
+
+
+def test_detail_columns_missing_from_the_header_are_cleared():
+    """머리글에 단가·투여량·독립 급여 열이 없으면 모델이 옮겨 적은 값이다."""
+    rows = [{"항목": "검사료", "단가": "6600", "투여량": "1", "횟수": "1", "일수": "1", "총액": "6600",
+             "급여구분": "급여", "급여": "6000"}]
+    out = rules.apply("세부내역서", {"항목내역": rows}, DETAIL_HEADER)["항목내역"][0]
+    assert (out["단가"], out["투여량"], out["급여"], out["총액"]) == (None, None, None, "6600")
+    header = [block(rows=[["항목", "단가", "투여량", "일수", "총액", "급여"]], kind="table")]
+    out = rules.apply("세부내역서", {"항목내역": rows}, header)["항목내역"][0]
+    assert (out["단가"], out["투여량"], out["급여"]) == ("6600", "1", "6000")
+
+
+@pytest.mark.parametrize("total, expected", [("300", None), ("100", None), ("1000", "1000")])
+def test_detail_totals_copied_from_a_row_or_a_subtotal_are_dropped(total, expected):
+    """한 행의 값을 베꼈거나(300) 열 합보다 작은(100, 소계) 합계는 인쇄된 합계가 아니다."""
+    rows = [{"항목": "검사료", "본인부담": "300"}, {"항목": "진찰료", "본인부담": "700"}]
+    out = rules.apply("세부내역서", {"항목내역": rows, "급여_본인부담총액": total}, [block("300 700 100 1000")])
+    assert out["급여_본인부담총액"] == expected
+
+
+def test_treatment_notes_do_not_repeat_a_surgery_already_listed():
+    sentence = "2020년7월15일 복강경하 난소낭종제거 수술함"
+    blocks = [block(rows=[["치료내용", sentence]], kind="table")]
+    surgery = {"수술내역": [{"수술일자": "20200715", "수술명": "복강경하 난소낭종제거 수술함"}]}
+    assert rules.apply("진단서", surgery, blocks)["치료내역"] == []
+    both = {**surgery, "치료내역": [{"치료일": None, "치료명": "복강경하 난소낭종제거 수술함"}]}
+    assert rules.apply("진단서", both, [])["치료내역"] == []
+
+
+def test_edi_code_holding_the_name_takes_the_code_from_the_hospital_column():
+    rows = [{"원내코드": "S2084", "EDI코드": "ESWT 7 (체외충격파치료)", "EDI명칭": "ESWT 7 (체외충격파치료)"}]
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"][0]
+    assert (out["원내코드"], out["EDI코드"]) == (None, "S2084")
+
+
+@pytest.mark.parametrize("key, value, expected", [
+    ("환자정보-질병군(DRG)번호", "N07200", "N07200"),
+    ("환자정보-질병군(DRG)번호", "201902070516", None),       # 영수증번호
+    ("환자정보-환자등록번호", "20191024-M188", None),           # 날짜로 시작하는 접수번호
+    ("환자정보-환자등록번호", "602-82-00286 상호 학교법인", None),  # 사업자등록번호와 라벨
+    ("차트번호", "20201015-00001", "20201015-00001"),          # 차트번호는 날짜로 시작하기도 한다
+    ("의사명", "[] 치과의사", None), ("의사명", "또는인", None), ("의사명", "홍길동", "홍길동"),
+])
+def test_number_and_name_fields_reject_neighbouring_text(key, value, expected):
+    doc_type = "진료비영수증" if key.startswith("환자정보") else "진단서"
+    assert rules.apply(doc_type, {key: value}, [])[key] == expected

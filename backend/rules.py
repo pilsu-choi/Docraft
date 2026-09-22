@@ -6,7 +6,7 @@
   파싱 블록(``parsers.parse``의 blocks)을 근거로 룰을 적용해 새 정규 표현을 돌려준다.
   값 정규화, 값 자리에 들어온 서식 라벨·표 마크업과 빈 행·머리글 행 제거, 빠진 필드의 라벨 동의어 기반 보충,
   소견 문장에서 치료·검사 내역 행 만들기, 병명코드 분리, 인쇄되지 않은 급여 합계 비우기, 합계행 정리,
-  묶음 제목 금액 열 비우기, 통째로 맞바뀐 금액 열 되돌리기, ``derive``의 관례 채우기를 차례로 한다.
+  머리글에 없는·묶음 제목인 금액 열 비우기, 통째로 맞바뀐 금액 열 되돌리기, ``derive``의 관례 채우기를 차례로 한다.
 - ``derive(doc_type, fields)``: 읽은 값에서 채울 수 있는 자리를 AO 관례대로 채운다(성별·생년월일,
   진료비영수증 항목명 정규화·외래 진료종료일, 세부내역서 코드 열·비급여 칸·종료일자, 사고발생일자).
   정답셋 라벨도 같은 관례를 쓰도록 ``scripts/verify_label.conform``이 이 함수를 그대로 쓴다.
@@ -146,10 +146,11 @@ _ACCIDENT_DATES = ("진단일",)  # 사고발생일자 후보(스칼라)
 _ACCIDENT_COLUMNS = ("수술일자", "검사일", "치료일", "행위일")  # 사고발생일자 후보(표 열)
 
 NOTES = {  # 표 → (소견 문장을 담은 칸의 라벨, 날짜 열, 이름 열). 전용 표가 없는 서식에서 행을 만든다.
+    # 뒤의 표는 앞의 표에 이미 담긴 내용을 다시 담지 않는다(수술·검사를 적은 소견 문장은 치료내역이 되지 않는다).
+    "수술내역": (["수술소견", "수술내용"], "수술일자", "수술명"),
+    "검사내역": (["검사소견", "검사결과", "검사내용"], "검사일", "검사명"),
     "치료내역": (["치료소견", "치료내용", "치료내용및향후치료에대한소견", "향후치료의견", "향후치료계획",
                 "치료및향후치료의견", "향후치료에대한소견", "내용"], "치료일", "치료명"),
-    "검사내역": (["검사소견", "검사결과", "검사내용"], "검사일", "검사명"),
-    "수술내역": (["수술소견", "수술내용"], "수술일자", "수술명"),
 }
 MARKS = {"검사": "검사내역", "수술": "수술내역", "치료": "치료내역"}  # 비고의 ``날짜 (검사)`` 표시 → 표
 SENTENCE = 10  # 소견 문장으로 볼 최소 길이
@@ -169,7 +170,7 @@ _DATE = re.compile(
 _CODE = re.compile(r"[A-Za-z01][0-9]{2,5}(?:\.[0-9]{1,2})?")
 _CODE_IN_TEXT = re.compile(r"[(\[{]?\s*[A-Za-z]\d{2,5}(?:\.\d{1,2})?\s*[)\]}]?")
 _LICENSE = re.compile(r"\(?\s*(제)?\s*\d{4,6}\s*(호)?\s*\)?")
-_NAME_WORDS = re.compile(r"의사|성명|이름|환자|면허|직인|서명|담당|주치의|전문의|연령|나이")
+_NAME_WORDS = re.compile(r"의사|성명|이름|환자|면허|직인|서명|담당|주치의|전문의|연령|나이|또는")
 _SEAL = re.compile(r"[(\[]\s*(?:인|印)\s*[)\]]|\s+(?:인|印)\s*$")  # 이름 뒤 날인 표시: (인)·[인]·(印)·공백+인
 _PHONE_IN_TEXT = re.compile(r"\(?\d{2,4}\)?\s*-\s*\d{3,4}\s*-\s*\d{4}\)?")
 _TOTAL_ROW = re.compile(r"^(합계|총계|소계|계|total|합계금액|끝수처리조정금액?)$", re.I)
@@ -353,7 +354,7 @@ def _name(text):
     text = re.sub(r"[^가-힣]", "", _NAME_WORDS.sub(" ", _LICENSE.sub(" ", _SEAL.sub(" ", text))))
     half = len(text) // 2
     text = text[:half] if half and text[:half] == text[half:] else text
-    if set(text) <= set("남여녀"):  # 성별 보기 칸
+    if set(text) <= set("남여녀") or text.endswith("과"):  # 성별 보기 칸, 진료과('치과의사' 보기)
         return None
     return text if 2 <= len(text) <= 5 else None  # 사람 이름 길이를 벗어나면 라벨 글자가 섞인 것이다
 
@@ -371,12 +372,19 @@ def _address(text):
     return text if text and re.search(r"[가-힣]{2}", text) else None
 
 
-def _serial(text):
-    return text if re.search(r"\d", text) else None  # 숫자 없는 등록번호는 옆 라벨('야간(공휴일)진료')이 흘러든 것이다
+def _serial(text, strict=True):
+    """등록·차트번호. 숫자가 없으면 옆 라벨('야간(공휴일)진료')이 흘러든 것이다. 등록번호(``strict``)는 한글이 섞이거나
+    ('602-82-00286 상호 …') 날짜로 시작하면('20191024-M188', 접수·영수증번호) 버린다 — 차트번호는 둘 다 흔하다."""
+    if not re.search(r"\d", text) or strict and (re.search(r"[가-힣]", text)
+                                                 or re.match(r"\d{8}\D", text) and _dates_in(text[:8])):
+        return None
+    return text
 
 
 FIELD_RULES = {  # 필드 → 추가 정제(정규화 뒤에 적용)
-    **dict.fromkeys(["환자 등록번호", "차트번호", "환자정보-환자등록번호", "환자정보(환자등록번호)"], _serial),
+    **dict.fromkeys(["환자 등록번호", "환자정보-환자등록번호", "환자정보(환자등록번호)"], _serial),
+    "차트번호": lambda text: _serial(text, strict=False),
+    "환자정보-질병군(DRG)번호": lambda text: text if re.search(r"[A-Za-z]", text) else None,  # KDRG는 영문으로 시작한다
     **dict.fromkeys(["이름", "의사명", "환자정보-성명", "환자성명"], _name),
     **dict.fromkeys(["병원명", "의료기관정보-명칭"], _hospital),
     **dict.fromkeys(["주소", "병원주소", "의료기관정보-주소"], _address),
@@ -607,26 +615,40 @@ def _printed(value, blocks):
     return bool(re.search(rf"(?<!\d){value}(?!\d)", text))
 
 
+def _copied(doc_type, fields, key):
+    """합계 필드가 항목 행 열 합보다 작거나(소계를 옮김), 둘 이상인 항목 행 중 한 행의 같은 열(급여총액은 총액 열도)
+    값을 베꼈는지. 열 합과 같으면 아니다."""
+    rows, value = _rows(fields, ITEM_TABLE), _money(fields.get(key))
+    column = next((column for column, field in TOTALS.get(doc_type, {}).get(ITEM_TABLE, {}).items() if field == key), None)
+    columns, added = (column, "총액") if column == "급여" else (column,), sum(_money(row.get(column)) or 0 for row in rows)
+    return bool(column and len(rows) >= 2 and not _near(value, added)
+                and (value < added or any(_money(row.get(name)) == value for row in rows for name in columns)))
+
+
 def _ungrounded(doc_type, fields, blocks):
-    """합계 행 없이 채워진 합계 금액 필드 중 문서 글자 어디에도 없는 것(모델이 계산해 낸 값)."""
+    """합계 행 없이 채워진 합계 금액 필드 중 문서 글자 어디에도 없거나 항목 한 행의 값을 베낀 것(인쇄되지 않은 합계)."""
     if not blocks or any(is_total(row) for row in _rows(fields, ITEM_TABLE)):  # 글자 근거가 없으면 따지지 않는다
         return []
     return [key for key, meta in doctypes.spec(doc_type)["fields"].items()
             if meta["kind"] == "amount" and "총액" in key and _money(fields.get(key))
-            and not _printed(normalize("amount", fields[key]), blocks)]
+            and (not _printed(normalize("amount", fields[key]), blocks) or _copied(doc_type, fields, key))]
 
 
 def _notes(doc_type, out, blocks):
     """전용 표가 없는 서식에서 소견 문장·비고의 날짜 표시로 치료·검사·수술 내역 행을 만든다(AO 관례)."""
     tables = doctypes.spec(doc_type)["tables"]
-    for table, (labels, date_column, name_column) in NOTES.items():
+    for position, (table, (labels, date_column, name_column)) in enumerate(NOTES.items()):
         if table not in tables:
             continue
+        taken = {_key(row[name]) for other, (_, _, name) in list(NOTES.items())[:position]
+                 for row in out.get(other) or [] if row.get(name)}
+        out[table] = [row for row in out.get(table) or [] if _key(row.get(name_column) or "") not in taken]
         if out.get(table):
             continue
         for _, _, candidate in _candidates(labels, blocks):
             text = normalize("text", candidate)
-            if text and len(_key(text)) >= SENTENCE and not _junk(text):
+            if (text and len(_key(text)) >= SENTENCE and not _junk(text)
+                    and not any(name in _key(text) for name in taken)):
                 # 소견 속 날짜는 진료일이 아니라 과거력·예정일인 경우가 많아 표의 날짜 칸에는 넣지 않는다.
                 out[table] = [{date_column: None, name_column: text}]
                 break
@@ -648,6 +670,8 @@ def _columns(doc_type, out):
             continue
         if doc_type != "세부내역서":
             return
+        if row.get("EDI코드") and row["EDI코드"] == normalize("edi", row.get("EDI명칭")):
+            row["EDI코드"] = None  # 명칭이 코드 열까지 밀려 들어오면 원내코드 자리의 코드가 EDI코드다
         code, edi = row.get("원내코드"), row.get("EDI코드")
         if code and (not edi or code == edi):
             row["원내코드"], row["EDI코드"] = None, edi or code
@@ -661,15 +685,24 @@ def _columns(doc_type, out):
             row["비급여"] = row["총액"]
 
 
-def _group_titles(doc_type, out, blocks):
-    """머리글이 '묶음 제목'이라고 말하는 금액 열은 하위 열의 합일 뿐이므로 비운다(진료비영수증 급여·비급여)."""
-    if doc_type != "진료비영수증":
-        return
-    cells = _headers(blocks)
+def _header_columns(doc_type, out, blocks):
+    """머리글로 보아 서식에 없는 금액 열을 비운다.
+
+    - 머리글이 '묶음 제목'이라고 말하는 열은 하위 열의 합일 뿐이다(진료비영수증 급여·비급여).
+    - 세부내역서 급여 열은 머리글에 독립 열로 보일 때만 남긴다 — 모델이 총액−비급여를 계산해 채우곤 한다.
+    - 세부내역서 머리글이 일수 칸까지 읽혔는데 단가·투여량 낱말(``HEADER_COLUMNS``)이 없으면 이웃 열 값을 옮긴 것이다.
+    """
+    cells, columns = _headers(blocks), []
     for column, (titles, subs, _) in GROUPED.items():
-        if _grouped(cells, titles, subs) is True:
-            for row in out.get(ITEM_TABLE) or []:
-                row[column] = None
+        grouped = _grouped(cells, titles, subs)
+        if (grouped is True if doc_type == "진료비영수증"
+                else doc_type == "세부내역서" and column == "급여" and grouped is not False):
+            columns.append(column)
+    if doc_type == "세부내역서" and any("일수" in cell for cell in cells):
+        columns += [column for column, words in HEADER_COLUMNS.items()
+                    if not any(word in cell for cell in cells for word in words)]
+    for row in out.get(ITEM_TABLE) or []:
+        row.update(dict.fromkeys(columns))
 
 
 def _receipt_column(cells):
@@ -883,6 +916,7 @@ FIELD_SUMS = {  # 합계 필드 → 구성 필드. 구성 필드가 둘 이상 �
 }
 SWAPS = (("본인부담금", "공단부담금"), ("선택진료료", "선택진료료외"), ("선택진료료", "비급여"),
          ("선택진료료외", "비급여"))  # 모델이 통째로 맞바꿔 읽기 쉬운 이웃 금액 열
+HEADER_COLUMNS = {"단가": ("단가", "금액"), "투여량": ("투여량", "두여량", "투약량", "용량")}  # 세부내역서 열 → 머리글 낱말
 GROUPED = {  # 열 → (묶음 제목 후보, 하위 열이 있으면 그 열은 독립 열이 아니다, 값을 옮길 열)
     "급여": (("급여", "요양급여"), ("본인부담", "공단부담", "전액본인"), "비급여"),
     "비급여": (("비급여",), ("선택진료",), "급여"),
@@ -1031,8 +1065,8 @@ def check(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dic
     검사에 진료비영수증 항목내역 검사를 더한다."""
     found = (_master_checks(ao_fields) + _date_checks(doc_type, ao_fields) + _id_checks(doc_type, ao_fields)
              + _field_sums(ao_fields) + _detail_checks(doc_type, ao_fields)
-             + [_flag("ungrounded", f"{key} {ao_fields[key]}이 문서 글자 어디에도 없다. 인쇄되지 않은 합계를 계산한 것이면 "
-                                    "비운다.", key=key) for key in _ungrounded(doc_type, ao_fields, blocks or [])])
+             + [_flag("ungrounded", f"{key} {ao_fields[key]}이 문서 글자 어디에도 없거나 항목 한 행의 값과 같다. "
+                                    "인쇄되지 않은 합계를 계산하거나 베낀 것이면 비운다.", key=key) for key in _ungrounded(doc_type, ao_fields, blocks or [])])
     rows = _rows(ao_fields, ITEM_TABLE)
     if doc_type != "진료비영수증" or not rows:
         return found
@@ -1285,7 +1319,7 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     for key in set(FIELD_SUMS) & set(UNPRINTED_NULL):  # 구성 필드 합과 다른 급여총액은 비급여까지 더한 총액을 옮긴 것이다
         if _fits(out, key, out.get(key)) is False:
             out[key] = None
-    _group_titles(doc_type, out, blocks or [])
+    _header_columns(doc_type, out, blocks or [])
     if doc_type == "진료비영수증":  # 통째로 맞바뀐 이웃 금액 열을 합계 행에 맞춰 되돌린다
         out[ITEM_TABLE] = _swap(out[ITEM_TABLE], _swaps(out[ITEM_TABLE]))
     _period(out)
