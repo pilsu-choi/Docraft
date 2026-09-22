@@ -29,7 +29,12 @@ export const api = {
   projects: () => request<Project[]>('/projects'), createProject: (name: string, description?: string) => request<Project>('/projects', json('POST', { name, description })),
   project: (id: string) => request<Project>(`/projects/${id}`), updateProject: (id: string, name: string) => request<Project>(`/projects/${id}`, json('PATCH', { name })), deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
   documents: (projectId: string) => request<Document[]>(`/projects/${projectId}/documents`), document: (id: string) => request<Document>(`/documents/${id}`), deleteDocument: (id: string) => request<void>(`/documents/${id}`, { method: 'DELETE' }),
-  upload: (projectId: string, files: File[]) => { const body = new FormData(); files.forEach(file => body.append('files', file)); return request<Document[]>(`/projects/${projectId}/documents`, { method: 'POST', body }) },
+  // 파일마다 한 요청으로 보낸다. nginx가 요청 본문을 30MB로 막아 스캔 이미지 수십 장을 한 번에 보내면 413이 난다(파일 1개 상한은 25MB).
+  upload: async (projectId: string, files: File[]) => {
+    const created: Document[] = []
+    for (const file of files) { const body = new FormData(); body.append('files', file); created.push(...await request<Document[]>(`/projects/${projectId}/documents`, { method: 'POST', body })) }
+    return created
+  },
   parse: (id: string, options: ParseOptions = {}) => request<Document>(`/documents/${id}/parse`, json('POST', options)),
   schemas: (projectId: string) => request<Schema[]>(`/projects/${projectId}/schemas`), createSchema: (projectId: string, name: string, json_schema: Record<string, unknown>) => request<Schema>(`/projects/${projectId}/schemas`, json('POST', { name, json_schema })),
   updateSchema: (id: string, name: string, json_schema: Record<string, unknown>) => request<Schema>(`/schemas/${id}`, json('PATCH', { name, json_schema })), deleteSchema: (id: string) => request<void>(`/schemas/${id}`, { method: 'DELETE' }),

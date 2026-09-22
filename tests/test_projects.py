@@ -2,6 +2,7 @@
 
 import io
 import time
+from pathlib import Path
 from urllib.parse import quote
 
 import openpyxl
@@ -58,8 +59,12 @@ def test_project_rename_and_delete_cascade_in_postgresql():
     assert renamed.status_code == 200
     assert renamed.json()["name"] == "after"
 
+    with connect() as db:
+        stored = Path(db.execute("SELECT file_path FROM documents WHERE id=?", (document_id,)).fetchone()["file_path"])
+    assert stored.exists()
     deleted = client.delete(f"/api/projects/{project_id}")
     assert deleted.status_code == 204
+    assert not stored.exists()  # uploaded originals go with the project
     assert client.get(f"/api/projects/{project_id}").status_code == 404
     with connect() as db:
         assert db.execute("SELECT id FROM documents WHERE id=?", (document_id,)).fetchone() is None
