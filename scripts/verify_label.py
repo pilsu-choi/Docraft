@@ -154,7 +154,7 @@ def resolve_model(explicit: str | None) -> str:
 
 @contextmanager
 def model_override(model: str | None):
-    """추출 모델(qwen3-vl-32b)과 라벨링 모델이 같으면 순환 평가가 되므로, ``_provider``가 보내는
+    """추출 모델(AI_VLM_MODEL)과 라벨링 모델이 같으면 순환 평가가 되므로, ``_provider``가 보내는
     요청 body의 ``model`` 키만 가로채 바꾼다. engine.py나 ai_settings()는 건드리지 않는다."""
     extract_model = ai_settings()["model"]
     if not model or model == extract_model:
