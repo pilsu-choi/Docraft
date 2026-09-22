@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-22 (13)
+* **Creation**: [rule-performance-review](2026-09-22-rule-performance-review.md)에 코드·저장 평가 기반 개선 우선순위를 기록했다(구현·신규 성능 측정 없음).
+* **Update**: [index](index.md)에 분석 문서를 연결했다.
+
 ## 2026-09-22 (12)
 * **Creation**: [readme-architecture](2026-09-22-readme-architecture.md)에 README 현행화와 Mermaid 아키텍처·처리 흐름 시각화 기록을 추가했다.
 * **Update**: [README](../README.md)의 일반 추출·AO 검증, 스키마 출처, 실행·설정·검증 안내를 현재 코드와 대조해 갱신했다. [index](index.md)에 새 문서를 연결했다.
