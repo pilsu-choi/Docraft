@@ -1,0 +1,23 @@
+{{- $fn := include "dft.fullname" . -}}
+Docraft가 배포됐습니다 (네임스페이스: {{ .Release.Namespace }}).
+
+1) 기동 확인
+   kubectl -n {{ .Release.Namespace }} get pods -w
+
+2) 스모크 테스트 (/api/health)
+   helm test {{ .Release.Name }} -n {{ .Release.Namespace }} --logs
+
+3) 접속
+{{- if .Values.frontend.enabled }}
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ $fn }}-frontend 8080:80
+   → http://127.0.0.1:8080
+{{- else }}
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ $fn }}-backend {{ .Values.backend.port }}:{{ .Values.backend.port }}
+   → http://127.0.0.1:{{ .Values.backend.port }}/docs
+{{- end }}
+
+   인증: {{ if .Values.auth.apiKey }}DOCRAFT_API_KEY 필요{{ else }}없음(⚠️ 내부망 전용){{ end }}
+   작업 큐: {{ .Values.queue.backend }}{{ if eq .Values.queue.backend "celery" }}(worker {{ if .Values.worker.enabled }}켜짐{{ else }}⚠️ 꺼짐 — worker.enabled=true 로 켜야 큐가 처리된다{{ end }}){{ end }}
+   AI(추출/스키마 생성): {{ if .Values.vllmVlm.enabled }}{{ $fn }}-vllm-vlm:8000 — 가중치 로딩에 수 분{{ else }}꺼짐 — 추출·스키마 생성 기능 비활성{{ end }}
+   OCR(레이아웃): {{ if .Values.paddleocrVl.enabled }}{{ $fn }}-paddleocr-vl-api:8080{{ else }}꺼짐 — library 파서(텍스트 레이어만){{ end }}
+   OCR(줄 좌표): {{ if .Values.paddleocrLines.enabled }}켜짐{{ else }}꺼짐 — 근거 상자가 블록 단위{{ end }}

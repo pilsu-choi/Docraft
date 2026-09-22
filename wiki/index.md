@@ -9,6 +9,8 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [Docraft Helm 차트(k8s, GPU 서빙 포함)](2026-09-23-k8s-helm-chart.md) - harness-installer 우산 차트의 서브차트로 쓸 `deploy/k8s/helm/docraft`를 harness-v2 mlife-harness 차트 관례로 구현. backend/worker/frontend, 외부 Postgres·Redis 연결(existingSecret 패턴), PaddleOCR-VL·PP-OCRv5·Qwen3-VL(vLLM) 세 GPU 컴포넌트의 deviceIds 기반 카드 지정과 L40S 2장 배치 기본값, helm lint/template 검증과 정수 quote 버그 수정 기록
+
 * [룰 엔진 엣지케이스 확장](2026-09-23-rules-edge-cases.md) - 열 밀림·통째 맞바꿈·산술·근거·형식·표 구조 엣지케이스 목록과 룰별 캐시 평가 효과(세부내역서 fp 273→43, 영수증 fp 27→11), 헛경고 측정, 버린 룰, main 급여 열 관례 조정
 * [라벨 관례 정렬 결과와 추출 모델 비교](2026-09-23-label-alignment-and-model-compare.md) - 확정 관례를 76건 정답셋에 적용한 단계별 수치 변화와 분모 변경 경고, 같은 parse·라벨·코드로 채점한 `qwen3-vl-32b-instruct` vs `qwen3.5-27b`(사고 모드 off) 유형별 비교·뒤진 원인·지연·단가 해석과 권고(결정 보류)
 * [rules 후처리 흐름 예시 풀이](2026-09-23-rules-flow-example.md) - 진단서·진료비영수증 예시를 rules.apply·check·correct에 통과시켜 단계별 교정을 보여 주는 설명과 이름 도장 표시(`(인)`) 버그 수정

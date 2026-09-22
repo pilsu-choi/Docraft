@@ -1,0 +1,123 @@
+{{- $fn := include "dft.fullname" . -}}
+{{- $cfgsum := include "dft.configChecksum" . -}}
+# =============================================================================
+# 앱 티어 — backend(FastAPI, /api/health) · worker(Celery, 선택).
+# compose(backend/Dockerfile)와 같은 이미지·헬스체크다. backend·worker 는 /data(업로드 원본)를
+# 함께 쓴다 — values persistence.data 참고.
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fn }}-data
+  labels: {{- include "dft.labels" . | nindent 4 }}
+  annotations:
+    # helm uninstall 로 업로드 원본이 지워지지 않게 한다.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [{{ .Values.persistence.data.accessMode }}]
+  {{- with (default .Values.persistence.storageClass .Values.persistence.data.storageClass) }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources: { requests: { storage: {{ .Values.persistence.data.size }} } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-backend
+  labels: {{- include "dft.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.backend.service.type }}
+  selector: {{- include "dft.selector" (dict "ctx" . "component" "backend") | nindent 4 }}
+  ports:
+    - { name: http, port: {{ .Values.backend.port }}, targetPort: http }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-backend
+  labels: {{- include "dft.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  selector:
+    matchLabels: {{- include "dft.selector" (dict "ctx" . "component" "backend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "dft.selector" (dict "ctx" . "component" "backend") | nindent 8 }}
+        docraft/data: shared
+      annotations:
+        checksum/config: {{ $cfgsum }}
+    spec:
+      {{- include "dft.podCommon" . | nindent 6 }}
+      {{- include "dft.podSecurity" (dict "uid" 10001 "gid" 10001) | nindent 6 }}
+      {{- include "dft.dataAffinity" . | nindent 6 }}
+      containers:
+        - name: backend
+          image: {{ include "dft.image" (dict "ctx" . "name" "backend") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- include "dft.appEnv" . | nindent 10 }}
+          ports: [{ name: http, containerPort: 8000 }]
+          {{- include "dft.containerSecurity" (dict "readOnly" true) | nindent 10 }}
+          # backend/main.py 에는 /api/health 하나뿐이다(별도 readyz 없음).
+          startupProbe:
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources: {{- toYaml .Values.backend.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: {{ $fn }}-data }
+        - { name: tmp, emptyDir: {} }
+{{- if .Values.worker.enabled }}
+---
+# Celery 워커. 상태가 없어(브로커·백엔드 = externalRedis) replicas 를 늘리면 처리량이 늘어난다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-worker
+  labels: {{- include "dft.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels: {{- include "dft.selector" (dict "ctx" . "component" "worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "dft.selector" (dict "ctx" . "component" "worker") | nindent 8 }}
+        docraft/data: shared
+      annotations:
+        checksum/config: {{ $cfgsum }}
+    spec:
+      {{- include "dft.podCommon" . | nindent 6 }}
+      {{- include "dft.podSecurity" (dict "uid" 10001 "gid" 10001) | nindent 6 }}
+      {{- include "dft.dataAffinity" . | nindent 6 }}
+      # 처리 중인 태스크를 마칠 시간을 준다(Celery warm shutdown).
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: worker
+          image: {{ include "dft.image" (dict "ctx" . "name" "backend") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "backend.worker"]
+          {{- include "dft.appEnv" . | nindent 10 }}
+          {{- include "dft.containerSecurity" (dict "readOnly" true) | nindent 10 }}
+          resources: {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: {{ $fn }}-data }
+        - { name: tmp, emptyDir: {} }
+{{- end }}

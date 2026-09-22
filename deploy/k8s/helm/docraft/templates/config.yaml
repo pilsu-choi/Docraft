@@ -1,0 +1,49 @@
+{{- $fn := include "dft.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fn }}-env
+  labels: {{- include "dft.labels" . | nindent 4 }}
+data:
+  DOCRAFT_DATA_DIR: /data
+  MAX_UPLOAD_BYTES: {{ .Values.backend.maxUploadBytes | quote }}
+  CORS_ORIGINS: {{ .Values.backend.corsOrigins | quote }}
+  LOG_LEVEL: {{ .Values.backend.logLevel | quote }}
+  # k8s 에서는 컨테이너 stdout 이 로그 수집 대상이다 — 파일 기록은 끈다(backend/config.py LOG_FILE="").
+  LOG_FILE: ""
+  QUEUE_BACKEND: {{ .Values.queue.backend | quote }}
+  QUEUE_NAME: {{ .Values.queue.name | quote }}
+  QUEUE_CONCURRENCY: {{ .Values.queue.concurrency | quote }}
+  JOB_LEASE_SECONDS: {{ .Values.queue.leaseSeconds | quote }}
+  AI_MODE: provider
+  # vllmVlm 을 껐으면 빈 값 — backend/config.py 의 ai_settings() 가 "미설정"으로 보고
+  # 추출·스키마 생성 기능을 비활성화한다(호출하지 않는다, 대체 동작 없음).
+  AI_BASE_URL: {{ ternary (printf "http://%s-vllm-vlm:8000/v1" $fn) "" .Values.vllmVlm.enabled | quote }}
+  AI_VLM_MODEL: {{ ternary .Values.vllmVlm.servedModelName "" .Values.vllmVlm.enabled | quote }}
+  AI_VISION: {{ .Values.backend.aiVision | quote }}
+  AI_REASONING: {{ .Values.backend.aiReasoning | quote }}
+  TABLE_REFINE: {{ .Values.backend.tableRefine | quote }}
+  # paddleocrVl 을 껐으면 library 파서(스캔 이미지 OCR 없이 텍스트 레이어만) 로 대체된다.
+  PARSE_PROVIDER: {{ ternary "paddle" "library" .Values.paddleocrVl.enabled | quote }}
+  PADDLEOCR_BASE_URL: {{ ternary (printf "http://%s-paddleocr-vl-api:8080" $fn) "" .Values.paddleocrVl.enabled | quote }}
+  PADDLEOCR_MODEL: {{ .Values.paddleocrVl.model | quote }}
+  PADDLEOCR_TIMEOUT: {{ .Values.paddleocrVl.timeout | quote }}
+  PADDLEOCR_LINES_URL: {{ ternary (printf "http://%s-paddleocr-lines:8080" $fn) "" .Values.paddleocrLines.enabled | quote }}
+  {{- range $k, $v := .Values.backend.extraEnv }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+---
+{{- if not .Values.auth.existingSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "dft.secretName" . }}
+  labels: {{- include "dft.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  # 비어 있으면 backend 가 뜨지 않는다(psycopg 연결 실패) — 설치 전 반드시 채운다.
+  DATABASE_URL: {{ .Values.externalDatabase.url | quote }}
+  CELERY_BROKER_URL: {{ .Values.externalRedis.url | quote }}
+  DOCRAFT_API_KEY: {{ .Values.auth.apiKey | quote }}
+  AI_API_KEY: {{ .Values.auth.aiApiKey | quote }}
+{{- end }}

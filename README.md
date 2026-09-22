@@ -59,6 +59,8 @@ npm run dev
 
 전체 스택은 `docker compose --profile app up -d --build`로 실행할 수 있습니다(화면 `:3000`). GPU OCR까지 실행하려면 `--profile ocr`를 추가합니다. Docker에서는 nginx가 `/api`를 backend로 전달하며, DB·파일 경로·OCR 주소는 Compose 내부 주소로 설정됩니다. 로컬 서버와 Docker backend의 기본 포트 `8000`은 겹치므로 동시에 띄울 때는 `BACKEND_PORT`를 바꿉니다. [AWS 개발 서버 배포 절차](deploy/aws/README.md)도 제공합니다.
 
+고객 폐쇄망 k8s 배포용 Helm 차트는 [deploy/k8s/helm/docraft](deploy/k8s/helm/docraft)에 있습니다(harness-installer 우산 차트의 서브차트 전제, Postgres·Redis는 harness-v2 것을 공유). 값·GPU 배치·hostPath 모델 구조는 [deploy/k8s/README.md](deploy/k8s/README.md)를 참고하세요.
+
 ## 문서 추출 흐름
 
 ```mermaid
