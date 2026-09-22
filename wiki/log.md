@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-22 (18)
+* **Creation**: [master-name-correction](2026-09-22-master-name-correction.md)에 KCD·EDI 마스터 사전 구축과 코드 일치 행의 1글자 명칭 교정, 임계값 스윕 근거(마스터 명칭 통째 대체는 순손실 -13), 76건 rules 전후 수치(순 +4, strict +3, holdout 무변화)를 기록했다.
+* **Update**: [index](index.md)에 새 구현 문서를 연결했다. [README](../README.md)에 마스터 사전 준비 절과 `MASTER_DIR` 설정을 추가했다.
+
 ## 2026-09-22 (17)
 * **Update**: [kv-accuracy-review](2026-09-22-kv-accuracy-review.md)에 "harness-v2 참고 자산" 절을 추가했다. 개선 우선순위 1~4와 harness-v2 자산(행 정렬 키, Arbitration 원칙, 마스터 4종·매칭 모듈, 산식 검사, 영수증 서식 판별) 대응표, 고객 보고 오류 사례 3건, 스키마 정합 확인 사항, golden 데이터 한계를 기록했다.
 

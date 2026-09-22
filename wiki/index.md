@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [KCD·EDI 마스터 사전 명칭 교정](2026-09-22-master-name-correction.md) - 마스터 조회 CSV 생성과 코드 일치 행의 1글자 명칭 교정, 76건 전후 수치와 임계값 근거
 * [key-value 추출 정확도 개선 지점 검토](2026-09-22-kv-accuracy-review.md) - 76건 rules 단계 오류 분포와 코드 검토를 대조한 정확도 개선 우선순위(구현 없음)
 
 * [정확도 평가 확장과 홀드아웃 라벨 매니페스트](2026-09-22-accuracy-eval-expansion.md) - 기존 36건과 콘텐츠 중복 없는 40건 holdout, 독립 라벨 provenance, strict/legacy 평가 집계

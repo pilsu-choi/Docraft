@@ -123,6 +123,16 @@ curl -X POST http://127.0.0.1:8000/api/verify \
 
 이미 고정한 매니페스트는 재생성하지 않고 재사용합니다. 평가에는 기존의 느슨한 값 비교와 정규화 후 완전 일치(`strict`), 오탐 수, 평가·제외·오류 문서 수를 함께 기록합니다. 추출 지침이나 모델을 바꾼 실험은 이전 추출 캐시를 재사용하면 반영되지 않으므로 별도 캐시로 비교하거나 `--no-cache`로 다시 처리해야 합니다. [확대 평가 기록](wiki/2026-09-22-accuracy-eval-expansion.md)을 참고하세요.
 
+### 마스터 사전 준비
+
+KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두면, 룰 단계에서 **코드가 마스터에 있는 행에 한해** 명칭의 1글자 OCR 오인식(`편축`→`편측`, `부문`→`부분`)을 되돌립니다. 명칭에서 코드를 역추론하지는 않고, 글자 수가 같고 한 글자만 어긋날 때만 그 글자를 바꿔 문서의 인쇄 표기(띄어쓰기·괄호)를 유지합니다. 파일이 없으면 이 교정은 조용히 꺼집니다.
+
+```bash
+.venv/bin/python scripts/build_master.py   # 원본 경로는 --source, 출력은 --out으로 바꿀 수 있습니다
+```
+
+`data/master/{kcd,edi,drug,material}.csv`(code,name,unit_price)가 만들어지며 `data/`는 커밋하지 않습니다. 다른 경로에 두려면 `MASTER_DIR`를 지정합니다.
+
 ## 주요 API
 
 | 기능 | 경로 |
@@ -148,6 +158,7 @@ curl -X POST http://127.0.0.1:8000/api/verify \
 | `PARSE_PROVIDER`, `PADDLEOCR_BASE_URL` | `library`, 빈 URL | 기본 라이브러리 파싱 또는 원격 PaddleOCR |
 | `PADDLEOCR_LINES_URL` | 빈 값 | 선택적인 줄 단위 근거 좌표 |
 | `TABLE_REFINE` | `false` | OCR 표 셀 텍스트를 LLM으로 추가 교정 |
+| `MASTER_DIR` | `data/master` | KCD·EDI 마스터 조회 CSV 위치; 파일이 없으면 명칭 교정 비활성 |
 | `QUEUE_BACKEND`, `QUEUE_CONCURRENCY` | `inline`, `2` | 프로세스 스레드 풀 또는 Celery 작업 큐 |
 | `LOG_LEVEL`, `LOG_FILE` | `DEBUG`, 저장소 `docraft.log` | 로그 수준·파일 위치; 빈 `LOG_FILE`은 파일 기록 중단 |
 
