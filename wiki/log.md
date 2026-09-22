@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-22 (24)
+* **Creation**: 파서 표 복원 보강을 [table-restore](2026-09-22-table-restore.md)에 기록했다. 모델과 무관한 구조 지표를 `scripts/parse_audit.py`로 먼저 만들고(머리글 검출·`_receipt_rows` 행 수·다중 금액 셀), 실패 6건을 원본 이미지와 대조해 원인을 기울기(2~3°)·`_runs` 팽창 창 off-by-one(마스크가 1px 밀리고 `length-1`만큼 짧아짐)·셀 병합 오판으로 분류했다. `backend/table_grid.py`에 `_skew`/`_straighten`(±3° 투영 기반 기울기 보정, crop과 줄 박스를 함께 회전), `slack = max(10, 글자높이/2)`, `FIRM=0.5`(절반 이상 행에서 잡히는 세로 경계는 인쇄된 열로 보고 글자가 가로지를 때만 병합)를 더했다. 38건 구조 지표 `multi` 2027→1818·`rebuilt>0` 15→18, 고객 보고 파싱 에러 사례 `multi` 12→0·`rebuilt` 21→23. 76건 rules 재평가(48건 재파싱, 27분) all correct 7238→7199·strict 6701→6768·fp 243→268, holdout strict 74.3→75.8%. 손실 −44·fp +19가 구조 지표가 그대로이거나 좋아진 두 문서에 몰려 있어(나머지 74건 correct +5·strict +113) 채택했다(292 passed).
+* **Update**: [index](index.md)에 새 구현 문서를 연결했다. [README](../README.md) 파서 설명에 괘선 격자·기울기 보정 한 줄과 평가 절에 `scripts/parse_audit.py` 사용법 한 줄을 추가했다.
+
 ## 2026-09-22 (23)
 * **Update**: [extract-grounding](2026-09-22-extract-grounding.md)에 3차 지침 절을 추가했다. `_RECEIPT_ITEM["항목"]`에 "분류 칸(기본항목·선택항목 등)은 항목명에 붙이지 않는다"를 더하고 영수증 19건만 재추출(`grounded-v3`, `eval-20260922-212737.json`). 2차 대비 all strict 6646→6701·fp 249→243, holdout strict 3435→3487·fp 178→167로 회복해 채택했다. 문제 문서 `SA2019040914066`의 strict는 40→136(기준선 173)이며 `선택항목_` 접두 자체는 남아 완전 복구는 아니다. 기준선 대비 누계 all 7185→7238·strict 6627→6701·fp 330→243(289 passed).
 

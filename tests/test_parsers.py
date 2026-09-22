@@ -1,3 +1,5 @@
+import math
+
 import httpx
 import fitz
 import pytest
@@ -162,6 +164,46 @@ def test_ruled_table_reads_structure_from_rules_and_splits_lines_joined_across_a
 
 def test_ruled_table_is_none_without_rules():
     assert ruled_table(Image.new("L", (400, 200), 255), [0, 0, 400, 200], FORM_LINES) is None
+
+
+def _turned(image, lines, angle):
+    """The form and its OCR lines rotated together, as a tilted scan of the same page would arrive."""
+    sin, cos = math.sin(math.radians(angle)), math.cos(math.radians(angle))
+    cx, cy = image.width / 2, image.height / 2
+    moved = []
+    for line in lines:
+        x0, y0, x1, y1 = line["bbox"]
+        x, y = (x0 + x1) / 2 - cx, (y0 + y1) / 2 - cy
+        px, py, half_w, half_h = cx + x * cos + y * sin, cy - x * sin + y * cos, (x1 - x0) / 2, (y1 - y0) / 2
+        moved.append({"text": line["text"], "bbox": [px - half_w, py - half_h, px + half_w, py + half_h]})
+    return image.rotate(angle, resample=Image.BILINEAR, fillcolor=255), moved
+
+
+def test_ruled_table_straightens_a_tilted_scan():
+    """A 2 degree tilt moves a rule further than SLACK, so without deskew every cell edge reads as missing."""
+    image, lines = _turned(_ruled_form(), FORM_LINES, 2.0)
+    assert ruled_table(image, [0, 0, 400, 200], lines) == (
+        [["항목", "금액", "금액"], ["진찰료", "1,000", "2,000"], ["합계", "10", "20"]], [[0, 1, 1, 2]])
+
+
+def test_ruled_table_reads_a_low_resolution_form():
+    """Half the pixels, so the rules are 1px and the text 10px: the slack has to shrink with the page."""
+    form = _ruled_form().resize((200, 100))
+    lines = [{"text": line["text"], "bbox": [v / 2 for v in line["bbox"]]} for line in FORM_LINES]
+    rows, spans = ruled_table(form, [0, 0, 200, 100], lines)
+    assert rows == [["항목", "금액", "금액"], ["진찰료", "1,000", "2,000"], ["합계", "10", "20"]] and spans == [[0, 1, 1, 2]]
+
+
+def test_ruled_table_keeps_a_column_a_faint_rule_loses_in_one_row():
+    """The column rule runs the whole form but the scan lost it in the 진찰료 row. It is printed in the other
+    rows and no text runs across it there, so the two values must stay in their own cells — a faint rule is
+    not a merged cell. The header still merges, because its one 금액 line does run across the rule."""
+    form = _ruled_form()
+    draw = ImageDraw.Draw(form)
+    draw.rectangle((260, 10, 261, 70), fill=0)
+    draw.rectangle((260, 72, 261, 128), fill=255)
+    rows, spans = ruled_table(form, [0, 0, 400, 200], FORM_LINES)
+    assert rows == [["항목", "금액", "금액"], ["진찰료", "1,000", "2,000"], ["합계", "10", "20"]] and spans == [[0, 1, 1, 2]]
 
 
 def _paddle_form(tmp_path, monkeypatch, vlm_html):
