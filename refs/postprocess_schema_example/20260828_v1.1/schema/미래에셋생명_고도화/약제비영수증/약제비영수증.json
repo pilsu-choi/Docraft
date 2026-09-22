@@ -1,0 +1,1250 @@
+{
+    "common": {
+        "specCharWhiteList": "!@#$%^&*()_+-=~/,.",
+        "charRangeWhiteList": "0-9A-Za-zㄱ-ㅎㅏ-ㅣ가-힣",
+        "charBlackList": [
+            "[①-㊿]",
+            "(\\(\\))$",
+            "[+-]{0,}(\\(){1,}[0-9+-~]{0,}(\\))[0-9+-\\\\)]{0,}",
+            "[-+]{2,}",
+            "\\.$|\\-$|\\+$|\\($|\\,$",
+            "^\\(인\\)$",
+            "UNK",
+            "\\:$"
+        ]
+    },
+    "removePatternInfo": {
+        "pattern": "^UNK$|^\\[UNK\\]$|^-$|^:$|^\\($|^\\)$",
+        "confidenceThreshold": 1
+    },
+    "separatingKeywords": [
+        "본인부담",
+        "비급여및전액본인부담금",
+        "수납금액",
+        "약제비총액",
+        "카드",
+        "현금",
+        "현금영수증",
+        "공단부담액",
+        "합계"
+    ],
+    "keywordInfo": {
+        "title": [
+            "약제비계산서영수증(별지제11호서식)",
+            "약제비영수증"
+        ],
+        "금액": [],
+        "대표자": [
+            "대표자"
+        ],
+        "조제일자": [
+            "조제일자:",
+            "조제일",
+            "조일자",
+            "조제일and자",
+            "진료제조일자(진료기간)",
+            "조제일자(진료기간)",
+            "진료조제일자(진료기간)",
+            "진료/조제일자(진료기간)",
+            "진료기간(진료기간)",
+            "조제일자(진료과)",
+            "진료조제일자(진료과)",
+            "진료/조제일자(진료과)",
+            "진료기간(진료과)",
+            "조제일자(처방일)",
+            "진료조제일자(처방일)",
+            "진료/조제일자(처방일)",
+            "진료기간(처방일)",
+            "진료일자(기간)",
+            "조제일자",
+            "---오탈자---",
+            "전료기간",
+            "진료기",
+            "조제임자"
+        ],
+        "본인부담": [
+            "급여본인부담",
+            "본인부담금:",
+            "환자부담금",
+            "본인부담금()",
+            "본인부담금:()",
+            "본인부담금():",
+            "본인부담금(1):",
+            "본인부담금(1)):",
+            "본인부담금[]",
+            "본인부담금",
+            "본인부담금1",
+            "환자부담액",
+            "본인부담액",
+            "---오탈자---",
+            "본인부당금1"
+        ],
+        "비급여및전액본인부담금": [
+            "비급여전액본인",
+            "비급여전액본인:",
+            "비급여[전액본인]",
+            "비급여[전액본인]:",
+            "비급여전액본인()",
+            "비급여전액본인:()",
+            "비급여전액본인():",
+            "비급여(전액본인)",
+            "비급여(전액본인):",
+            "비급여(전액본인)()",
+            "비급여(전액본인):()",
+            "비급여(전액본인)():",
+            "비급여(전액본인",
+            "비급여및전액본인부담(3):",
+            "비급여및전액본인부담금",
+            "비급여및전액본인부담금(3):",
+            "비급여산",
+            "비급여및전액본인부담",
+            "---오탈자---"
+        ],
+        "수납금액": [
+            "총수납금액",
+            "총수납금액:",
+            "총수납금액()",
+            "총수납금액:()",
+            "총수납금액():",
+            "총수납금액(1)(2)(3)",
+            "총수납금액(1)(2)(3):",
+            "총수납금액[(1)(3)]:",
+            "총수납금액((1)(3)]:",
+            "총수납금액[]",
+            "송수납금액",
+            "송수납금액:",
+            "송수납금액()",
+            "송수납금액:()",
+            "송수납금액():",
+            "송수납금액(1)(2)(3)",
+            "송수납금액(1)(2)(3):",
+            "송수납금액[(1)(3)]:",
+            "송수납금액((1)(3)]:",
+            "송수납금액[]",
+            "받을금액",
+            "받을금액:",
+            "받을금액=",
+            "납부한금액",
+            "납부한",
+            "---오탈자---"
+        ],
+        "영수증번호": [
+            "처방전교부번호",
+            "영수증번호:",
+            "영수증번호(연월-일련번호)",
+            "영수증번호(연월-일련번호):",
+            "영수번호(연월-일련번호):",
+            "영수중번호(연월일련번호)",
+            "영수증번호연원일호",
+            "---오탈자---",
+            "수증번호",
+            "명수중번호",
+            "영수1인실중번"
+        ],
+        "환자성명": [
+            "환자성명",
+            "환자성명:",
+            "---오탈자---",
+            "성명",
+            "환자성",
+            "환치성명",
+            "환자상명"
+        ],
+        "투약일수": [
+            "투약일수:",
+            "투약일수",
+            "---오탈자---",
+            "무약일수",
+            "투약및수",
+            "투약입수"
+        ],
+        "야간(공휴일)조제": [
+            "야간(공휴일)조제:"
+        ],
+        "약제비총액": [
+            "약제비총액",
+            "약제비총액:",
+            "약제비총액()",
+            "약제비총액:()",
+            "약제비총액():",
+            "약제비총액(1)(2)(3):",
+            "약제비총액[(1)(2)(3)]:",
+            "약제비총액[]",
+            "---오탈자---"
+        ],
+        "카드": [
+            "-------총수납금액_카드에 대한 keyInfo-----",
+            "신용카드",
+            "카드수납액(1):",
+            "카드수납액[]",
+            "카드[]",
+            "카드:",
+            "카드",
+            "---오탈자---"
+        ],
+        "현금영수증": [
+            "-------총수납금액_현금영수증에 대한 keyInfo-----",
+            "현금영수증(2):",
+            "현금영수증[]",
+            "현금영수증:",
+            "영수증",
+            "총수납금액(현금영수증)",
+            "현금영수증",
+            "---오탈자---"
+        ],
+        "현금": [
+            "-------총수납금액_현금에 대한 keyInfo-----",
+            "현금수납액(3):",
+            "현금수납액[]",
+            "현금[]",
+            "현금:",
+            "현금",
+            "+)현금",
+            "---오탈자---"
+        ],
+        "비급여및전액본인부담": [
+            "-------약제비내역_비급여및전액본인부담액에 대한 keyInfo-----"
+        ],
+        "현금영수증_신분확인번호": [
+            "신분확인:",
+            "현금영수증신분확인번호",
+            "---오탈자---"
+        ],
+        "현금영수증_현금승인번호": [],
+        "사업자등록번호": [
+            "사업자등록번호:",
+            "사업자번호",
+            "사업자번호:",
+            "---오탈자---"
+        ],
+        "사업장소재지": [
+            "사업장소재지",
+            "사업장소재지:",
+            "---오탈자---",
+            "사업장소재가",
+            "사업장소재자"
+        ],
+        "병원명": [
+            "발행기관:",
+            "발행기관",
+            "처방전발행기관",
+            "병원정보",
+            "---오탈자---"
+        ],
+        "발행일": [
+            "발행일자",
+            "발행일",
+            "발행일:",
+            "발행일자:",
+            "발행일부",
+            "작성일",
+            "발급일시",
+            "발급일시:",
+            "영수증발행일",
+            "출력일",
+            "---오탈자---",
+            "발행",
+            "발일:",
+            "영수증발행일:",
+            "별형및"
+        ],
+        "투약번호": [
+            "투약번호:",
+            "---오탈자---"
+        ],
+        "주민번호": [
+            "주민등록번호",
+            "주민번호",
+            "주민번호:",
+            "---오탈자---"
+        ],
+        "진료과목": [
+            "진료과목:",
+            "---오탈자---"
+        ],
+        "합계": [
+            "합계[]",
+            "합계:",
+            "합계",
+            "계",
+            "---오탈자---"
+        ],
+        "미수잔액": [
+            "미수잔액[]",
+            "미수잔액:",
+            "---오탈자---"
+        ],
+        "상호": [
+            "상호",
+            "상호:",
+            "---오탈자---",
+            "상오"
+        ],
+        "유지비": [
+            "유지비:"
+        ],
+        "야간": [
+            "야간()",
+            "야간["
+        ],
+        "공휴": [
+            "공휴일()",
+            "공휴일"
+        ],
+        "구분": [
+            "구분(입원외래)",
+            "구분",
+            "구분(입원,외래)",
+            "구분(외래)",
+            "구분(입원)"
+        ],
+        "약제비내역": [
+            "진료비(약제비)내역",
+            "진료비내역",
+            "약제비내역"
+        ],
+        "총액": [
+            "총액()",
+            "총액",
+            "총액+)"
+        ],
+        "공단부담액": [
+            "보험사부담금",
+            "공단부담액",
+            "공단부담",
+            "공단부담금",
+            "보험자부담(청구)액",
+            "보험자부담금:",
+            "보험자부담금()",
+            "보험자부담금():",
+            "보험자부담금:()",
+            "보험자부담금(2):",
+            "보험자부담(청구)액(2):",
+            "보험자부담금[]",
+            "보험자부담금",
+            "---오탈자---"
+        ],
+        "전액본인부담": [
+            "전액본인부담금"
+        ],
+        "환자부담총액": [
+            "본인부담총액",
+            "환자부담총액"
+        ],
+        "소득공제대상액": [],
+        "요양기관종류": [
+            "요양기관종류",
+            "처방한요양기관"
+        ],
+        "급여": [
+            "급여"
+        ],
+        "비급여": [
+            "비급여"
+        ],
+        "전화번호": [
+            "전화번호"
+        ],
+        "dummy": [
+            "expr:^(이계산서영수증은).*",
+            "expr:^국민건강보험.*포함됩니다[\\.]?",
+            "알드라민정흰색의",
+            "대상액에포함됩니다",
+            "장방형",
+            "필름",
+            "환자정보",
+            "환자정보:",
+            "환자정",
+            "조제약사",
+            "조제약사:",
+            "교부번호",
+            "상화시켜장내세균총이상으로인한여러증상을개선하일분",
+            "Tel.",
+            "----무슨이유인지더미로잡힌줄모름-->발행기관",
+            "----무슨이유인지더미로잡힌줄모름-->병원정보",
+            "약품사진",
+            "약품명",
+            "내방예정일",
+            "내방예정일:",
+            "소득공제대상액총계",
+            "소득공제대상액종계",
+            "항목",
+            "금액",
+            "구분(외래)",
+            "구분(입원)",
+            "1/1",
+            "진",
+            "2전액본인부담",
+            "현금영수증()",
+            "내과야간(공휴일)조제야간공휴일"
+        ],
+        "일부본인부담": [
+            "일부본인부담"
+        ]
+    },
+    "separatingValuePatterns": [
+        "^[0-9,.:%()이여에으오의외히oOㅇaBcCUNKJfTtIil]*$",
+        "^[0-9a-zA-Z]*$",
+        "^본인부담$|^비급여및전액본인부담금$|^수납금액$|^약제비총액$|^카드$|^현금$|^현금영수증$|^공단부담액$|^합계$",
+        "^(-)?([0-9]+|[0-9]{1,3}(,[0-9]{3})*)(.[0-9]{1,2})?$"
+    ], 
+    "SearchByCheckbox": [],
+    "SearchByKeyword": [],
+    "AreaSearch": [],
+    "AreaSearchConnectInfo": {
+        "currentSelectKeywordInfo": null,
+        "selectedItem": [],
+        "imagePath": ""
+    },
+    "SelectiveSearch": [
+        {
+            "name": "환자성명",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자성명",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자성명",
+                                "조제일자"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "[가-힣]"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "조제일자",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "조제일자",
+                        "keywordInfo": {
+                            "labels": [
+                                "조제일자",
+                                "환자성명"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "조제일자",
+                        "keywordInfo": {
+                            "labels": [
+                                "조제일자"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "약제비총액",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "약제비총액",
+                        "keywordInfo": {
+                            "labels": [
+                                "약제비총액"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [
+                            {
+                                "labels": [
+                                    "약제비내역"
+                                ],
+                                "allowableDepth": 1
+                            }
+                        ],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "본인부담",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "본인부담",
+                        "keywordInfo": {
+                            "labels": [
+                                "본인부담"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "약제비총액"
+                                        ],
+                                        "allowableDepth": 3
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [
+                            {
+                                "labels": [
+                                    "급여",
+                                    "일부본인부담"
+                                ],
+                                "allowableDepth": 2
+                            }
+                        ],
+                        "includeRelativeLabel": true
+                    }
+                }
+            ]
+        },
+        {
+            "name": "공단부담액",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "공단부담액",
+                        "keywordInfo": {
+                            "labels": [
+                                "공단부담액"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "약제비총액"
+                                        ],
+                                        "allowableDepth": 3
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [
+                            {
+                                "labels": [
+                                    "급여",
+                                    "일부본인부담"
+                                ],
+                                "allowableDepth": 1
+                            }
+                        ],
+                        "includeRelativeLabel": true
+                    }
+                }
+            ]
+        },
+        {
+            "name": "비급여",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "비급여",
+                        "keywordInfo": {
+                            "labels": [
+                                "비급여"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "카드"
+                                        ],
+                                        "allowableDepth": 3
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": true
+                    }
+                }
+            ]
+        },
+        {
+            "name": "전액본인부담금",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "전액본인부담금",
+                        "keywordInfo": {
+                            "labels": [
+                                "전액본인부담"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "수납금액",
+                                            "카드"
+                                        ],
+                                        "allowableDepth": 3
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [
+                            {
+                                "labels": [
+                                    "급여",
+                                    "약제비내역"
+                                ],
+                                "allowableDepth": 1
+                            }
+                        ],
+                        "includeRelativeLabel": true
+                    }
+                }
+            ]
+        },
+        {
+            "name": "비급여및전액본인부담금",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "비급여및전액본인부담금",
+                        "keywordInfo": {
+                            "labels": [
+                                "비급여및전액본인부담금"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [
+                            {
+                                "labels": [
+                                    "급여",
+                                    "약제비내역"
+                                ],
+                                "allowableDepth": 1
+                            }
+                        ],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "환자부담총액",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자부담총액",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자부담총액"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [
+                            {
+                                "labels": [
+                                    "급여",
+                                    "약제비내역"
+                                ],
+                                "allowableDepth": 1
+                            }
+                        ],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "카드",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "카드",
+                        "keywordInfo": {
+                            "labels": [
+                                "카드",
+                                "수납금액"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "현금영수증",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "현금영수증",
+                        "keywordInfo": {
+                            "labels": [
+                                "현금영수증",
+                                "수납금액"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "현금",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "현금",
+                        "keywordInfo": {
+                            "labels": [
+                                "현금",
+                                "수납금액"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "수납금액",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "소득공제대상액_수납금액",
+                        "keywordInfo": {
+                            "labels": [
+                                "수납금액"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "수납금액",
+                        "keywordInfo": {
+                            "labels": [
+                                "합계",
+                                "수납금액"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "발행일",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "발행일",
+                        "keywordInfo": {
+                            "labels": [
+                                "발행일"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "병원명",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "병원명",
+                        "keywordInfo": {
+                            "labels": [
+                                "병원명"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "약국정보(상호)",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "약국정보(상호)",
+                        "keywordInfo": {
+                            "labels": [
+                                "상호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "약국정보(사업자등록번호)",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "약국정보(사업자등록번호)",
+                        "keywordInfo": {
+                            "labels": [
+                                "사업자등록번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "약국정보(주소)",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "약국정보(주소)",
+                        "keywordInfo": {
+                            "labels": [
+                                "사업장소재지"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "표데이터",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "표데이터",
+                        "keywordInfo": {
+                            "labels": [
+                                "조제일자",
+                                "구분"
+                            ],
+                            "allowableDepth": 2
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "^[A-Za-z가-힣0-9,.%()-]"
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "합계"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [
+                            {
+                                "labels": [
+                                    "조제일자"
+                                ],
+                                "allowableDepth": 1
+                            },
+                            {
+                                "labels": [
+                                    "총액",
+                                    "약제비내역"
+                                ],
+                                "allowableDepth": 1
+                            },
+                            {
+                                "labels": [
+                                    "공단부담액",
+                                    "급여",
+                                    "약제비내역"
+                                ],
+                                "allowableDepth": 3
+                            },
+                            {
+                                "labels": [
+                                    "본인부담",
+                                    "공단부담액",
+                                    "약제비내역"
+                                ],
+                                "allowableDepth": 2
+                            },
+                            {
+                                "labels": [
+                                    "전액본인부담",
+                                    "급여",
+                                    "약제비내역"
+                                ],
+                                "allowableDepth": 1
+                            },
+                            {
+                                "labels": [
+                                    "본인부담",
+                                    "카드",
+                                    "약제비내역"
+                                ],
+                                "allowableDepth": 2
+                            },
+                            {
+                                "labels": [
+                                    "비급여및전액본인부담금",
+                                    "약제비내역"
+                                ],
+                                "allowableDepth": 1
+                            },
+                            {
+                                "labels": [
+                                    "환자부담총액",
+                                    "약제비내역"
+                                ],
+                                "allowableDepth": 1
+                            },
+                            {
+                                "labels": [
+                                    "카드",
+                                    "소득공제대상액"
+                                ],
+                                "allowableDepth": 1
+                            },
+                            {
+                                "labels": [
+                                    "현금영수증",
+                                    "소득공제대상액"
+                                ],
+                                "allowableDepth": 1
+                            },
+                            {
+                                "labels": [
+                                    "현금",
+                                    "소득공제대상액"
+                                ],
+                                "allowableDepth": 1
+                            },
+                            {
+                                "labels": [
+                                    "수납금액",
+                                    "소득공제대상액"
+                                ],
+                                "allowableDepth": 1
+                            }
+                        ],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        }
+    ],
+    "CollectSignatureData": [
+        {
+            "disabled": true
+        }
+    ],
+    "CollectStrikeThroughData": [
+        {
+            "disabled": true
+        }
+    ],
+    "plugin": "미래에셋생명_고도화/약제비영수증/약제비영수증.js",
+    "use_exclusive_model": "default",
+    "extractRegion": {
+        "disabled": true,
+        "fromTheRegionOnly": false,
+        "keywordInfo": [],
+        "regionInfo": {
+            "vertical": [
+                0,
+                100
+            ],
+            "horizontal": [
+                0,
+                100
+            ]
+        }
+    },
+    "grouping": {
+        "direction": [
+            "horizon",
+            "vertical"
+        ],
+        "disabled": false,
+        "keywords": [],
+        "minRatio": 5
+    },
+    "CollectTabularData": [
+        {
+            "disabled": true
+        }
+    ]
+}

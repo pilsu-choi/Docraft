@@ -1,0 +1,3611 @@
+{
+    "common": {
+        "specCharWhiteList": "!@#$%^&*()_+-=~/,.-[]{}<>:",
+        "charRangeWhiteList": "0-9A-Za-zㄱ-ㅎㅏ-ㅣ가-힣",
+        "charBlackList": [
+            "\\+*-*\\(\\+*-*\\)\\+*-*|\\+*-*\\[\\+*-*\\]\\+*-*",
+            "\\:$",
+            "\\[UNK\\]",
+            "UNK"
+        ]
+    }, 
+    "removePatternInfo": {
+        "pattern": "^\\:$|^UNK$|^\\[UNK\\]$",
+        "confidenceThreshold": 1
+    },
+    "separatingKeywords": [
+        "퇴원일",
+        "면허번호",
+        "질병분류기호",
+        "병원명",
+        "전화번호",
+        "병원전화번호",
+        "병원팩스번호",
+        "병원주소",
+        "주소:"
+    ],
+    "keywordInfo": {
+        "진료소견서":[
+            "진료소견서",
+            "소견서"
+        ],
+        "Title": [
+            "진단서"
+        ],
+        "보험자명칭":[],
+        "등록번호": [
+            "환자 등록번호",
+            "등록번호",
+            "expr:^병.번호:?$",
+            "병륵번호",
+            "병록번호",
+            "고객번호",
+            "환자번호",
+            "환자등록번호",
+            "명목번호",
+            "동특번호",
+            "진료카드번호",
+            "차트번호",
+            "행복번호",
+            "등혹번호",
+            "병특번호",
+            "병원등록번호",
+            "-등록번호"
+        ],
+        "병록번호": [
+            "병륵번호"
+        ],
+        "발급번호": [
+            "발행번호",
+            "No.",
+            "일련번호",
+            "No"
+        ],
+        "연번호": [
+            "연번",
+            "연번호",
+            "언번호",
+            "일련번호",
+            "연번.",
+            "No.",
+            "발행번호",
+            "연번호:",
+            "연면호",
+            "연번효",
+            "면번호",
+            "명번",
+            "연번초"
+        ],
+        "환자명": [
+            "1.성명",
+            "환자의성명",
+            "환자성명",
+            "환자의쓴덤",
+            "환자의섬명",
+            "1.환자의성명",
+            "수진자성명",
+            "환자의싱명",
+            "2.환자의성명",
+            "환재성명",
+            "환자명",
+            "환자의성영",
+            "성명:",
+            "성명",
+            "성임",
+            "expr:환자[_]?성명",
+            "환자의성형",
+            "이름",
+            "수신자명"
+        ],
+        "성별": [
+            "성드",
+            "성벌"
+        ],
+        "생년월일": [
+            "생일"
+        ],
+        "주민등록번호": [
+            "주민등록번호",
+            "expr:^환..주...번호$|^환..주..번호$",
+            "환자의주민등록번호",
+            "주민번호",
+            "주인등록번호",
+            "환자의주인등록번호",
+            "주인번호",
+            "환자의주민번호",
+            "환자의주인번호",
+            "주민둥록번호",
+            "2.주민등록번호",
+            "주민등록번호(수진자)",
+            "주민등록번호:",
+            "주민번호:",
+            "주민둠록번호",
+            "주민등록번1호"
+        ],
+        "연령": [],
+        "환자주소": [
+            "3.주소",
+            "환자의주소",
+            "주소",
+            "추초",
+            "환자주소",
+            "환자으주소",
+            "환자의주소이",
+            "2.환자의주소",
+            "수진자주소",
+            "1.환자의주소",
+            "1.환자의주소.",
+            "2.환자의주스",
+            "3.후소"
+        ],
+        "환자전화번호": [
+            "전화",
+            "(전화)",
+            "연락처",
+            "전화번호",
+            "(연락처)",
+            "(전화번호",
+            "(전화번호)",
+            "(언락처)",
+            "전화번효",
+            "전화[]",
+            "(전화번호:)",
+            "(언락처)"
+        ],
+        "휴대전화번호":[
+            "(전화)",
+            "H/P"
+        ],
+        "병원전화번호": [
+            "전화및FAX",
+            "Tel.",
+            "Tel,",
+            "TEL",
+            "TEL.",
+            "(TEL)",
+            "전화및FAX(전화)",
+            "대표전화",
+            "(Tel)",
+            "전화(팩스)",
+            "전화및팩스",
+            "전화번호(대표)"
+        ],
+        "전화번호": [
+            "전화번호:",
+            "전화",
+            "(전화)",
+            "연락처",
+            "대표전화",
+            "(언락처)"
+        ],
+        "병원팩스번호": [
+            "(Fax)",
+            "FAX",
+            "(FAX)",
+            "Fax,",
+            "Fax.",
+            "Fax:",
+            "FAX:",
+            "/FAX",
+            "팩스번호",
+            "---오탈자---",
+            "FA",
+            "-/FAX",
+            "(Fax)"
+        ],
+        "병원이메일": [
+            "Email",
+            "/Email",
+            "email",
+            "E-mail",
+            "e-mail",
+            "이메일"
+        ],
+        "진료과": [
+            "입원과"
+        ],
+        "호실":[],
+        "진단명": [
+            "병명임상적추정(2)최종진단",
+            "병명(국제집병분류코드)",
+            "병명",
+            "상병",
+            "한국질병분류명칭",
+            "병명임상적추정최종진단",
+            "병명임상적추정최종진단",
+            "병명1임상척증정공증진단",
+            "병명임상적0.최종",
+            "병명임상적추정V최종진단",
+            "벙명임상적추정V최종진단",
+            "병명o임상적추정O최종판단",
+            "병명@임상적O최종",
+            "병명임상적추정UNK진단",
+            "병명#임상적추정",
+            "병명미임상적추정최종진단",
+            "질병또는부상명",
+            "병명O일상축추점O철종진단",
+            "병명임상적추정I유V진단",
+            "병명0임상적추정o최종진단",
+            "병명0임상적추정최종진단",
+            "잘병명임상적추정O최종진단",
+            "병명0임상적추정.최종진단",
+            "진단명",
+            "병명임상적추정One진단",
+            "병명(임상적V최종)",
+            "0임상적추정최종진단",
+            "병명O임상적추정O최종진단",
+            "병명(임상적)",
+            "병명V임상적추정I최종진단",
+            "병명(임상적추정V최종진단",
+            "병명O임상적추정o최종진단",
+            "병명인임상적추정다리증진딘",
+            "진단명o임상적진단최종진단",
+            "병명V임상적추정최종진단",
+            "병영VV임상적추정최좀진단",
+            "병명V입상적추정UNK진단",
+            "병명(국제질병분류코드)j임상적추정V최종진단",
+            "병명(국제질병분류코드)임상적추정V최종진단",
+            "병임0임상적UNK최종진단",
+            "질병명임상적추정V최종진단",
+            "병명영상적추정V최종진단",
+            "병명V임상적추정1회총진단",
+            "질병명0임상적추정최종진단",
+            "병명그임상적추징뼈종진단수술명",
+            "병명0임상적추정V최종진단",
+            "병명(임상적추정0최종진단",
+            "병명O임상적추정.최종진단",
+            "병명임상적추정V최즘진단",
+            "병명미임상적추점0최종진단",
+            "병명인상적추정최종진단",
+            "(0임상적추정0최종진단)",
+            "병명(V임상적0최종)",
+            "병명0임상적추정O최종진단",
+            "질병명",
+            "3.상병부위및상병명",
+            "상병명",
+            "병명임상적단체증진단",
+            "질병영",
+            "진단영",
+            "병명임상적최종진단",
+            "병명임상적추정O최종진단",
+            "병명임상적추정)최중진단",
+            "상병부위및상병명",
+            "병명입상적UNK진단",
+            "병명잉상적최종진단",
+            "3.병명()",
+            "병명요임상적추정미최종진단",
+            "3.병명임상적최종",
+            "병명인임상적최종진단",
+            "4.임상적병명",
+            "3.병명",
+            "질병명0임상적추정0최종진단",
+            "병명임임적추정최종판단",
+            "병명O임상적추정o최종판단",
+            "병명O임상적추정최종진단",
+            "병명O임상적추정V최종진단",
+            "병명O임상적추정.최종관단",
+            "상병부위및상벙명",
+            "상병부위및상병명",
+            "주요병명",
+            "질병명a임상적추정최종진단",
+            "3.병명V임상적최종",
+            "병명I임상적추정I최종판단",
+            "병명0임상적추정0최종판단",
+            "병명임임상적추정a최종진단",
+            "3.병명V임상적추정최중진단",
+            "병명o임상적추정o최종판단",
+            "병명.임상적o최종적",
+            "병명o임상적추정o최종판단",
+            "질병명V임상적추정0최중진단",
+            "3.병명(임상적,최종)",
+            "병명O임상적추정a최종진단",
+            "접병명",
+            "3.병명V임상적추정I최종진단",
+            "병명I임상적추정V최종진단",
+            "병명임상적추정O최종판단",
+            "병명임상적추정0.4종진단",
+            "병명o임상적e최종적",
+            "병명임상적추정()최종진단",
+            "상병명:",
+            "질병명0임상적추정UNK최종진단",
+            "질병명잉상적추정V최종진단",
+            "질병명영상적추정0최중진단",
+            "병명0임상적추정UNK최종진단",
+            "병명임상적추정최종판단",
+            "병명O임상적추정0최종판단",
+            "병명a임상적추정V최종진단",
+            "병명1임상적추정최종진단",
+            "병명임상적추정v최종진단",
+            "병명입상적Oa종",
+            "상병영",
+            "병명.임상적추정o최종진단",
+            "expr:^진단명$",
+            "상병",
+            "상병명",
+            "3병명",
+            "3.병명",
+            "임상적병명",
+            "장해상병명",
+            "직접사인",
+            "병영",
+            "벙명",
+            "찰에영",
+            "병명(질병분류기호)",
+            "질병또는부상명",
+            "병명(임상적)",
+            "병명(국제질병분류코드)",
+            "질병명",
+            "3.상병부위및상병명",
+            "상병부위및상병명",
+            "상병부위및상벙명",
+            "질병영",
+            "진단영",
+            "3.병명()",
+            "4.임상적병명",
+            "주요병명",
+            "3.병명(임상적,최종)",
+            "접병명",
+            "상병영",
+            "병명임상적추정최종진단",
+            "expr:^진단명$",
+            "진단명",
+            "상병명",
+            "질병명()",
+            "병명및분류기호",
+            "상병부위및상병명",
+            "병명(국제집병분류코드)",
+            "---오탈자---",
+            "상명명",
+            "방명",
+            "상명밍"
+        ],
+        "임상적추정": [
+            "expr:^.*(임상적추정).*$",
+            "임상적",
+            "임상적추단",
+            "임상적판단",
+            "#임상적"
+        ],
+        "최종진단": [
+            "최종판단",
+            "최종",
+            "최총진단",
+            "최종진단[]",
+            "V]최종판단",
+            "V]최종진단",
+            "최중관단",
+            "[]최종진단",
+            "최종판단",
+            "v]최종판단",
+            "(10)최종판단"
+        ],
+        "질병분류기호": [
+            "국제질병분류표",
+            "질병분류기호",
+            "국제질병코드",
+            "expr:^.병분류.[호드]+$",
+            "진단코드",
+            "한국질병분류번호",
+            "국제질병분류번호",
+            "한국표준질병분류번호",
+            "질병분류기호",
+            "질병분류번호",
+            "한국질병분류기호",
+            "한국질병분류코드",
+            "한국질명분류번호",
+            "특정기호",
+            "상병분류",
+            "절병분류기호",
+            "잘병분류기호",
+            "국제질병분류기호",
+            "표준질병분류번호",
+            "한국질병분류번호",
+            "분류기호",
+            "한국질병분류번호",
+            "질병분류번호",
+            "한국표준질병분류번호",
+            "상병분류",
+            "진단코드",
+            "국제질병분류번호",
+            "질병코드",
+            "주상병코드",
+            "부상병코드",
+            "한국표준질병분류번호(주상병)",
+            "한국표준질병분류번호(부상병)",
+            "한국표준질병사인분류번호(K.C.D-6NO.)",
+            "한국표준질병분류명칭",
+            "국제질병분류코드",
+            "KCD분류",
+            "분류기호",
+            "분류번호",
+            "상병코드",
+            "한국질병분류기호",
+            "한국질병분류코드",
+            "한국표준질병분류",
+            "국제질병분류기호",
+            "한국표준질병사인분류번호(K.C.D-6NO.)",
+            "[질병분류기호]"
+        ],
+        "부위": [],
+        "발행연월일": [],
+        "발병일": [
+            "expr:^수상연월일$",
+            "발병연월일",
+            "발병년월일",
+            "발병,수상일",
+            "발병또는상해연월일",
+            "발병일자",
+            "발병(초진)연월일",
+            "발병또는칭허연월일",
+            "발병(수상)일",
+            "수상일",
+            "발갱연원일"
+        ],
+        "진단일": [
+            "진단연월일",
+            "진단년월일",
+            "소견일"
+        ],
+        "초진일": [
+            "초진일자",
+            "초진연월일",
+            "초진년월일",
+            "5.초진일자",
+            "5.초진일"
+        ],
+        "수술일": [
+            "수술일자",
+            "수술연월일",
+            "수술년월일"
+        ],
+        "6.진료내용":[],
+        "치료내용및소견": [
+            "향후진료의견",
+            "치료내용일향후치료에대한소견",
+            "소견내용",
+            "수술내용",
+            "임상적/최종향후치료의견",
+            "진찰및검사결과주요소견",
+            "확인내용",
+            "치료내용및향후치료에대한소견",
+            "expr:^[향항].치..견$",
+            "치료법내용/향후치료에대한소견",
+            "치료내용및항호치료여대한소청",
+            "향후치료의견",
+            "치료소견",
+            "치료내돌및향후치료에대한소견",
+            "향후치료외견",
+            "진료소견",
+            "치료내용할줄치료치료에내용할줄치료에내용할줄",
+            "소건필요사)",
+            "소견(필요시)",
+            "소견필요시)",
+            "치료내용/향후치료에대한소견",
+            "치료내용/향후치료에대한의견",
+            "향후진료소견",
+            "치료내돌및황후치료에대한소견",
+            "항후치료의견",
+            "5.소견",
+            "환자상태및진료소견",
+            "의사소견",
+            "6.향후치료의견",
+            "4.치료내용",
+            "5.치료내용",
+            "향후치료",
+            "향후의견",
+            "진료내용",
+            "5.향후치료외견",
+            "치료내용/향후",
+            "치료에대한소견",
+            "6.향후",
+            "향후치료소견",
+            "치료내용/항목치료에막대한소견대한소견",
+            "치료내용/향후치료에대한소견",
+            "항무치료의견",
+            "치료내용7향후치료에대한의견",
+            "수술내용및향후치료의견",
+            "향후치의견등",
+            "확인사항",
+            "내용및향후치료에대한소견",
+            "를치료내용및향후치료에대한소견",
+            "내용",
+            "소건(필요사)",
+            "소견(필요시)",
+            "치료내용및향후치료에대한소견",
+            "치료내용/향후치료에대한소견",
+            "향후치료의견",
+            "내용",
+            "치료내용/향후치료에대한소견",
+            "치료내용및항호치료여대한소청",
+            "향후치료의견",
+            "치료소견",
+            "치료내돌및향후치료에대한소견",
+            "향후치료외견",
+            "내용",
+            "치료내용할줄치료치료에내용할줄치료에내용할줄",
+            "소건필요사)",
+            "소견(필요시)",
+            "소견필요시)",
+            "치료내용/향후치료에대한소견",
+            "치료내용/향후치료에대한의견",
+            "향후진료소견",
+            "치료내돌및황후치료에대한소견",
+            "항후치료의견",
+            "5.소견",
+            "환자상태및진료소견",
+            "의사소견",
+            "의사조견",
+            "6.향후치료의견",
+            "4.치료내용",
+            "5.치료내용",
+            "향후치료",
+            "향후의견",
+            "진료내용",
+            "5.향후치료외견",
+            "향후5.치료의견",
+            "치료내용/향후",
+            "치료에대한소견",
+            "6.향후",
+            "향후치료소견",
+            "치료내용/항목치료에막대한소견대한소견",
+            "항무치료의견",
+            "치료내용7향후치료에대한의견",
+            "수술내용및향후치료의견",
+            "향후치의견등",
+            "확인사항",
+            "내용및향후치료에대한소견",
+            "를치료내용및향후치료에대한소견",
+            "치료내용및향후치료소견",
+            "진료내역",
+            "치료내용",
+            "치료의견",
+            "---오탈자---",
+            "지료의견",
+            "치료내용및향후치료에대한소건",
+            "치료내용1",
+            "치료내용1향후치료에대한소견"
+        ],
+        "수술확인서_multi수술":[
+            "본원에서아래와같이수술을시행하였음을확인함."
+        ],
+        "소견서내용":[],
+        "소견":[],
+        "진료소견_특이":[
+            "6.병력및이학적소견(치료경과)"
+        ],
+        "7.검사소견":[],
+        "입원일": [
+            "입원연월일",
+            "입원년월일",
+            "입원일자",
+            "입원임"
+        ],
+        "퇴원일": [
+            "퇴원연월일",
+            "퇴원년월일",
+            "퇴원일자"
+        ],
+        "용도": [
+            "제출처",
+            "8.용도"
+        ],
+        "비고": [
+            "특기사항",
+            "특기시힝",
+            "특기시항",
+            "5.비고(용도)",
+            "비고(제출처)",
+            "록기사항"
+        ],
+        "발행일자": [
+            "발행일",
+            "발형및",
+            "발행일자",
+            "발행일:",
+            "발행일부",
+            "작성일",
+            "발급일시",
+            "발급일시:",
+            "영수증발행일",
+            "---오탈자---",
+            "발행",
+            "발일:",
+            "영수증발행일:",
+            "별형및",
+            "사본발행일"
+        ],
+        "병원명": [
+            "의료기관명칭",
+            "의료기관",
+            "의료기관명",
+            "의료기관병칭",
+            "병원",
+            "병원장",
+            "요양기관명칭",
+            "의료기관",
+            "병의원명칭",
+            "병,의원명칭",
+            "요양기관명",
+            "병원명칭",
+            "병의원명",
+            "명칭",
+            "의료기관명칭(요양기관기호)",
+            "상호",
+            "---오탈자---",
+            "의료기관병칭",
+            "병,의원명"
+        ],
+        "요양기관기호": [],
+        "병원주소": [
+            "사업장소재지",
+            "주소및명칭",
+            "주소",
+            "주소:",
+            "소재지",
+            "의료기관주소",
+            "병의원주소",
+            "병,의원주소",
+            "병.의원주소"
+        ],
+        "면허번호": [
+            "의사면허번호",
+            "의사번호",
+            "의사면허",
+            "면최번호",
+            "의사,치과의사,한의사,면허번호제"
+        ],
+        "의사명": [
+            "의사성명",
+            "성명",
+            "담당의사",
+            "의사",
+            "의사성명",
+            "한의사성명",
+            "전문외",
+            "원장",
+            "의료기관의"
+        ],
+        "의사구분": [
+            "한의사성명",
+            "치과의사성명"
+        ],
+        "의사": [
+            "[V]의사",
+            "[의사",
+            "]의사",
+            "[]의사",
+            "V의사",
+            "V1의사"
+        ],
+        "치과의사": [
+            "[V]치과의사",
+            "[치과의사",
+            "]치과의사",
+            "[]치과의사",
+            "V치과의사",
+            "V1치과의사"
+        ],
+        "한의사": [
+            "[V]한의사",
+            "[한의사",
+            "]한의사",
+            "[]한의사",
+            "V한의사",
+            "V1한의사"
+        ],
+        "치료기간": [
+            "내원기간",
+            "외래기간",
+            "치료받은기간",
+            "5.치료기간",
+            "4.치료기간"
+        ],
+        "입원기간": [
+            "입원치료기간",
+            "입원(치료)기간",
+            "입원(치료)",
+            "5.입원치료기간",
+            "입/퇴원기간"
+        ],
+        "진료기간": [
+            "진료(치료)기간",
+            "수술기간",
+            "5.진료기간"
+        ],
+        "진단기간": [],
+        "내원기간": [],
+        "내원가료기간": [],
+        "입퇴원연월일": [
+            "입원*퇴원연월일",
+            "입원ㆍ퇴원연월일",
+            "입ㆍ퇴원일",
+            "입원.퇴원일",
+            "입/퇴원일자",
+            "입퇴원일",
+            "입원퇴원연월일",
+            "일퇴원연월일",
+            "입원퇴원연월일",
+            "입원퇴원일",
+            "입원.퇴원연월일",
+            "입.퇴원일",
+            "입원퇴원급연월일",
+            "입.퇴원연월일"
+        ],
+        "통원기간": [
+            "통원일",
+            "실통원일자",
+            "실통원일수",
+            "실제내원일자"
+        ],
+        "내원일": [],
+        "수술명": [
+            "수술명및수술일자",
+            "진단명및수술명",
+            "수술명/시술명",
+            "수술명(시술명)",
+            "[수술명]",
+            "---오탈자---",
+            "수술명(시[]명)"
+        ],
+        "수술코드": [],
+        "통원일수": [
+            "방문일수",
+            "실제내원일수"
+        ],
+        "용도관련어": [
+            "위와같이진단합니다."
+        ],
+        "진료전화예약":[],
+        "의사서명":[],
+        
+        "dummy": [
+            "위와같이소견함.",
+            "(서명)",
+            "서명",
+            "없는것은무효입니다.",
+            "병원장직인이없는것은",
+            "병원장직인이없는것은무효입니다.",
+            "원본대조",
+            "위와같이수술을시행하였음을확인함.",
+            "위문서는위변조방지기술이",
+            "삽입되지않은문서는법적인",
+            "총입원재원일수",
+            "[공지사항]",
+            "(서명,또는날인)",
+            "상기자는본병원에서위와같이",
+            "본원의직인이없는것은무효임",
+            "*진단명은기재되지않으니",
+            "위와같이입원사실을",
+            "사서명일",
+            "[의료법]",
+            "-의료법-",
+            "(성명또는인)",
+            "(서명또는인)",
+            "(서명또는",
+            "(서명도[UNK]인",
+            "(직인)",
+            "작성방법",
+            "위와같이진단함.",
+            "[의료법]",
+            "-의료법-",
+            "(성명또는인)",
+            "(서명또는인)",
+            "또는인)",
+            "(서,",
+            "(서명",
+            "0인)",
+            "(직인)",
+            "작성방법",
+            "방문일수",
+            "the",
+            "(인)",
+            "2(인)",
+            "기간만료전여권,",
+            "의료법제17조및같은",
+            "-의료법-제17조및같은",
+            "본원의직인이",
+            "기간만료전여권",
+            "기간만료진여권,",
+            "주민등록증,기간",
+            "R/O주",
+            "제9조제1항에따라",
+            "질병명란에는임상적",
+            "제17조및",
+            "제출처이외의",
+            "expr:^또는인$",
+            "expr:^서명$"
+        ],
+        "재원일수": [],
+        "검사일":[
+            "(조직/CT)검사일자"
+        ],
+        "전문의면허번호":[]
+    },
+    "separatingValuePatterns": [
+        "입월일",
+        "퇴원일",
+        "주소:",
+        "병원주소",
+        "전화번호:",
+        "Fax:",
+        "FAX:",
+        "(Tel)",
+        "(Fax)",
+        "^[0-9.\\/\\-년월일()시분:]+$",
+        "^[a-zA-Z][0-9]+[.\\-]?[0-9]+$",
+        "^\\(주\\)|\\(부\\)$",
+        "^[0-9,.:%()이여에으오의외제히oOㅇaBcCUNKJfTtIil-]*$"
+    ],
+    "SearchByCheckbox": [],
+    "SearchByKeyword": [
+         {
+            "disabled": false,
+            "name": "진료소견서",
+            "keywordInfo": {
+                "labels": [
+                    "진료소견서"
+                ],
+                "allowableDepth": 1
+            },
+            "valueDirectionType": "right",
+            "valueInfo": {
+                "typeInfo": {
+                    "type": "text"
+                },
+                "filters": []
+            },
+            "relativeValueKeywordInfo": [],
+            "includeRelativeLabel": false
+        },
+        {
+            "disabled": false,
+            "name": "검사일",
+            "keywordInfo": {
+                "labels": [
+                    "검사일"
+                ],
+                "allowableDepth": 1
+            },
+            "valueDirectionType": "right",
+            "valueInfo": {
+                "typeInfo": {
+                    "type": "text"
+                },
+                "filters": []
+            },
+            "relativeValueKeywordInfo": [],
+            "includeRelativeLabel": false
+        },
+        {
+            "disabled": false,
+            "name": "검사명",
+            "keywordInfo": {
+                "labels": [
+                    "검사명"
+                ],
+                "allowableDepth": 1
+            },
+            "valueDirectionType": "right",
+            "valueInfo": {
+                "typeInfo": {
+                    "type": "text"
+                },
+                "filters": []
+            },
+            "relativeValueKeywordInfo": [],
+            "includeRelativeLabel": false
+        },
+        {
+            "disabled": false,
+            "name": "치료일",
+            "keywordInfo": {
+                "labels": [
+                    "치료일"
+                ],
+                "allowableDepth": 1
+            },
+            "valueDirectionType": "right",
+            "valueInfo": {
+                "typeInfo": {
+                    "type": "text"
+                },
+                "filters": []
+            },
+            "relativeValueKeywordInfo": [],
+            "includeRelativeLabel": false
+        },
+        {
+            "disabled": false,
+            "name": "치료명",
+            "keywordInfo": {
+                "labels": [
+                    "치료명"
+                ],
+                "allowableDepth": 1
+            },
+            "valueDirectionType": "right",
+            "valueInfo": {
+                "typeInfo": {
+                    "type": "text"
+                },
+                "filters": []
+            },
+            "relativeValueKeywordInfo": [],
+            "includeRelativeLabel": false
+        },
+        {
+            "disabled": false,
+            "name": "성별",
+            "keywordInfo": {
+                "labels": [
+                    "성별"
+                ]
+            },
+            "valueDirectionType": "valuetype",
+            "valueInfo": {
+                "typeInfo": {
+                    "type": "text"
+                },
+                "filters": []
+            },
+            "relativeValueKeywordInfo": [],
+            "includeRelativeLabel": false
+        },
+        {
+            "disabled": false,
+            "name": "생년월일",
+            "keywordInfo": {
+                "labels": [
+                    "생년월일"
+                ]
+            },
+            "valueDirectionType": "valuetype",
+            "valueInfo": {
+                "typeInfo": {
+                    "type": "text"
+                },
+                "filters": []
+            },
+            "relativeValueKeywordInfo": [],
+            "includeRelativeLabel": false
+        },
+        {
+            "disabled": false,
+            "name": "초진일",
+            "keywordInfo": {
+                "labels": [
+                    "초진일"
+                ]
+            },
+            "valueDirectionType": "valuetype",
+            "valueInfo": {
+                "typeInfo": {
+                    "type": "text"
+                },
+                "filters": []
+            },
+            "relativeValueKeywordInfo": [],
+            "includeRelativeLabel": false
+        }
+    ],
+    "AreaSearch": [],
+    "AreaSearchConnectInfo": {
+        "currentSelectKeywordInfo": null,
+        "selectedItem": [],
+        "imagePath": ""
+    },
+    "SelectiveSearch": [
+        {
+            "name": "진료기간",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "진료기간",
+                        "keywordInfo": {
+                            "labels": [
+                                "진료기간"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "진료기간",
+                        "keywordInfo": {
+                            "labels": [
+                                "기간",
+                                "입원"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "includeKeyword": true,
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "진료기간",
+                        "keywordInfo": {
+                            "labels": [
+                                "진료기간"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "dummy"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+         {
+            "name": "수술기간",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "수술기간",
+                        "keywordInfo": {
+                            "labels": [
+                                "수술기간"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "환자 등록번호",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자 등록번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "병록번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "^[0-9\\-]*$"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자 등록번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "등록번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "^[A-Z0-9\\-]*$"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자 등록번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "병록번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "차트번호",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "연번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "연번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "^[0-9\\-]*$"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "연번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "연번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "이름",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자 성명",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자명",
+                                "환자주소"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자 성명",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자명"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "환자 주민번호",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "주민등록번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "주민등록번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "[0-9]{6}[-]?[0-9]{7}"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "주민등록번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "주민등록번호"
+                            ]
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "주소",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자 주소",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자주소",
+                                "발급번호"
+                            ],
+                            "allowableDepth": 3
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자 주소",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자주소",
+                                "등록번호"
+                            ],
+                            "allowableDepth": 3
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자 주소",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자주소",
+                                "진단명"
+                            ],
+                            "allowableDepth": 2
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "진료기간"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "연락처",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자전화번호",
+                                "연령"
+                            ],
+                            "allowableDepth": 3
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자전화번호",
+                                "주민등록번호"
+                            ],
+                            "allowableDepth": 3
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                 {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "환자 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "휴대전화번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "임상적추정",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByCheckbox",
+                    "rule": {
+                        "name": "임상적추정",
+                        "disabled": false,
+                        "keywordInfoList": [
+                            {
+                                "labels": [
+                                    "임상적추정"
+                                ],
+                                "allowableDepth": 1
+                            }
+                        ],
+                        "checkboxLabelPattern": "(임상적)[추판]{0,1}[정단]{0,1}"
+                    }
+                },
+                {
+                    "ruleType": "SearchByCheckbox",
+                    "rule": {
+                        "name": "임상적추정",
+                        "disabled": false,
+                        "keywordInfoList": [
+                            {
+                                "labels": [
+                                    "임상적추정"
+                                ],
+                                "allowableDepth": 1
+                            }
+                        ],
+                        "checkboxLabelPattern": "^임상적$"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "최종진단",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByCheckbox",
+                    "rule": {
+                        "name": "최종진단",
+                        "disabled": false,
+                        "keywordInfoList": [
+                            {
+                                "labels": [
+                                    "최종진단"
+                                ],
+                                "allowableDepth": 1
+                            }
+                        ],
+                        "checkboxLabelPattern": "(최)[종총중]{0,1}[판진관]{0,1}[단]{0,1}"
+                    }
+                },
+                {
+                    "ruleType": "SearchByCheckbox",
+                    "rule": {
+                        "name": "최종진단",
+                        "disabled": false,
+                        "keywordInfoList": [
+                            {
+                                "labels": [
+                                    "최종진단"
+                                ],
+                                "allowableDepth": 1
+                            }
+                        ],
+                        "checkboxLabelPattern": "^최종$"
+                    }
+                },
+                {
+                    "ruleType": "SearchByCheckbox",
+                    "rule": {
+                        "name": "최종진단",
+                        "disabled": false,
+                        "keywordInfoList": [
+                            {
+                                "labels": [
+                                    "최종진단"
+                                ],
+                                "allowableDepth": 1
+                            }
+                        ],
+                        "checkboxLabelPattern": "^진단$"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "진료과",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "진료과",
+                        "keywordInfo": {
+                            "labels": [
+                                "진료과",
+                                "입원기간"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "진료과",
+                        "keywordInfo": {
+                            "labels": [
+                                "진료과"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "진료과",
+                        "keywordInfo": {
+                            "labels": [
+                                "진료과"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "dummy"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "병원연락처",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자전화번호",
+                                "병원주소"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "[0-9-.()]"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자전화번호",
+                                "병원팩스번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "[0-9-.()]"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자전화번호",
+                                "병원팩스번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자전화번호",
+                                "면허번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "[0-9-.()]"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "Tel."
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "[0-9-.()]"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "병원전화번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "[0-9-.()]"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "병원전화번호",
+                                "면허번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "병원전화번호",
+                                "면허번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "use_exclusive_model": "model",
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자전화번호",
+                                "부천시"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "use_exclusive_model": "model",
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 전화번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "환자전화번호",
+                                "의사명"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "면허번호",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "면허번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "면허번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "면허번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "의사명"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "left",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "^[0-9]"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "면허번호",
+                        "keywordInfo": {
+                            "labels": [
+                                "면허번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "use_exclusive_model": "model",
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "입원일자",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "입원일자",
+                        "keywordInfo": {
+                            "labels": [
+                                "입원",
+                                "V"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "입원일자",
+                        "keywordInfo": {
+                            "labels": [
+                                "입원",
+                                "통원"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "^[0-9가-힣\\(\\)\\~\\.\\,\\/\\-]*$"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "입원일자",
+                        "keywordInfo": {
+                            "labels": [
+                                "입원",
+                                "치료기간"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": "^[0-9가-힣\\(\\)\\~\\.\\,\\/\\-]*$"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "입원일자",
+                        "keywordInfo": {
+                            "labels": [
+                                "입원일"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": "^[0-9가-힣\\(\\)\\~\\.\\,\\/\\-]*$"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "퇴원일자",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "퇴원일",
+                        "keywordInfo": {
+                            "labels": [
+                                "퇴원일"
+                            ]
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "([-]?((19|20)?[0-9]{2}|((0)?|1)[0-9]|2[0-4])([-,/.]|년)?)?((0)?[1-9]|1[012])([-,/.]|월)?(((0)?[1-9]|[12][0-9]|3[01])(일)?)?"
+                            }
+                        }
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "퇴원일",
+                        "keywordInfo": {
+                            "labels": [
+                                "퇴원일"
+                            ]
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "병명코드",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "병명코드",
+                        "keywordInfo": {
+                            "labels": [
+                                "질병분류기호"
+                            ]
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "[0-9]{0,2}?[.]?[a-zA-Z][0-9]{2,3}([.,]?[0-9]{1,4})?[-0-9]?"
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "진료기간"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "병명코드",
+                        "keywordInfo": {
+                            "labels": [
+                                "질병분류기호"
+                            ]
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "^[A-za-z0-9]*$"
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "진료기간"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "병원 주소",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "병원 주소",
+                        "keywordInfo": {
+                            "labels": [
+                                "병원주소",
+                                "병원명"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 주소",
+                        "keywordInfo": {
+                            "labels": [
+                                "병원주소"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 주소",
+                        "keywordInfo": {
+                            "labels": [
+                                "병원주소",
+                                "의사명"
+                            ],
+                            "allowableDepth": 2
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관 주소",
+                        "keywordInfo": {
+                            "labels": [
+                                "병원주소",
+                                "비고"
+                            ],
+                            "allowableDepth": 3
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "진단일",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "진단연월일",
+                        "keywordInfo": {
+                            "labels": [
+                                "진단일"
+                            ]
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "진단연월일",
+                        "keywordInfo": {
+                            "labels": [
+                                "진단일"
+                            ]
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "입퇴원일자",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "입원기간",
+                        "keywordInfo": {
+                            "labels": [
+                                "입원",
+                                "치료기간"
+                            ]
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "입원기간",
+                        "keywordInfo": {
+                            "labels": [
+                                "입원기간",
+                                "일수"
+                            ]
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "입원기간",
+                        "keywordInfo": {
+                            "labels": [
+                                "입원기간"
+                            ]
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "입퇴원연월일",
+                        "keywordInfo": {
+                            "labels": [
+                                "입퇴원연월일"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "includeKeyword": true,
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "입퇴원연월일",
+                        "keywordInfo": {
+                            "labels": [
+                                "입퇴원연월일"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                 {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "입퇴원연월일",
+                        "keywordInfo": {
+                            "labels": [
+                                "치료기간"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "의사명",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의사 성명",
+                        "keywordInfo": {
+                            "labels": [
+                                "의사명",
+                                "면허번호"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의사 성명",
+                        "keywordInfo": {
+                            "labels": [
+                                "의사명",
+                                "병원팩스번호"
+                            ],
+                            "allowableDepth": 2
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의사 성명",
+                        "keywordInfo": {
+                            "labels": [
+                                "의사명",
+                                "전화"
+                            ],
+                            "allowableDepth": 2
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의사 성명",
+                        "keywordInfo": {
+                            "labels": [
+                                "의사명",
+                                "면허번호"
+                            ],
+                            "allowableDepth": 4
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의사 성명",
+                        "keywordInfo": {
+                            "labels": [
+                                "의사명",
+                                "한의사"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의사 성명",
+                        "keywordInfo": {
+                            "labels": [
+                                "의사명",
+                                "주소"
+                            ],
+                            "allowableDepth": 4
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "병원명",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관명",
+                        "keywordInfo": {
+                            "labels": [
+                                "병원명"
+                            ]
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관명",
+                        "keywordInfo": {
+                            "labels": [
+                                "병원명"
+                            ]
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "use_exclusive_model": "model",
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "의료기관명",
+                        "keywordInfo": {
+                            "labels": [
+                                "병원명"
+                            ]
+                        },
+                        "valueDirectionType": "left",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "병명",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "병명",
+                        "keywordInfo": {
+                            "labels": [
+                                "진단명",
+                                "환자주소"
+                            ],
+                            "allowableDepth": 2
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "질병분류기호"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "use_exclusive_model": "model",
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "병명",
+                        "keywordInfo": {
+                            "labels": [
+                                "진단명",
+                                "환자성명"
+                            ],
+                            "allowableDepth": 2
+                        },
+                        "valueDirectionType": "left",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "use_exclusive_model": "model",
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "병명",
+                        "keywordInfo": {
+                            "labels": [
+                                "진단명",
+                                "환자주소"
+                            ]
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "use_exclusive_model": "model",
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "병명",
+                        "keywordInfo": {
+                            "labels": [
+                                "진단명",
+                                "환자명"
+                            ]
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": []
+                        },
+                        "use_exclusive_model": "model",
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "병명",
+                        "keywordInfo": {
+                            "labels": [
+                                "임상적추정",
+                                "진단명"
+                            ],
+                            "allowableDepth": 2
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "use_exclusive_model": "model",
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "병명",
+                        "keywordInfo": {
+                            "labels": [
+                                "진단명"
+                            ]
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text"
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "용도"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "use_exclusive_model": "model",
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "진료소견",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "치료내용 및 향후 치료에 대한 소견",
+                        "keywordInfo": {
+                            "labels": [
+                                "6.진료내용"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "includeKeyword": true,
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "치료내용 및 향후 치료에 대한 소견",
+                        "keywordInfo": {
+                            "labels": [
+                                "치료내용및소견"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "includeKeyword": true,
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "치료내용 및 향후 치료에 대한 소견",
+                        "keywordInfo": {
+                            "labels": [
+                                "치료내용및소견"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "치료내용 및 향후 치료에 대한 소견",
+                        "keywordInfo": {
+                            "labels": [
+                                "수술확인서_multi수술"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "발행일자"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "치료내용 및 향후 치료에 대한 소견",
+                        "keywordInfo": {
+                            "labels": [
+                                "소견서내용"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "발행일자"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "치료내용 및 향후 치료에 대한 소견",
+                        "keywordInfo": {
+                            "labels": [
+                                "소견", "용도"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": [
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "치료내용 및 향후 치료에 대한 소견",
+                        "keywordInfo": {
+                            "labels": [
+                                "진료소견_특이"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": [
+                                
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "치료내용 및 향후 치료에 대한 소견",
+                        "keywordInfo": {
+                            "labels": [
+                                "7.검사소견"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": [
+                                
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "비고",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "비고",
+                        "keywordInfo": {
+                            "labels": [
+                                "비고"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "includeKeyword": true,
+                            "filters": [
+                                 {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "용도"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "비고",
+                        "keywordInfo": {
+                            "labels": [
+                                "비고"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "includeKeyword": false,
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "발행일자"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "발급일",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "발행일",
+                        "keywordInfo": {
+                            "labels": [
+                                "발행일자"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "use_exclusive_model": "model",
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "발행일자",
+                        "keywordInfo": {
+                            "labels": [
+                                "발행일"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "pattern",
+                                "pattern": "([-]?((19|20)?[0-9]{2}|((0)?|1)[0-9]|2[0-4])([-,/.]|년)?)?((0)?[1-9]|1[012])([-,/.]|월)?(((0)?[1-9]|[12][0-9]|3[01])(일)?)?"
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "발행일자",
+                        "keywordInfo": {
+                            "labels": [
+                                "발행일"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "수술일자",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "수술일자",
+                        "keywordInfo": {
+                            "labels": [
+                                "수술일",
+                                "수술명"
+                            ],
+                            "allowableDepth": 3
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "includeKeyword": true,
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "수술일자",
+                        "keywordInfo": {
+                            "labels": [
+                                "수술일",
+                                "수술코드"
+                            ],
+                            "allowableDepth": 3
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "수술일자",
+                        "keywordInfo": {
+                            "labels": [
+                                "수술일",
+                                "비고"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "수술일자",
+                        "keywordInfo": {
+                            "labels": [
+                                "수술일"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "수술명",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "수술명",
+                        "keywordInfo": {
+                            "labels": [
+                                "수술명"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "includeKeyword": false,
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "수술명",
+                        "keywordInfo": {
+                            "labels": [
+                                "수술",
+                                "비고"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "수술명",
+                        "keywordInfo": {
+                            "labels": [
+                                "수술명"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "bottom",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "includeKeyword": false,
+                            "filters": [
+                                {
+                                    "key": "endPointKeywordInfo",
+                                    "value": {
+                                        "labels": [
+                                            "병원명"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "통원일",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "통원일",
+                        "keywordInfo": {
+                            "labels": [
+                                "통원",
+                                "입원"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "통원일",
+                        "keywordInfo": {
+                            "labels": [
+                                "통원기간"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "includeKeyword": true,
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                },
+                
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "통원일",
+                        "keywordInfo": {
+                            "labels": [
+                                "외래",
+                                "진료기간"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "right",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "통원일수",
+            "disabled": false,
+            "selectType": "selectone",
+            "rules": [
+                {
+                    "ruleType": "SearchByKeyword",
+                    "rule": {
+                        "disabled": false,
+                        "name": "통원일수",
+                        "keywordInfo": {
+                            "labels": [
+                                "통원일수"
+                            ],
+                            "allowableDepth": 1
+                        },
+                        "valueDirectionType": "valuetype",
+                        "valueInfo": {
+                            "typeInfo": {
+                                "type": "text",
+                                "pattern": ""
+                            },
+                            "filters": []
+                        },
+                        "relativeValueKeywordInfo": [],
+                        "includeRelativeLabel": false
+                    }
+                }
+            ]
+        }
+    ],
+    "CollectSignatureData": [
+        {
+            "disabled": true
+        }
+    ],
+    "CollectStrikeThroughData": [
+        {
+            "disabled": true
+        }
+    ],
+    "plugin": "미래에셋생명_고도화/진단서_5종/진단서5종_고도화_plugin.js",
+    "use_exclusive_model": "default",
+    "grouping": {
+        "disabled": true,
+        "direction": [
+            "vertical",
+            "horizon"
+        ],
+        "keywords": [
+            []
+        ],
+        "divideByKeyword": [],
+        "minRatio": 5
+    },
+    "LargestTableSearch": [],
+    "CollectTabularData": [
+        {
+            "disabled": true
+        }
+    ]
+}
