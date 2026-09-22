@@ -3,6 +3,7 @@
 import glob
 import json
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -136,7 +137,8 @@ def test_run_skips_the_judge_when_every_field_agrees(monkeypatch):
     output = verify.run("scan.png", AO)
 
     assert calls == []
-    assert output["documents"][0]["verify"]["counts"] == {"agree": 6, "ao": 0, "docraft": 0, "corrected": 0}
+    assert output["documents"][0]["verify"]["counts"] == {
+        "agree": 6, "ao": 0, "docraft": 0, "corrected": 0, "unknown": 0, "added": 0}
 
 
 def test_run_applies_every_verdict_source_and_keeps_the_original_values(monkeypatch):
@@ -167,7 +169,8 @@ def test_run_reports_counts_the_docraft_result_and_leaves_the_input_untouched(mo
     assert output["transaction_id"] == "tx-1"
     assert output["documents"][0]["verify"]["doc_type"] == "진단서"
     assert output["documents"][0]["verify"]["docraft"] == DOCRAFT
-    assert output["documents"][0]["verify"]["counts"] == {"agree": 2, "ao": 1, "docraft": 1, "corrected": 2}
+    assert output["documents"][0]["verify"]["counts"] == {
+        "agree": 2, "ao": 1, "docraft": 1, "corrected": 2, "unknown": 0, "added": 0}
     assert AO == original
 
 
@@ -219,14 +222,14 @@ def test_run_prefers_the_requested_document_type_over_the_ao_one(monkeypatch):
 # --- reclassifying a format-only "corrected" verdict (real doctypes/rules) -----
 
 
-def real_stub(monkeypatch, docraft, verdicts):
+def real_stub(monkeypatch, docraft, verdicts, blocks=None):
     """parse·extract·judge만 대체한다. doctypes·rules는 실제 것을 쓴다.
 
     ``rules.apply``는 docraft 추출 호출(blocks 있음)만 고정된 docraft로 바꿔치기하고,
     ``_decide``의 판정값 정규화 호출(blocks 없음)은 실제 ``rules.apply``를 그대로 쓴다.
     """
     real_apply = rules.apply
-    monkeypatch.setattr(verify, "parse", lambda *args, **kwargs: ("md", [{"text": "x"}]))
+    monkeypatch.setattr(verify, "parse", lambda *args, **kwargs: ("md", blocks or [{"text": "x"}]))
     monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None: ({}, {}))
     monkeypatch.setattr(rules, "apply",
                          lambda doc_type, result, blocks: deepcopy(docraft) if blocks else real_apply(doc_type, result, blocks))
@@ -282,7 +285,7 @@ def test_run_keeps_a_genuinely_corrected_text_field_unchanged(monkeypatch):
     ao = {"documents": [{"doc_type": "진단서", "extracted_fields": [
         {"key": "진료과", "value": "내과", "confidence": 0.9},
     ]}]}
-    docraft = {"진료과": "외과"}
+    docraft = {"진료과": "소아과"}  # '외과'였다면 '정형외과'가 품고 있어 rules.same이 같다고 본다
     verdicts = {"진료과": {"value": "정형외과", "source": "corrected", "reason": "이미지에 정형외과로 적혀있다"}}
     real_stub(monkeypatch, docraft, verdicts)
 
@@ -411,3 +414,139 @@ def test_verify_route_rejects_a_multi_page_tif(monkeypatch, tmp_path):
 
     assert response.status_code == 422
     assert response.json()["detail"] == "다중 페이지 문서는 아직 지원하지 않습니다."
+
+
+# --- UI 형식과 key·value 누락 ---------------------------------------------
+
+CASES = Path("/home/pilsu/projects/mirae-assets/harness-v2/docs/requirements")
+UI = {"run_id": "r1", "stage": "extract", "status": "done", "result": {
+    "doc_type": "진료비영수증",
+    "fields": [{"key": "발행일", "value": "20241210", "display_label": "발행일"}],
+    "groups": [{"key": "금액산정", "fields": [
+        {"key": "금액산정.진료비총액", "value": "11387230", "display_label": "진료비총액"}]}],
+    "tables": [{"key": "항목내역", "headers": ["항목", "본인부담금"],
+                "rows": [[{"key": "항목내역[0].항목", "value": "진찰료"}, {"value": "1815"}]]}]}}
+
+
+def ui_case(folder, name):
+    path = CASES / folder / "latest" / name
+    if not path.exists():
+        pytest.skip(f"케이스 파일이 없습니다: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_flatten_reads_the_ui_result_format(monkeypatch):
+    flat = verify.flatten(verify.document(UI))
+
+    assert flat["발행일"] == "20241210"
+    assert flat["진료비총액"] == "11387230"  # 그룹 접두사를 뗀다
+    assert flat["항목내역"] == [{"항목": "진찰료", "본인부담금": "1815"}]  # 셀 key가 없으면 headers로 보충한다
+
+
+def test_flatten_reads_a_real_ui_result_of_an_error_case():
+    flat = verify.flatten(verify.document(ui_case("[진료비영수증]비급여_급여_오추출됨", "07-extract-bbox.json")))
+
+    assert flat["의료기관정보-명칭"] == "허그요양병원"
+    assert flat["환자정보-성명"] is None  # 빈 value는 None
+    assert flat["항목내역"][27] == {"항목": "정액수가(요양병원)", "본인부담금": "375610", "공단부담금": "2001620",
+                                 "전액본인부담": "0", "비급여": "0", "선택진료료": "0", "선택진료료외": "0",
+                                 "급여": "9010000"}
+
+
+@pytest.mark.parametrize("element, expected", [
+    ({"key": "발행일", "value": "20241210"}, ("발행일", "20241210")),
+    ({"key": "발행일", "value": ""}, ("발행일", None)),                            # value 누락
+    ({"key": "", "display_label": "발행일", "value": "20241210"}, ("발행일", "20241210")),  # key 누락
+    ({"value": "20241210"}, (None, "20241210")),                                  # key·display_label 둘 다 없음
+    ({"key": "발행일"}, ("발행일", None)),                                         # key만 있고 value 없음
+    ({}, (None, None)),                                                           # 둘 다 없음
+    ({"key": "발행일", "value": "20241210", "not_extracted": True}, ("발행일", None)),
+])
+def test_name_and_value_of_an_element_with_missing_parts(element, expected):
+    assert (verify._name(element), verify._value(element)) == expected
+
+
+def test_run_marks_an_element_without_a_name_as_unknown(monkeypatch):
+    stub(monkeypatch, judged={})
+    ao = deepcopy(AO)
+    ao["documents"][0]["extracted_fields"].append({"value": "이름 없는 값"})
+
+    document = verify.run("scan.png", ao)["documents"][0]
+
+    nameless = document["extracted_fields"][-1]
+    assert (nameless["source"], nameless["reason"]) == ("unknown", verify.UNKNOWN)
+    assert nameless["value"] == "이름 없는 값"  # 값은 그대로 둔다
+    assert document["verify"]["counts"]["unknown"] == 1
+
+
+def test_run_adds_defined_fields_and_tables_the_ao_result_left_out(monkeypatch):
+    ao = {"result": {"doc_type": "진료비영수증", "fields": [{"key": "발행일", "value": "20241210"}],
+                     "groups": [], "tables": []}}
+    docraft = {"진료비총액": "216470", "항목내역": [{"항목": "진찰료", "본인부담금": "1000"}]}
+    verdicts = {"진료비총액": {"value": "216470", "source": "docraft", "reason": "이미지 우측 합계"},
+                "항목내역": {"source": "docraft", "reason": "이미지의 표", "rows": docraft["항목내역"]}}
+    real_stub(monkeypatch, docraft, verdicts)
+
+    result = verify.run("scan.png", ao)["result"]
+    spec = doctypes.DOC_TYPES["진료비영수증"]
+
+    added = {element["key"]: element for element in result["fields"] if element.get("added")}
+    assert len(added) == len(spec["fields"]) - 1  # 발행일만 이미 있었다
+    assert added["진료비총액"]["ao_value"] is None
+    assert (added["진료비총액"]["value"], added["진료비총액"]["source"]) == ("216470", "docraft")
+    assert added["환자부담총액"]["value"] is None  # Docraft도 못 읽은 필드는 값 없이 agree
+    assert added["환자부담총액"]["source"] == "agree"
+    table = result["tables"][0]
+    assert table["added"] and table["key"] == "항목내역" and table["headers"] == list(spec["tables"]["항목내역"])
+    assert [cell["value"] for cell in table["rows"][0][:2]] == ["진찰료", "1000"]
+    assert table["rows"][0][0]["key"] == "항목" and table["rows"][0][0]["ao_value"] is None
+    assert result["verify"]["counts"]["added"] == len(spec["fields"]) - 1 + 1
+
+
+def test_run_on_a_ui_result_needs_a_document_type_when_the_result_has_none(monkeypatch):
+    stub(monkeypatch)
+    ao = {"result": {"doc_type": None, "fields": [], "groups": [], "tables": []}}
+
+    with pytest.raises(ValueError, match="지원하지 않는 문서 유형"):
+        verify.run("scan.png", ao)
+
+
+# --- 진료비영수증 이상 검출이 run에 실리는지 --------------------------------
+
+
+def test_run_reports_the_checks_and_hands_the_judge_a_hint(monkeypatch):
+    ao = ui_case("[진료비영수증]비급여_급여_오추출됨", "07-extract-bbox.json")
+    rows = verify.flatten(verify.document(ao))["항목내역"]
+    docraft = {"항목내역": [{**row, "급여": "0", "비급여": "9010000"} for row in (rows[27], rows[30])]}
+    calls = []
+    # 머리글에 급여가 묶음 제목으로만 있는 실제 서식을 흉내 낸 파싱 블록.
+    real_stub(monkeypatch, docraft, {}, blocks=[{"type": "table", "rows": [
+        ["항 목", "급 여", "", "비급여④"], ["일부", "본인부담", "전액본인"], ["본인부담금①", "공단부담금②", "부담③"]]}])
+    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes: calls.append(disputes) or {})
+
+    result = verify.run("scan.png", ao, doc_type="진료비영수증")["result"]
+
+    codes = {flag["code"] for flag in result["verify"]["checks"]}
+    assert {"no_column", "row_copy", "sum_mismatch"} <= codes
+    assert "베낀" in calls[0]["항목내역"]["hint"]  # 룰이 고친 no_column은 빠지고 남은 이상만 간다
+    table = result["tables"][0]
+    assert (table["rows"][27][7]["value"], table["rows"][27][4]["value"]) == ("0", "9010000")  # 급여 → 비급여
+    assert table["source"] == "corrected" and "no_column" in table["reason"]
+    assert not [flag for flag in result["verify"]["checks_after"] if flag["code"] == "no_column"]
+
+
+# --- 라우트가 UI 형식을 받는지 ---------------------------------------------
+
+
+def test_verify_route_accepts_the_ui_result_format(monkeypatch, tmp_path):
+    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None: {"result": {"verify": {"counts": {}}}})
+
+    response = post(_image(tmp_path), ao_result=json.dumps(UI), doc_type="진료비영수증")
+
+    assert response.status_code == 200 and response.json()["result"]["verify"] == {"counts": {}}
+
+
+def test_verify_route_rejects_a_payload_with_neither_documents_nor_result(tmp_path):
+    response = post(_image(tmp_path), ao_result='{"result": 3}')
+
+    assert response.status_code == 422 and "documents" in response.json()["detail"]

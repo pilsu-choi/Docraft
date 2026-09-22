@@ -74,15 +74,23 @@ _MEDICAL_TABLES = {
     },
 }
 
+# 진료비영수증만 AO 스키마가 최종 합계 행을 표 안에 두므로 공통 TABLE_HINT 대신 이 힌트를 쓴다.
+RECEIPT_HINT = ("마지막 최종 계·합계 행은 항목 '합계'로 표에 넣고, 소계·중간소계·절사 전 합계·상한액초과금 행은 넣지 않는다. "
+                "머리글 행도 넣지 않는다. 값이 없는 열은 0.")
+
 _RECEIPT_ITEM = {  # 진료비영수증 항목내역 열(항목 외에는 모두 금액)
-    "항목": ("text", "진료 항목 구분명(진찰료·입원료·투약료 등). 합계·소계 행은 표에 넣지 않는다."),
-    "본인부담금": ("amount", "급여 본인부담금. 숫자만. " + TABLE_HINT),
-    "공단부담금": ("amount", "급여 공단부담금. 숫자만. " + TABLE_HINT),
-    "전액본인부담": ("amount", "급여 전액본인부담. 숫자만. " + TABLE_HINT),
-    "급여": ("amount", "급여 합계. 숫자만. " + TABLE_HINT),
-    "선택진료료": ("amount", "비급여 중 선택진료료. 숫자만. " + TABLE_HINT),
-    "선택진료료외": ("amount", "비급여 중 선택진료료 외. 숫자만. " + TABLE_HINT),
-    "비급여": ("amount", "비급여 합계. 숫자만. " + TABLE_HINT),
+    "항목": ("text", "진료 항목 구분명(진찰료·입원료·투약료 등). 금액이 모두 빈칸·0인 행도 빠뜨리지 않는다. "
+                     "입원료 1인실→입원료_1인실, 2·3인실→입원료_2-3인실, 4인실 이상→입원료_4인실이상, "
+                     "투약·주사의 행위료·약품비→투약및조제료_행위료·주사료_약품비 식으로 잇고, 최종 계·합계→합계. " + RECEIPT_HINT),
+    "본인부담금": ("amount", "급여 본인부담금. 숫자만. " + RECEIPT_HINT),
+    "공단부담금": ("amount", "급여 공단부담금. 숫자만. " + RECEIPT_HINT),
+    "전액본인부담": ("amount", "급여 전액본인부담. 숫자만. " + RECEIPT_HINT),
+    "급여": ("amount", "하위 열 없는 독립된 요양급여 열의 값만. 요양급여가 본인부담금·공단부담금·전액본인부담을 "
+                       "묶는 제목이면 0. 숫자만. " + RECEIPT_HINT),
+    "선택진료료": ("amount", "비급여 중 선택진료료. 숫자만. " + RECEIPT_HINT),
+    "선택진료료외": ("amount", "비급여 중 선택진료료 외. 숫자만. " + RECEIPT_HINT),
+    "비급여": ("amount", "하위 열 없는 독립된 비급여 열의 값만. 비급여가 선택진료료·선택진료료외를 묶는 제목이면 0. "
+                        "숫자만. " + RECEIPT_HINT),
 }
 
 _DETAIL_ITEM = {  # 세부내역서 항목내역 19열
@@ -177,6 +185,9 @@ DOC_TYPES: dict[str, dict] = {
 "tables": {table_key: {col_key: {"kind": str, "description": str}}}}"""
 
 
+HINTS = {"진료비영수증": RECEIPT_HINT}  # 유형별 표 힌트. 없으면 TABLE_HINT.
+
+
 def _property(meta):
     prop = {"type": ["string", "null"], "description": meta["description"]}
     if meta["enum"]:
@@ -191,7 +202,7 @@ def schema(doc_type: str) -> dict:
     for table, cols in spec["tables"].items():
         properties[table] = {
             "type": "array",
-            "description": f"{table}. {TABLE_HINT}",
+            "description": f"{table}. {HINTS.get(doc_type, TABLE_HINT)}",
             "items": {"type": "object",
                       "properties": {col: _property(meta) for col, meta in cols.items()},
                       "required": list(cols)},
@@ -199,8 +210,12 @@ def schema(doc_type: str) -> dict:
     return {"title": doc_type, "type": "object", "properties": properties, "required": list(properties)}
 
 
+def spec(doc_type: str) -> dict:
+    """유형 정의. 모르는 유형이면 빈 정의를 돌려준다."""
+    return DOC_TYPES.get(doc_type) or {"fields": {}, "tables": {}}
+
+
 def kind(doc_type: str, key: str, table: str | None = None) -> str:
     """필드(또는 표 열)의 kind. 정의에 없으면 ``"text"``."""
-    spec = DOC_TYPES.get(doc_type, {"fields": {}, "tables": {}})
-    source = spec["tables"].get(table, {}) if table else spec["fields"]
+    source = spec(doc_type)["tables"].get(table, {}) if table else spec(doc_type)["fields"]
     return source.get(key, {}).get("kind", "text")

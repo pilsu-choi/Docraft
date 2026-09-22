@@ -649,7 +649,7 @@ def frames(path):
 
 @app.post("/api/verify", dependencies=[Depends(auth)])
 async def verify_result(image: UploadFile = File(...), ao_result: str = Form(...), doc_type: str | None = Form(None)):
-    """AO 결과 JSON과 원본 이미지를 받아 필드별로 교차검증·교정한 JSON을 돌려준다."""
+    """AO 결과 JSON(API·UI 형식)과 원본 이미지를 받아 필드별로 교차검증·교정한 JSON을 돌려준다."""
     filename = Path(image.filename or "upload").name
     suffix = Path(filename).suffix.lower()
     if suffix not in IMAGES: raise HTTPException(415, f"이미지 파일만 지원합니다: {suffix or image.content_type}")
@@ -657,7 +657,10 @@ async def verify_result(image: UploadFile = File(...), ao_result: str = Form(...
         ao = json.loads(ao_result)
     except json.JSONDecodeError as exc:
         raise HTTPException(422, "ao_result를 JSON으로 해석할 수 없습니다.") from exc
-    if not isinstance(ao, dict) or not ao.get("documents"): raise HTTPException(422, "ao_result에 documents가 없습니다.")
+    try:
+        verify.document(ao)
+    except (AttributeError, ValueError) as exc:
+        raise HTTPException(422, "ao_result에 documents(또는 result)가 없습니다.") from exc
     started = time.monotonic()
     with tempfile.TemporaryDirectory() as folder:
         target = Path(folder) / f"{uid()}{suffix}"
@@ -670,5 +673,5 @@ async def verify_result(image: UploadFile = File(...), ao_result: str = Form(...
         except Exception as exc:
             logger.exception("verify failed: filename=%s elapsed=%.2fs", filename, time.monotonic() - started)
             raise HTTPException(502, f"교차검증에 실패했습니다: {exc}") from exc
-    logger.info("verify finished: filename=%s counts=%s elapsed=%.2fs", filename, result["documents"][0]["verify"]["counts"], time.monotonic() - started)
+    logger.info("verify finished: filename=%s counts=%s elapsed=%.2fs", filename, verify.document(result)["verify"]["counts"], time.monotonic() - started)
     return result
