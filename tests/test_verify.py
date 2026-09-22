@@ -48,7 +48,7 @@ VERDICTS = {
     "병원명": {"value": "고려대학교 구로병원", "source": "docraft", "reason": "이미지에 전체 이름이 있다"},
     "환자명": {"value": "홍길동님", "source": "corrected", "reason": "이미지 표기를 그대로 읽었다"},
     "병명내역": {"source": "corrected", "reason": "부상병 행이 빠졌다",
-                 "rows": [{"병명코드": "R634", "병명": "이상체중감소"}, {"병명코드": "M8199", "병명": "골다공증"}]},
+                 "rows": [{"병명코드": "R634", "병명": "이상체중감소"}, {"병명코드": "M8199", "병명": "골다공증(속발)"}]},
 }
 
 
@@ -66,7 +66,8 @@ def stub(monkeypatch, judged=VERDICTS, docraft=DOCRAFT):
     monkeypatch.setattr(doctypes, "schema", lambda doc_type: {"type": "object"})
     monkeypatch.setattr(doctypes, "kind", lambda doc_type, key, table=None: "text")
     monkeypatch.setattr(rules, "same", lambda kind, a, b: (a or None) == (b or None))
-    monkeypatch.setattr(rules, "apply", lambda doc_type, result, blocks: deepcopy(docraft))
+    # blocks가 있으면(추출 단계) 고정된 docraft를, 없으면(_decide의 판정값 정규화) 입력을 그대로 돌려준다.
+    monkeypatch.setattr(rules, "apply", lambda doc_type, result, blocks: deepcopy(docraft) if blocks else deepcopy(result))
     monkeypatch.setattr(verify, "parse", lambda *args, **kwargs: ("md", [{"text": "x"}]))
     monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None: ({}, {}))
     monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes: calls.append((image, doc_type, disputes)) or deepcopy(judged))
@@ -179,7 +180,7 @@ def test_run_rebuilds_table_rows_from_the_verdict_keeping_the_cell_format(monkey
     assert [cell["key"] for cell in table["rows"][0]] == ["병명코드", "병명"]
     assert table["rows"][0][0]["confidence"] == 0.97  # 원래 셀이 있으면 형식을 보존한다
     assert table["rows"][0][0]["ao_value"] == "R634"
-    assert [cell["value"] for cell in table["rows"][1]] == ["M8199", "골다공증"]
+    assert [cell["value"] for cell in table["rows"][1]] == ["M8199", "골다공증(속발)"]
     assert table["rows"][1][0]["ao_value"] is None
     # 판정이 늘린 행은 열 셀의 형식만 빌리고 원래 값은 남기지 않는다.
     assert all(table["rows"][1][0][name] is None for name in ("confidence", "predicted_value"))
@@ -215,6 +216,96 @@ def test_run_prefers_the_requested_document_type_over_the_ao_one(monkeypatch):
     assert calls[0][1] == "소견서"
 
 
+# --- reclassifying a format-only "corrected" verdict (real doctypes/rules) -----
+
+
+def real_stub(monkeypatch, docraft, verdicts):
+    """parse·extract·judge만 대체한다. doctypes·rules는 실제 것을 쓴다.
+
+    ``rules.apply``는 docraft 추출 호출(blocks 있음)만 고정된 docraft로 바꿔치기하고,
+    ``_decide``의 판정값 정규화 호출(blocks 없음)은 실제 ``rules.apply``를 그대로 쓴다.
+    """
+    real_apply = rules.apply
+    monkeypatch.setattr(verify, "parse", lambda *args, **kwargs: ("md", [{"text": "x"}]))
+    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None: ({}, {}))
+    monkeypatch.setattr(rules, "apply",
+                         lambda doc_type, result, blocks: deepcopy(docraft) if blocks else real_apply(doc_type, result, blocks))
+    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes: deepcopy(verdicts))
+
+
+def test_run_reclassifies_a_format_only_corrected_verdict_to_ao(monkeypatch):
+    """Judge가 형식만 다른(점 있는 코드·구분자 다른 날짜) 값을 corrected로 줘도 AO와 같으면 ao로 재분류한다."""
+    ao = {"documents": [{"doc_type": "진단서", "extracted_fields": [
+        {"key": "발급일", "value": "20220517", "confidence": 0.9},
+    ], "extracted_tables": [{"key": "병명내역", "headers": ["병명코드", "병명"], "rows": [[
+        {"key": "병명코드", "value": "R634", "confidence": 0.9},
+        {"key": "병명", "value": "이상체중감소", "confidence": 0.9},
+    ]]}]}]}
+    docraft = {"발급일": "20220510", "병명내역": [{"병명코드": "R635", "병명": "다른병명"}]}
+    verdicts = {
+        "발급일": {"value": "2022/05/17", "source": "corrected", "reason": "이미지 표기 그대로"},
+        "병명내역": {"source": "corrected", "reason": "이미지 표기 그대로",
+                   "rows": [{"병명코드": "R63.4", "병명": "이상체중감소"}]},
+    }
+    real_stub(monkeypatch, docraft, verdicts)
+
+    document = verify.run("scan.png", ao)["documents"][0]
+
+    assert (field(document, "발급일")["value"], field(document, "발급일")["source"]) == ("20220517", "ao")
+    assert field(document, "발급일")["reason"] == "이미지 표기 그대로"
+    table = document["extracted_tables"][0]
+    assert table["source"] == "ao"
+    assert [cell["value"] for cell in table["rows"][0]] == ["R634", "이상체중감소"]
+
+
+def test_run_normalizes_a_genuinely_corrected_table_value_without_reclassifying(monkeypatch):
+    """AO·Docraft 둘 다와 다른 값은 corrected로 남되, 최종 값은 정규화(점 제거)한다."""
+    ao = {"documents": [{"doc_type": "진단서", "extracted_tables": [
+        {"key": "병명내역", "headers": ["병명코드", "병명"], "rows": [[
+            {"key": "병명코드", "value": "R634", "confidence": 0.9},
+            {"key": "병명", "value": "AAA", "confidence": 0.9},
+        ]]}]}]}
+    docraft = {"병명내역": [{"병명코드": "R635", "병명": "BBB"}]}
+    verdicts = {"병명내역": {"source": "corrected", "reason": "행이 하나 더 있다",
+                          "rows": [{"병명코드": "R63.4", "병명": "AAA"}, {"병명코드": "S99", "병명": "CCC"}]}}
+    real_stub(monkeypatch, docraft, verdicts)
+
+    table = verify.run("scan.png", ao)["documents"][0]["extracted_tables"][0]
+
+    assert table["source"] == "corrected"
+    assert [cell["value"] for cell in table["rows"][0]] == ["R634", "AAA"]  # 점이 지워졌다
+    assert [cell["value"] for cell in table["rows"][1]] == ["S99", "CCC"]
+
+
+def test_run_keeps_a_genuinely_corrected_text_field_unchanged(monkeypatch):
+    """AO·Docraft 둘 다와 진짜로 다른 값이면 Judge가 준 값 그대로 corrected에 남는다."""
+    ao = {"documents": [{"doc_type": "진단서", "extracted_fields": [
+        {"key": "진료과", "value": "내과", "confidence": 0.9},
+    ]}]}
+    docraft = {"진료과": "외과"}
+    verdicts = {"진료과": {"value": "정형외과", "source": "corrected", "reason": "이미지에 정형외과로 적혀있다"}}
+    real_stub(monkeypatch, docraft, verdicts)
+
+    field_out = field(verify.run("scan.png", ao)["documents"][0], "진료과")
+
+    assert (field_out["value"], field_out["source"], field_out["reason"]) == ("정형외과", "corrected", "이미지에 정형외과로 적혀있다")
+
+
+def test_decide_drops_total_rows_ao_excludes_via_apply_reuse():
+    """Judge가 AO에 없던 '계'·'끝수처리 조정금액' 같은 합계행을 끼워 넣어도 rules.apply 재사용으로 걸러진다."""
+    verdict = {"source": "corrected", "reason": "합계행을 함께 읽었다", "rows": [
+        {"항목": "진찰료", "본인부담": "1,000"},
+        {"항목": "계", "본인부담": "9,000"},
+        {"항목": "끝수처리 조정금액", "본인부담": "-10"},
+    ]}
+
+    rows, source, reason = verify._decide("세부내역서", "항목내역", verdict, [], [], "rows")
+
+    assert [row["항목"] for row in rows] == ["진찰료"]  # 합계행 두 개 모두 빠졌다
+    assert rows[0]["본인부담"] == "1000"  # kind별 정규화(콤마 제거)도 함께 적용된다
+    assert source == "corrected" and reason == "합계행을 함께 읽었다"
+
+
 # --- judge ---------------------------------------------------------------
 
 
@@ -236,7 +327,17 @@ def test_judge_attaches_the_page_image_and_parses_the_verdicts(monkeypatch, tmp_
     content = FakeClient.requests[0][1]["json"]["messages"][0]["content"]
     assert content[0]["image_url"]["url"] == "data:image/jpeg;base64,AA"
     assert "진단서" in content[1]["text"] and "고려대학교 구로병원" in content[1]["text"]
+    assert doctypes.DOC_TYPES["진단서"]["fields"]["병원명"]["description"] in content[1]["text"]  # desc가 실려 간다
     assert FakeClient.requests[0][1]["json"]["response_format"] == {"type": "json_object"}
+
+
+def test_describe_adds_a_field_desc_and_a_table_desc_per_column_once():
+    entry = verify._describe("진단서", "병원명", {"ao": "고려대병원", "docraft": "고려대학교 구로병원"})
+    assert entry["desc"] == doctypes.DOC_TYPES["진단서"]["fields"]["병원명"]["description"]
+
+    table_entry = verify._describe("진단서", "병명내역", {"ao": [], "docraft": []})
+    assert table_entry["desc"] == {column: meta["description"]
+                                    for column, meta in doctypes.DOC_TYPES["진단서"]["tables"]["병명내역"].items()}
 
 
 def test_judge_rejects_a_non_object_response(monkeypatch):

@@ -72,10 +72,11 @@ def test_idnum_phone_code_bool_normalize():
     assert rules.normalize("idnum", "이름없음") is None
     assert rules.normalize("phone", "(02) 123-4567") == "02-123-4567"
     assert rules.normalize("phone", "02-123-4567 / FAX 02-000-1111") == "02-123-4567"
-    assert rules.normalize("code", "j20.9") == "J20.9"
-    assert rules.normalize("code", "020.9") == "D20.9"       # 앞자리 0 → D
+    assert rules.normalize("code", "j20.9") == "J209"        # 점은 지운다
+    assert rules.normalize("code", "020.9") == "D209"        # 앞자리 0 → D
     assert rules.normalize("code", "163") == "I63"           # 앞자리 1 → I
     assert rules.normalize("code", "S8260 M5136") == "S8260, M5136"
+    assert rules.same("code", "R63.4", "R634")                # AO 표기(점 없음)와 같아진다
     assert rules.normalize("bool", "[V]") == "Y"
     assert rules.normalize("bool", "") == "N"
     assert rules.normalize("bool", None) is None
@@ -114,7 +115,7 @@ def test_gender_and_birthday_derived_from_idnum():
 
 def test_disease_code_split_from_name():
     out = rules.apply("진단서", {"병명내역": [{"병명코드": None, "병명": "(J20.9) 급성 기관지염"}]}, [])
-    assert out["병명내역"] == [{"병명코드": "J20.9", "병명": "급성 기관지염"}]
+    assert out["병명내역"] == [{"병명코드": "J209", "병명": "급성 기관지염"}]
 
 
 def test_accident_date_is_earliest_or_treatment_start():

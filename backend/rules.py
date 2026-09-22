@@ -105,7 +105,7 @@ _CODE_IN_TEXT = re.compile(r"[(\[{]?\s*[A-Za-z]\d{2,5}(?:\.\d{1,2})?\s*[)\]}]?")
 _LICENSE = re.compile(r"\(?\s*(제)?\s*\d{4,6}\s*(호)?\s*\)?")
 _NAME_WORDS = re.compile(r"의사|성명|이름|환자|면허|직인|서명|담당|주치의|전문의")
 _PHONE_IN_TEXT = re.compile(r"\(?\d{2,4}\)?\s*-\s*\d{3,4}\s*-\s*\d{4}\)?")
-_TOTAL_ROW = re.compile(r"^(합계|총계|소계|계|total|합계금액)$", re.I)
+_TOTAL_ROW = re.compile(r"^(합계|총계|소계|계|total|합계금액|끝수처리조정금액?)$", re.I)
 _TRUE = re.compile(r"^[\[(]?\s*(y|yes|o|v|1|true|예|체크|해당|√|✓|✔|☑|■|●)\s*[\])]?$|[✓✔√☑■●]|체크", re.I)
 _WARD = re.compile(r"^(?=.*\d)[A-Za-z0-9/:\-]+호?$")
 _EMPTY = ("", "[]", "{}", "none", "null", "nan", "-", "n/a")
@@ -177,7 +177,7 @@ def _code(text):
     codes = []
     for token in _CODE.findall(text.replace(" ", "")):
         head = {"0": "D", "1": "I"}.get(token[0], token[0]).upper()
-        code = head + token[1:]
+        code = head + token[1:].replace(".", "")
         if head.isalpha() and code not in codes:
             codes.append(code)
     return ", ".join(codes) or None

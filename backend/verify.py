@@ -21,8 +21,11 @@ SOURCES = ("agree", "ao", "docraft", "corrected")
 NO_VERDICT = "판정 결과가 없어 AO 값을 유지했습니다."
 JUDGE_PROMPT = (
     "The image is a Korean medical document of type \"{doc_type}\". Two OCR systems, \"ao\" and \"docraft\", read it "
-    "independently and disagree on the fields below, given as JSON {{\"<key>\": {{\"ao\": <value>, \"docraft\": <value>}}}}; "
-    "a table key holds a list of row objects instead of a scalar value, and null means the system read nothing.\n"
+    "independently and disagree on the fields below, given as JSON {{\"<key>\": {{\"ao\": <value>, \"docraft\": <value>, "
+    "\"desc\": <text>}}}}; a table key holds a list of row objects instead of a scalar value and \"desc\" is a "
+    "{{\"<column>\": <text>}} map instead, and null means the system read nothing.\n"
+    "\"desc\" is that field's (or column's) definition; pick only a value that matches this definition, since a "
+    "similar-looking field can be confused for it.\n"
     "For every key, read what is actually printed in the image and decide:\n"
     "- \"ao\" or \"docraft\" when that side matches the image;\n"
     "- \"corrected\" with the value you read in the image when neither side matches, including when both are null "
@@ -62,9 +65,20 @@ def flatten(document: dict) -> dict:
     }
 
 
+def _describe(doc_type, key, entry):
+    """분쟁 항목에 필드(스칼라는 desc, 표는 열별 desc 한 번)의 설명을 덧붙인다."""
+    spec = doctypes.DOC_TYPES.get(doc_type, {"fields": {}, "tables": {}})
+    if key in spec["tables"]:
+        return {**entry, "desc": {column: meta["description"] for column, meta in spec["tables"][key].items()}}
+    if key in spec["fields"]:
+        return {**entry, "desc": spec["fields"][key]["description"]}
+    return entry
+
+
 def judge(image: str, doc_type: str, disputes: dict) -> dict:
     """어긋난 값들을 이미지 1장과 함께 한 번의 LLM 호출로 판정한다. key → 판정 dict."""
-    prompt = JUDGE_PROMPT.format(doc_type=doc_type) + json.dumps(disputes, ensure_ascii=False)
+    described = {key: _describe(doc_type, key, entry) for key, entry in disputes.items()}
+    prompt = JUDGE_PROMPT.format(doc_type=doc_type) + json.dumps(described, ensure_ascii=False)
     reply = engine._provider([engine._user(prompt, engine._page_images(image, [1]))], timeout=300)
     if not isinstance(reply, dict):
         raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
@@ -79,8 +93,14 @@ def _rows_same(doc_type, table, ao_rows, docraft_rows):
         for a, b in zip(ao_rows, docraft_rows))
 
 
-def _decide(verdict, ao_value, docraft_value, field="value"):
-    """판정 하나를 ``(최종값, source, reason)``으로 편다. 판정이 없으면 AO 값을 유지한다."""
+def _decide(doc_type, key, verdict, ao_value, docraft_value, field="value"):
+    """판정 하나를 ``(최종값, source, reason)``으로 편다. 판정이 없으면 AO 값을 유지한다.
+
+    Judge가 ``corrected``로 돌려준 값은 ``rules.apply``에 그 key만 담아 통과시켜 정규화한다
+    (표는 합계행 제거·합계 필드 보충도 덤으로 얻는다). 정규화한 값이 AO(또는 Docraft) 값과 같으면
+    표기 차이일 뿐이므로 교정으로 세지 않고 해당 쪽 원본 값으로 되돌린다. 정말 둘 다 다를 때만
+    정규화된 값으로 ``corrected``에 남는다. 표(``field="rows"``)는 행 목록 전체가 같아야 같다고 본다.
+    """
     if verdict is None:
         return ao_value, "ao", NO_VERDICT
     source, reason = verdict.get("source"), verdict.get("reason")
@@ -88,7 +108,22 @@ def _decide(verdict, ao_value, docraft_value, field="value"):
         return ao_value, source, reason
     if source == "docraft":
         return docraft_value, source, reason
-    return verdict.get(field, ao_value), "corrected", reason
+    value = verdict.get(field, ao_value)
+    if field == "rows":
+        rows = [row for row in value or [] if isinstance(row, dict)]
+        normalized = rules.apply(doc_type, {key: rows}, [])[key]
+        if _rows_same(doc_type, key, normalized, ao_value):
+            return ao_value, "ao", reason
+        if _rows_same(doc_type, key, normalized, docraft_value):
+            return docraft_value, "docraft", reason
+        return normalized, "corrected", reason
+    normalized = rules.apply(doc_type, {key: value}, [])[key]
+    kind = doctypes.kind(doc_type, key)
+    if rules.same(kind, normalized, ao_value):
+        return ao_value, "ao", reason
+    if rules.same(kind, normalized, docraft_value):
+        return docraft_value, "docraft", reason
+    return normalized, "corrected", reason
 
 
 def _annotate(element, value, ao_value, docraft_value, source, reason):
@@ -142,13 +177,13 @@ def run(image: str, ao: dict, doc_type: str | None = None) -> dict:
     output = deepcopy(ao)
     document, counts = output["documents"][0], Counter()
     for key, field in _scalars(document):
-        value, source, reason = (_decide(verdicts.get(key), ao_flat[key], docraft.get(key))
+        value, source, reason = (_decide(doc_type, key, verdicts.get(key), ao_flat[key], docraft.get(key))
                                  if key in disputes else (ao_flat[key], "agree", None))
         counts[source] += 1
         _annotate(field, value, field.get("value"), docraft.get(key), source, reason)
     for table in document.get("extracted_tables") or []:
         key = table["key"]
-        rows, source, reason = (_decide(verdicts.get(key), ao_flat[key], docraft.get(key) or [], "rows")
+        rows, source, reason = (_decide(doc_type, key, verdicts.get(key), ao_flat[key], docraft.get(key) or [], "rows")
                                 if key in disputes else (ao_flat[key], "agree", None))
         counts[source] += 1
         table.update(rows=_table_rows(table, rows, docraft.get(key) or [], source, reason), source=source, reason=reason)
