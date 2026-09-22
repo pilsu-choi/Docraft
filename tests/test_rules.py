@@ -568,8 +568,24 @@ def test_edi_code_normalize(raw, expected):
     assert rules.normalize("edi", raw) == expected
 
 
+@pytest.mark.parametrize("raw, expected", [
+    ("보철·교정료", "보철교정료"),
+    ("검사/판독료", "검사판독료"),
+    ("「식대」", "식대"),
+    ("처치 및 수술료", "처치및수술료"),
+    ("입원료_1인실", "입원료_1인실"),  # 하위 항목 밑줄은 ITEM_ALIASES가 되살리는 canonical 표기다
+    ("입원료 상급병실", "입원료_상급병실"),  # 세로 병합된 '입원료' 상위 칸 + 하위 칸 '상급병실'
+    ("선택항목_CT진단료", "CT진단료"),  # 서식 분류 칸 글자는 뗀다
+])
+def test_receipt_item_name_drops_every_non_alphanumeric_character(raw, expected):
+    assert rules.item(raw) == expected
+
+
 def test_detail_item_columns_follow_the_ao_convention():
-    """세부내역서: 코드는 EDI코드 한 열에 모으고, 비급여 칸과 종료일자를 채우며, 총액을 베낀 급여 칸은 지운다."""
+    """세부내역서: 코드는 EDI코드 한 열에 모으고, 비급여 칸과 종료일자를 채운다.
+
+    급여 칸은 총액에서 만들지 않고, 머리글 근거가 없으면 모델 값도 지운다.
+    """
     rows = [{"원내코드": "V2200", "EDI코드": None, "시작일자": "20230311", "종료일자": None,
              "급여구분": "급여", "총액": "12380", "급여": "12,380"},
             {"원내코드": "AA254", "EDI코드": "AA254", "급여구분": "비급여", "총액": "60000"}]
@@ -579,6 +595,40 @@ def test_detail_item_columns_follow_the_ao_convention():
     assert [(row["원내코드"], row["EDI코드"]) for row in out] == [(None, "V2200"), (None, "AA254")]
     assert (out[0]["종료일자"], out[0]["급여"]) == ("20230311", None)
     assert (out[1]["비급여"], out[1]["급여"]) == ("60000", None)
+
+
+def test_detail_paid_column_keeps_a_printed_value_but_drops_a_copied_total():
+    """독립 '급여' 값 열이 보이는 서식은 모델이 읽은 인쇄값을 두되, 총액을 옮긴 값은 지운다(라벨 관례 ⑨)."""
+    blocks = [{"rows": [["항목", "코드", "총액", "급여", "비급여"],
+                        ["진찰료", "AA100", "12380", "", ""]]}]
+    rows = [{"급여구분": "급여", "총액": "12380", "급여": "8666"}, {"급여구분": "급여", "총액": "5000", "급여": "5000"}]
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]
+
+    assert (out[0]["급여"], out[1]["급여"]) == ("8666", None)
+
+
+def test_detail_paid_column_stays_null_when_it_only_groups_the_share_columns():
+    """급여가 본인부담·공단부담·전액본인부담을 묶는 머리글이면 값 칸이 아니므로 총액에서 만들지 않는다."""
+    blocks = [{"rows": [["항목", "총액", "급여", "급여", "급여", "비급여"],
+                        ["", "", "본인부담", "공단부담", "전액본인부담", ""]]}]
+
+    out = rules.apply("세부내역서", {"항목내역": [{"급여구분": "급여", "총액": "12380"},
+                                              {"급여구분": "비급여", "총액": "60000"}]}, blocks)["항목내역"]
+
+    assert (out[0]["급여"], out[1]["비급여"]) == (None, "60000")
+
+
+def test_detail_paid_column_is_cleared_when_the_form_has_no_paid_amount_cell():
+    """급여 값 칸이 없는 서식에서 모델이 총액-비급여로 채워 온 급여는 인쇄값이 아니므로 지운다."""
+    blocks = [{"rows": [["항목", "총액", "급여", "급여", "급여", "비급여"],
+                        ["", "", "본인부담", "공단부담", "전액본인부담", ""]]}]
+    rows = [{"급여구분": "급여", "총액": "12380", "급여": "12380", "본인부담": "3714", "공단부담": "8666"}]
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]
+
+    assert out[0]["급여"] is None
+    assert (out[0]["본인부담"], out[0]["공단부담"]) == ("3714", "8666")  # 인쇄된 하위 열은 그대로 둔다
 
 
 def test_treatment_period_comes_from_the_item_table():
