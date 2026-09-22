@@ -9,6 +9,8 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [룰 검증 성능 개선 우선순위](2026-09-22-rule-performance-review.md) - 표 복원·자동 일치 기준·Judge 범위와 평가 개선 제안
+
 * [README 아키텍처·처리 흐름 시각화](2026-09-22-readme-architecture.md) - 서비스 관계와 일반 추출·AO 검증 흐름을 Mermaid로 정리하고 현행 스키마·설정을 반영
 
 * [verify 룰 1차 추출 전환 계획](2026-09-22-verify-rule-first-plan.md) - 지연 시간 최소화를 위해 모델 추출을 빼고 파싱 블록 룰 추출 + AO 비교 + Judge 1회로 재구성하는 후속 작업 지시서(현황·실측 시간·부작용·단계·완료 기준)
