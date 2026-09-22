@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-23 (3)
+* **Creation**: 추출 VLM `qwen/qwen3.5-27b` 전환 배경(OpenRouter slug·이미지 입력·`response_format` 지원 확인, 컨텍스트 262k, 단가 $0.195/$1.56 vs 이전 $0.104/$0.416 per M)과, 전환 후 드러난 기본 사고 모드로 인한 추출 호출 10배 이상 지연(실측 3건 중앙값 222초·최대 541초, `reasoning.enabled=false`면 1.7~16초·작은 프롬프트 `reasoning_tokens` 135→0)을 [vlm-model-qwen35](2026-09-23-vlm-model-qwen35.md)에 기록했다. SiliconFlow·Novita·AtlasCloud 등 provider 라우팅에 따른 지연 편차와 빈 응답(`{}`) 1건(재시도로 정상 복구) 사례도 남겼다. `backend/config.py`의 `ai_settings()`에 `AI_REASONING`(`off`(기본)/`on`)을 추가하고 `backend/engine.py`의 `_provider()`가 `off`일 때만 요청 본문에 `"reasoning": {"enabled": false}`를 넣도록(OpenRouter 표준 파라미터, 미지원 provider·모델은 무시) 구현했다. `tests/test_ai_provider.py`에 기본값·`on` 검증 테스트 2건을 추가했다(294 passed). `.env.example`·`deploy/aws/.env.aws.example`·README 환경변수 표에 `AI_REASONING`을 추가했다. 76건 기준선 재추출은 이 변경 이후 별도로 실행할 예정이다.
+* **Update**: [index](index.md)에 새 문서를 연결했다.
+
 ## 2026-09-23 (2)
 * **Update**: [label-review](2026-09-23-label-review.md)의 "관례 불일치 7건" 사용자 결정을 반영해 표의 상태를 "보류"→"확정(2026-09-23)"으로 바꾸고, ④(세부내역서 `급여_급여총액`)를 권장안(비급여 포함 합계행 총액)과 다르게 확정했다는 문단을 추가했다 — 확정 정의는 **급여(본인부담+공단부담+전액본인부담)만의 합계 인쇄값**, 서식에 급여 합계 칸이 없으면 null(직접 계산 금지), 근거는 harness-v2 고객 하네스 규칙 `CALC_0710_17`과 필드명. [ocr-verify-labels](2026-09-22-ocr-verify-labels.md) "표기 관례" 절을 ①~⑦ 확정 내용으로 갱신하고(영수증 합계 행 포함, 빈 금액 칸 `"0"`, 공단부담총액 대체 칸, 급여총액 정의, 여유 행 제외, 진료기간 종료일=시작일, 영수증 항목명 구두점 제거) "null 정책 불일치" 한계 지적에 ②로 확정됐다는 주석을 달았다. `backend/doctypes.py`의 `급여_급여총액` 설명을 확정 정의에 맞게 정정했다(`RECEIPT_HINT`·`_RECEIPT_ITEM["항목"]`·`rules.TOTALS`는 이미 ①②⑦ 및 인쇄값 원칙과 일치해 코드 로직 변경은 없었다). [README](../README.md) 정확도 평가 단락에 라벨 관례 확정 문서 링크를 추가했다. 292 passed.
 

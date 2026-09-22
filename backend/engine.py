@@ -84,6 +84,9 @@ def _provider(messages, timeout=90):
     if not settings["configured"] or settings["mode"] == "local":
         raise ProviderConfigurationError("AI provider가 설정되지 않았습니다. AI_BASE_URL, AI_API_KEY, AI_VLM_MODEL을 확인해 주세요.")
     body = {"model": settings["model"], "messages": messages, "temperature": 0, "response_format": {"type": "json_object"}}
+    if not settings["reasoning"]:
+        # OpenRouter standard param; providers/models without reasoning support just ignore it.
+        body["reasoning"] = {"enabled": False}
     prompt_chars = sum(len(_message_text(m.get("content"))) for m in messages)
     images = sum(1 for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url")
     logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", settings["model"], len(messages), images, prompt_chars)
