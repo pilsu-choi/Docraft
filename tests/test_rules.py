@@ -137,6 +137,17 @@ def test_name_hospital_address_cleanup():
     assert rules.apply("진단서", {"병원명": "한사랑의과의원"}, [])["병원명"] == "한사랑외과의원"
 
 
+@pytest.mark.parametrize("raw, expected", [
+    ("홍길동 (인)", "홍길동"),
+    ("홍길동 인", "홍길동"),
+    ("홍길동(印)", "홍길동"),
+    ("김인수", "김인수"),   # 이름 안의 "인"은 날인 표시가 아니다
+    ("이인", "이인"),       # 이름 안의 "인"은 날인 표시가 아니다
+])
+def test_name_seal_mark_removed(raw, expected):
+    assert rules.apply("진단서", {"이름": raw}, [])["이름"] == expected
+
+
 def test_gender_and_birthday_derived_from_idnum():
     out = rules.apply("진단서", {"환자 주민번호": "880101-1234567"}, [])
     assert (out["성별"], out["생년월일"]) == ("남", "19880101")

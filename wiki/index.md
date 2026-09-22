@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [rules 후처리 흐름 예시 풀이](2026-09-23-rules-flow-example.md) - 진단서·진료비영수증 예시를 rules.apply·check·correct에 통과시켜 단계별 교정을 보여 주는 설명과 이름 도장 표시(`(인)`) 버그 수정
 * [추출 VLM qwen3.5-27b 전환과 AI_REASONING](2026-09-23-vlm-model-qwen35.md) - qwen3.5-27b 전환 배경·OpenRouter 확인(단가·컨텍스트)과, 기본 사고 모드로 인한 추출 호출 10배 지연 실측 및 `AI_REASONING` 설정으로 끄는 구현
 * [홀드아웃 40건 라벨 이미지 검수](2026-09-23-label-review.md) - 정확도 평가용 홀드아웃 40건 silver 라벨을 이미지 대조로 교정한 감사 집계, 캐시 재사용 재채점 전후(existing 36건 무변화로 검증), 남은 진짜 오류 요약, 기존 36건과의 관례 불일치 7건 통일 권고안
 
