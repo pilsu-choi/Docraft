@@ -5,7 +5,7 @@ import fitz
 import httpx
 import pytest
 
-from backend import engine, parsers
+from backend import doctypes, engine, parsers
 from backend.main import app
 from fastapi.testclient import TestClient
 
@@ -162,3 +162,42 @@ def test_remote_paddle_page_range_sends_only_selected_pages_and_maps_back(monkey
     blocks = parsers.parse_pdf(source, provider="paddle", pages="1,3")
     assert seen["page_count"] == 2
     assert [b["page"] for b in blocks] == [1, 3]
+
+
+def _extract_messages(monkeypatch, schema, blocks):
+    """extract()가 provider에 보낸 첫 호출의 (system, user text)."""
+    sent = []
+    monkeypatch.setattr(engine, "ai_settings", lambda: {"mode": "provider", "chunk_chars": 40000})
+    monkeypatch.setattr(engine, "_provider", lambda messages, timeout=90: sent.append(messages) or {})
+    engine.extract(schema, blocks)
+    return sent[0][0]["content"], engine._message_text(sent[0][1]["content"])
+
+
+def test_extract_grounds_table_rows_in_the_printed_document(monkeypatch):
+    system, user = _extract_messages(monkeypatch, doctypes.schema("진료비영수증"),
+                                     [{"page": 1, "text": "<table><tr><td>항목</td></tr></table>"}])
+    assert "rows the document prints, in printed order" in system
+    assert "never add a row the document does not print" in system
+    table = json.loads(user.split("Schema:\n", 1)[1].split("\n\nSource blocks:", 1)[0])["properties"]["항목내역"]
+    assert doctypes.GROUND_HINT in table["description"]
+    assert "표준 목록에 없는 이름" in table["items"]["properties"]["항목"]["description"]
+
+
+def test_extract_leaves_a_schema_without_tables_free_of_the_table_note(monkeypatch):
+    system, _user = _extract_messages(monkeypatch, {"type": "object", "properties": {"제목": {"type": ["string", "null"]}},
+                                                    "required": ["제목"]}, [{"page": 1, "text": "제목: 계약서"}])
+    assert engine.TABLE_NOTE not in system
+
+
+def test_extract_sends_table_blocks_as_rows_and_columns(monkeypatch):
+    """표 블록은 행·열 구조가 남은 HTML 그대로 넘어간다(줄글로 뭉개지 않는다)."""
+    html_table = "<table><tr><td>항목</td><td>코드</td></tr><tr><td>의학료</td><td>AA154</td></tr></table>"
+    _system, user = _extract_messages(monkeypatch, {"type": "object", "properties": {}}, [{"page": 1, "text": html_table}])
+    assert html_table in user.split("Source blocks:\n", 1)[1]
+
+
+def test_detail_code_columns_route_a_single_printed_code_column_to_edi():
+    columns = doctypes.schema("세부내역서")["properties"]["항목내역"]["items"]["properties"]
+    assert "'청구코드'·'표준코드'·'수가코드'" in columns["EDI코드"]["description"]
+    assert "코드 열이 하나뿐이면 그 값은 EDI코드에 적고 여기는 null" in columns["원내코드"]["description"]
+    assert "표준 수가 명칭으로 바꾸지" in columns["EDI명칭"]["description"]
