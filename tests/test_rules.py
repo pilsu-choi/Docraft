@@ -97,6 +97,7 @@ def test_same_is_lenient_about_empty_amounts_and_wrapped_text(kind, a, b):
     ("amount", None, "1000"),
     ("text", None, "이상체중감소"),
     ("text", "가", "가나다"),                      # 한 글자는 품고 있어도 같다고 보지 않는다
+    ("text", "외과", "정형외과"),                   # 세 글자 이하는 품고 있어도 다른 값이다
     ("text", "이상체중감소", "체중증가"),
 ])
 def test_same_still_separates_different_values(kind, a, b):
@@ -105,8 +106,8 @@ def test_same_still_separates_different_values(kind, a, b):
 
 def test_rows_same_follows_the_lenient_comparison():
     """표 비교도 같은 규칙을 따른다: 빈 금액 칸 = 0, 접두가 붙은 항목명 = 같은 항목."""
-    ao = [{"항목": "진찰료", "본인부담금": "1000", "비급여": None}]
-    mine = [{"항목": "(기본항목)진찰료", "본인부담금": "1,000", "비급여": "0"}]
+    ao = [{"항목": "초음파진단료", "본인부담금": "1000", "비급여": None}]
+    mine = [{"항목": "(기본항목)초음파진단료", "본인부담금": "1,000", "비급여": "0"}]
 
     assert verify._rows_same("진료비영수증", "항목내역", ao, mine)
     assert not verify._rows_same("진료비영수증", "항목내역", ao, [{**mine[0], "본인부담금": "2000"}])
@@ -405,3 +406,102 @@ def test_headers_find_the_item_row_even_when_cells_are_merged():
     assert {"급여", "비급여", "본인부담금"} <= cells
     assert rules._grouped(cells, *rules.GROUPED["급여"][:2]) is True     # 급여는 묶음 제목
     assert rules._grouped(cells, *rules.GROUPED["비급여"][:2]) is False  # 비급여는 독립 열
+
+
+# ── 룰 확장: 라벨 글자 제거·표 열 관례·소견 문장 보충 ───────────────────────
+
+@pytest.mark.parametrize("key, value", [
+    ("환자정보-질병군(DRG)번호", "질병군(DRG)번호"),   # 머리글이 값 자리에 들어온 것
+    ("환자정보(병실)", "병실"),
+    ("환자성명", "성별"),
+    ("환자정보(환자등록번호)", ":"),
+    ("환자성명", "제"),
+    ("환자정보(환자등록번호)", "</td><td colspan=\"2\"></td></tr>"),   # 표 마크업
+])
+def test_label_text_is_not_a_value(key, value):
+    doc_type = "진료비영수증" if key.startswith("환자정보-") else "세부내역서"
+    assert rules.apply(doc_type, {key: value}, [])[key] is None
+
+
+def test_a_real_value_survives_the_label_filter():
+    out = rules.apply("세부내역서", {"환자성명": "홍길동", "환자정보(병실)": "1203호"}, [])
+    assert (out["환자성명"], out["환자정보(병실)"]) == ("홍길동", "1203호")
+
+
+def test_receipt_item_names_are_normalized_in_apply():
+    rows = [{"항목": "입원료 2·3인실"}, {"항목": "투약 및 조제료-약품비"}, {"항목": "식 대"}]
+
+    out = rules.apply("진료비영수증", {"항목내역": rows}, [])
+
+    assert [row["항목"] for row in out["항목내역"]] == ["입원료_2-3인실", "투약및조제료_약품비", "식대"]
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("v22oo", "V2200"), ("AA254 030", "AA254030"), ("{AA000000}", "AA000000"),
+    ("650902021", "650902021"), ("MCR3OI", "MCR301"),
+])
+def test_edi_code_normalize(raw, expected):
+    assert rules.normalize("edi", raw) == expected
+
+
+def test_detail_item_columns_follow_the_ao_convention():
+    """세부내역서: 코드는 EDI코드 한 열에 모으고, 급여/비급여 칸과 종료일자를 채운다."""
+    rows = [{"원내코드": "V2200", "EDI코드": None, "시작일자": "20230311", "종료일자": None,
+             "급여구분": "급여", "총액": "12380"},
+            {"원내코드": "AA254", "EDI코드": "AA254", "급여구분": "비급여", "총액": "60000"}]
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
+
+    assert [(row["원내코드"], row["EDI코드"]) for row in out] == [(None, "V2200"), (None, "AA254")]
+    assert (out[0]["종료일자"], out[0]["급여"]) == ("20230311", "12380")
+    assert (out[1]["비급여"], out[1]["급여"]) == ("60000", None)
+
+
+def test_treatment_period_comes_from_the_item_table():
+    rows = [{"시작일자": "20191021", "종료일자": "20191104"}, {"시작일자": "20191022", "종료일자": "20191022"}]
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])
+
+    assert (out["환자정보(진료시작일)"], out["환자정보(진료종료일)"]) == ("20191021", "20191104")
+
+
+def test_grouped_amount_column_is_emptied_when_the_form_has_no_such_column():
+    rows = receipt(("진찰료", {"급여": "15310", "본인부담금": "4593", "공단부담금": "10717"}))
+
+    out = rules.apply("진료비영수증", {"항목내역": rows}, RECEIPT_BLOCKS)
+
+    assert out["항목내역"][0]["급여"] is None          # 급여는 본인·공단부담금을 묶는 제목뿐이다
+    assert out["항목내역"][0]["비급여"] == "0"         # 비급여는 독립 열이라 그대로 둔다
+
+
+def test_treatment_row_is_built_from_the_opinion_sentence():
+    blocks = [block(kind="table", rows=[["치료소견", "상기환자 상기진단 하 약물 치료하였습니다."]])]
+
+    out = rules.apply("소견서", {}, blocks)
+
+    assert out["치료내역"] == [{"치료일": None, "치료명": "상기환자 상기진단 하 약물 치료하였습니다."}]
+
+
+def test_marked_dates_in_the_remarks_become_test_rows():
+    blocks = [block(text="비고: 2021/08/19, 2022/05/17 (검사), 2022/09/22(검사)")]
+
+    out = rules.apply("진단서", {}, blocks)
+
+    assert out["검사내역"] == [{"검사일": "20220517", "검사명": "검사"}, {"검사일": "20220922", "검사명": "검사"}]
+
+
+def test_gender_is_left_alone_without_an_idnum():
+    assert rules.apply("진단서", {"환자 주민번호": None}, [])["성별"] is None
+
+
+def test_a_printed_choice_is_not_a_value():
+    assert rules.apply("진단서", {"성별": "남 여"}, [])["성별"] is None   # 서식에 인쇄된 보기
+
+
+def test_a_field_does_not_take_the_value_of_its_pair():
+    blocks = [block(text="의료기관 주소: 서울시 강남구 1로 2\n환자의 주소 :")]
+
+    out = rules.apply("진단서", {}, blocks)
+
+    assert out["병원주소"] == "서울시 강남구 1로 2"
+    assert out["주소"] is None

@@ -15,8 +15,9 @@ null 라벨은 분모에서 뺀다. 값의 같고 다름은 오탐 판정까지 
 예측 ``"0"``·빈 문자열처럼 표기만 다른 쌍을 오탐에서 뺄지는 ``rules.same``이 정한다.
 
 표는 행 식별 열(진료비영수증·세부내역서 ``항목``+``EDI코드``, 진단서류 ``병명코드``·``수술일자``·``검사일``·
-``치료일``·``행위일``)로 먼저 짝짓고, 남은 행만 순서대로 짝짓는다. 끝내 짝이 없는 행은 빈 행과 맞물려
-누락(라벨 쪽)·과잉(예측 쪽)으로 집계된다.
+``치료일``·``행위일``)로 먼저 짝짓고, 그래도 남은 행은 식별 열의 접두가 같은 행(``starts_with``)에,
+마지막으로 순서대로 짝짓는다. 끝내 짝이 없는 행은 빈 행과 맞물려 누락(라벨 쪽)·과잉(예측 쪽)으로 집계된다.
+라벨에 합계 행이 없으면 예측의 합계 행은 채점에서 뺀다(표기 관례 차이일 뿐이다).
 
 캐시
 ----
@@ -54,6 +55,7 @@ import argparse
 import json
 import logging
 import mimetypes
+import re
 import sys
 import time
 from collections import defaultdict
@@ -233,22 +235,55 @@ ROW_KEYS = {  # 표 → 행을 식별하는 열(전부 일치해야 같은 행).
 }
 
 
+def starts_with(kind: str, a, b) -> bool:
+    """짝짓기 전용 느슨한 비교: 한쪽 값이 다른 쪽의 접두인 행은 같은 행으로 본다('주사료' ⊂ '주사료_행위료').
+
+    채점은 이 비교를 쓰지 않는다 — 잘린 항목명끼리 행이 밀리면 그 아래 금액이 전부 오답이 되기 때문에
+    짝만 맞춰 주고, 값이 같은지는 ``values_same``이 따로 가린다.
+    """
+    if kind not in ("text", "edi") or a in (None, "") or b in (None, ""):
+        return values_same(kind, a, b)
+    short, long = sorted((re.sub(r"[\s\W_]+", "", str(value)) for value in (a, b)), key=len)
+    return len(short) >= 2 and long.startswith(short)
+
+
+def is_total_row(row: dict) -> bool:
+    """항목이 합계·계인 행(AO·rules는 진료비영수증 표에 합계 행을 남기지만 라벨은 빼 둔다)."""
+    try:
+        from backend import rules
+
+        return rules.item(row.get("항목")) == "합계"
+    except (NotImplementedError, ImportError):
+        return False
+
+
 def pair_rows(doc_type: str, table: str, columns: list[str], label_rows: list, pred_rows: list) -> list[tuple[dict, dict]]:
-    """행 식별 열로 먼저 짝짓고, 남은 행끼리 순서대로 짝짓는다. 끝내 짝이 없는 행은 빈 행과 맞물려 누락/과잉이 된다."""
+    """행 식별 열로 먼저 짝짓고, 남은 행끼리 순서대로 짝짓는다. 끝내 짝이 없는 행은 빈 행과 맞물려 누락/과잉이 된다.
+
+    라벨에 합계 행이 없으면 예측의 합계 행도 채점에서 뺀다 — 합계 행을 표에 둘지는 표기 관례 차이일 뿐이다.
+    """
+    if "항목" in columns and not any(is_total_row(row) for row in label_rows):
+        pred_rows = [row for row in pred_rows if not is_total_row(row)]
     keys = [col for col in ROW_KEYS.get(table, ()) if col in columns]
     kinds = {col: field_kind(doc_type, col, table=table) for col in keys}
     taken: set[int] = set()
     matched: list[int | None] = []
-    for lrow in label_rows:
-        hit = None
-        if keys and any(lrow.get(col) not in (None, "") for col in keys):
-            for i, prow in enumerate(pred_rows):
-                if i not in taken and all(values_same(kinds[col], lrow.get(col), prow.get(col)) for col in keys):
-                    hit = i
-                    break
-        if hit is not None:
-            taken.add(hit)
-        matched.append(hit)
+    for match in (values_same, starts_with):  # 값이 같은 행부터 짝짓고, 남은 행은 접두가 같은 행에 붙인다
+        for index, lrow in enumerate(label_rows):
+            if index < len(matched) and matched[index] is not None:
+                continue
+            hit = None
+            if keys and any(lrow.get(col) not in (None, "") for col in keys):
+                for i, prow in enumerate(pred_rows):
+                    if i not in taken and all(match(kinds[col], lrow.get(col), prow.get(col)) for col in keys):
+                        hit = i
+                        break
+            if hit is not None:
+                taken.add(hit)
+            if index < len(matched):
+                matched[index] = hit
+            else:
+                matched.append(hit)
 
     spare = iter([i for i in range(len(pred_rows)) if i not in taken])
     pairs = []

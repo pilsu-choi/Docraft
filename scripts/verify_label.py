@@ -23,6 +23,7 @@ raw 단계에서도 그대로 가져다 쓴다).
     ../../.venv/bin/python scripts/verify_label.py --doc-type 진단서 --doc-type 소견서
     ../../.venv/bin/python scripts/verify_label.py --per-type 4 --force
     ../../.venv/bin/python scripts/verify_label.py --model anthropic/claude-sonnet-4.5
+    ../../.venv/bin/python scripts/verify_label.py --conform-only   # 기존 라벨을 AO 관례로 정합만
 
 동작 확인(이미 만든 라벨은 건너뜀)::
 
@@ -39,6 +40,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from copy import deepcopy
 from pathlib import Path
 
 import httpx
@@ -203,6 +205,39 @@ def _clean_result(schema: dict, result: dict) -> dict:
     return out
 
 
+def conform(doc_type: str, fields: dict) -> dict:
+    """라벨을 AO 응답 관례에 맞춘다 — 주민번호에서 성별·생년월일, 세부내역서 코드 열·급여 칸·종료일자 등.
+
+    관례 자체는 ``backend.rules.derive``가 한 벌로 갖고 있으므로 그대로 부른다(여기서 다시 구현하지 않는다).
+    읽은 값을 고치지는 않고, 문서에서 읽을 수 있는 자리를 AO와 같은 규칙으로 채우기만 한다.
+    """
+    try:
+        from backend import rules
+
+        return rules.derive(doc_type, deepcopy(fields))
+    except (NotImplementedError, ImportError):
+        return fields
+
+
+def conform_all(doc_types: list[str]) -> int:
+    """이미 만들어 둔 라벨에 ``conform``을 적용하고 바뀐 값의 수를 돌려준다."""
+    changed = 0
+    for doc_type in doc_types:
+        for path in sorted((LABELS_ROOT / doc_type).glob("*.json")):
+            label = json.loads(path.read_text(encoding="utf-8"))
+            before = label["fields"]
+            after = conform(doc_type, before)
+            diff = sum(json.dumps(before.get(key), ensure_ascii=False) != json.dumps(value, ensure_ascii=False)
+                       for key, value in after.items())
+            if not diff:
+                continue
+            changed += diff
+            label["fields"] = after
+            path.write_text(json.dumps(label, ensure_ascii=False, indent=2), encoding="utf-8")
+            logger.info("conform: %s/%s -> 필드 %d개 변경", doc_type, path.name, diff)
+    return changed
+
+
 def _evenly_spaced(items: list, n: int) -> list:
     if n <= 0 or not items:
         return []
@@ -261,7 +296,7 @@ def label_one(doc_type: str, image_path: Path, schema: dict, model: str, grade: 
         user_text = f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\n위 스키마의 각 필드 값을 첨부된 문서 이미지에서 그대로 읽어 채워라."
         messages = [{"role": "system", "content": LABEL_SYSTEM}, _user(user_text, images)]
         raw = _provider(messages, timeout=CALL_TIMEOUT)
-        fields = _clean_result(schema, raw)
+        fields = conform(doc_type, _clean_result(schema, raw))
         label = {"doc_type": doc_type, "image": str(image_path.resolve()), "grade": grade, "labeler": model, "fields": fields}
         if ao_path is not None:
             label["ao"] = str(ao_path.resolve())
@@ -279,9 +314,13 @@ def main():
     parser.add_argument("--model", default=None, help="라벨링 모델 id (기본: OpenRouter 후보 목록에서 자동 선택)")
     parser.add_argument("--force", action="store_true", help="이미 있는 라벨도 재생성")
     parser.add_argument("--only-gold", action="store_true", help="gold(AO 예시) 라벨만 만든다")
+    parser.add_argument("--conform-only", action="store_true", help="새로 라벨링하지 않고 기존 라벨에 conform만 적용한다")
     args = parser.parse_args()
 
     doc_types = args.doc_type or DOC_TYPES
+    if args.conform_only:
+        logger.info("conform 완료: 필드 %d개 변경", conform_all(doc_types))
+        return
     model = resolve_model(args.model)
     logger.info("라벨링 모델: %s (추출 모델: %s)", model, ai_settings()["model"])
 

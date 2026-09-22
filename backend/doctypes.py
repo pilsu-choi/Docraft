@@ -13,10 +13,11 @@ AO(Agentic OCR 2.0) 응답의 ``documents[].doc_type`` 값을 그대로 유형 �
 
 kind별 정규형: date=YYYYMMDD, dates=YYYYMMDD를 ", "로 이은 목록, amount=숫자만(금액·일수·등록번호),
 number=소수 허용 수량, idnum=``​``123456-1******, phone=숫자와 하이픈, code=병명코드(대문자),
+edi=EDI·원내 코드(공백 없는 대문자),
 bool=Y/N, enum=정해진 값 중 하나, text=자유 문자열.
 """
 
-KINDS = ("text", "date", "dates", "amount", "number", "idnum", "phone", "code", "bool", "enum")
+KINDS = ("text", "date", "dates", "amount", "number", "idnum", "phone", "code", "edi", "bool", "enum")
 
 # 표 공통 힌트: twin reader가 합계행을 표에서 빼고 합계 필드로 옮기는 동작을 LLM 쪽에도 알린다.
 TABLE_HINT = "개별 항목 행만 담는다. '합계'·'계'·'총계'·'소계' 행과 머리글 행은 넣지 않는다. 값이 없는 열은 null."
@@ -96,9 +97,9 @@ _RECEIPT_ITEM = {  # 진료비영수증 항목내역 열(항목 외에는 모두
 _DETAIL_ITEM = {  # 세부내역서 항목내역 19열
     "항목": ("text", "진료 항목 구분명. 합계·소계 행은 표에 넣지 않는다."),
     "시작일자": ("date", "항목 시작일. YYYYMMDD. " + TABLE_HINT),
-    "종료일자": ("date", "항목 종료일. YYYYMMDD. " + TABLE_HINT),
-    "원내코드": ("text", "원내(병원 자체) 코드. " + TABLE_HINT),
-    "EDI코드": ("text", "EDI 코드. '코드'·'EDI코드' 열. " + TABLE_HINT),
+    "종료일자": ("date", "항목 종료일. 종료일 칸이 따로 없으면 시작일자와 같다. YYYYMMDD. " + TABLE_HINT),
+    "원내코드": ("edi", "원내(병원 자체) 코드. EDI코드와 같은 값이면 EDI코드에만 적고 여기는 null. " + TABLE_HINT),
+    "EDI코드": ("edi", "EDI 코드. '코드'·'EDI코드' 열. " + TABLE_HINT),
     "EDI명칭": ("text", "EDI 명칭. '명칭'·'항목명'·'EDI명칭' 열. [UNK] 표기는 지운다. " + TABLE_HINT),
     "투여량": ("number", "1회 투여량. 소수 가능. " + TABLE_HINT),
     "단가": ("amount", "단가. '금액'·'단가' 열. 숫자만. " + TABLE_HINT),
@@ -106,7 +107,7 @@ _DETAIL_ITEM = {  # 세부내역서 항목내역 19열
     "일수": ("number", "투여(실시) 일수. " + TABLE_HINT),
     "총액": ("amount", "항목 총액(금액). 숫자만. " + TABLE_HINT),
     "급여구분": ("enum", "급여 또는 비급여. '비급'은 비급여로 본다."),
-    "급여": ("amount", "급여 금액. 숫자만. " + TABLE_HINT),
+    "급여": ("amount", "급여 금액. 급여구분이 급여면 총액과 같다. 숫자만. " + TABLE_HINT),
     "본인부담": ("amount", "급여 본인부담금. 숫자만. " + TABLE_HINT),
     "공단부담": ("amount", "급여 공단부담금. 숫자만. " + TABLE_HINT),
     "전액본인부담": ("amount", "급여 전액본인부담금. 숫자만. " + TABLE_HINT),

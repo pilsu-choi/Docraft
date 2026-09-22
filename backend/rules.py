@@ -4,8 +4,12 @@
   비교 가능한 정규형이 없으면 None을 돌려준다.
 - ``apply(doc_type, result, blocks)``: ``engine.extract`` 결과(정규 표현, doctypes 참고)에
   파싱 블록(``parsers.parse``의 blocks)을 근거로 룰을 적용해 새 정규 표현을 돌려준다.
-  값 정규화, 빠진 필드의 라벨 동의어 기반 보충, 파생 필드(성별·생년월일·사고발생일자 등),
-  병명코드 분리, 체크박스 코드값 변환을 포함한다.
+  값 정규화, 값 자리에 들어온 서식 라벨·표 마크업 제거, 빠진 필드의 라벨 동의어 기반 보충,
+  소견 문장에서 치료·검사 내역 행 만들기, 병명코드 분리, 합계행 정리, 묶음 제목 금액 열 비우기,
+  ``derive``의 관례 채우기를 차례로 한다.
+- ``derive(doc_type, fields)``: 읽은 값에서 채울 수 있는 자리를 AO 관례대로 채운다(성별·생년월일,
+  진료비영수증 항목명 정규화, 세부내역서 코드 열·급여 칸·종료일자, 사고발생일자).
+  정답셋 라벨도 같은 관례를 쓰도록 ``scripts/verify_label.conform``이 이 함수를 그대로 쓴다.
 - ``same(kind, a, b)``: 두 값이 정규화 후 같은지(금액의 빈 칸·0, 텍스트의 접두·접미 차이는 같게 본다).
 - ``check(doc_type, ao, docraft, blocks)``: 진료비영수증 항목내역의 이상 징후 목록(금액 겹침·없는 열·
   합계 베끼기·합계 불일치·행 누락). 다른 유형은 빈 목록이다.
@@ -32,7 +36,7 @@ LABELS = {  # 필드 → 라벨 동의어. 블록에서 빠진 값을 찾을 때
     "입원일자": ["입원일", "입원일자", "입원연월일", "입원년월일", "입원기간", "입원치료기간", "입퇴원일"],
     "퇴원일자": ["퇴원일", "퇴원일자", "퇴원연월일", "퇴원년월일", "입퇴원일"],
     "통원일": ["통원일", "통원일자", "실통원일자", "실제내원일자", "외래진료일", "내원일", "통원기간"],
-    "초진일": ["초진일", "초진일자", "초진연월일", "초진년월일", "발병일", "발병연월일", "수상일"],
+    "초진일": ["초진일", "초진일자", "초진연월일", "초진년월일", "최초진료일", "최초내원일"],
     "발급일": ["발급일", "발행일", "발급일자", "발행일자", "발급연월일", "발행연월일", "작성일", "발급일시"],
     "병원명": ["의료기관명칭", "의료기관명", "요양기관명칭", "요양기관명", "병의원명칭", "병원명칭", "병원명", "기관명", "명칭"],
     "병원주소": ["주소", "소재지", "의료기관주소", "병의원주소", "사업장소재지"],
@@ -85,6 +89,9 @@ LABELS = {  # 필드 → 라벨 동의어. 블록에서 빠진 값을 찾을 때
     "비급여총액": ["비급여", "비급여총액", "비급여계", "비급"],
 }
 
+DISTINCT = {"주소": "병원주소", "연락처": "병원연락처"}  # 환자 칸에 병원 값이(그 반대도) 흘러들지 않게 할 짝
+DISTINCT.update({hospital: patient for patient, hospital in DISTINCT.items()})
+
 TOTALS = {  # 표 합계행 → 합계 필드. 합계행은 표에서 빼고 비어 있는 필드만 채운다.
     "세부내역서": {"항목내역": {"본인부담": "급여_본인부담총액", "공단부담": "급여_공단부담총액",
                             "전액본인부담": "급여_전액본인부담총액", "급여": "급여_급여총액",
@@ -96,6 +103,20 @@ KEEP_TOTALS = {"진료비영수증"}  # AO 스키마가 합계 행을 표에 두
 
 _ACCIDENT_DATES = ("진단일",)  # 사고발생일자 후보(스칼라)
 _ACCIDENT_COLUMNS = ("수술일자", "검사일", "치료일", "행위일")  # 사고발생일자 후보(표 열)
+
+NOTES = {  # 표 → (소견 문장을 담은 칸의 라벨, 날짜 열, 이름 열). 전용 표가 없는 서식에서 행을 만든다.
+    "치료내역": (["치료소견", "치료내용", "치료내용및향후치료에대한소견", "향후치료의견", "향후치료계획",
+                "치료및향후치료의견", "향후치료에대한소견", "내용"], "치료일", "치료명"),
+    "검사내역": (["검사소견", "검사결과", "검사내용"], "검사일", "검사명"),
+    "수술내역": (["수술소견", "수술내용"], "수술일자", "수술명"),
+}
+MARKS = {"검사": "검사내역", "수술": "수술내역", "치료": "치료내역"}  # 비고의 ``날짜 (검사)`` 표시 → 표
+SENTENCE = 10  # 소견 문장으로 볼 최소 길이
+
+# 값이 아니라 서식의 라벨 글자가 흘러든 것을 가려낼 낱말. LABELS·doctypes 키에 서식 상용어를 더한다.
+_FORM_WORDS = ("의", "제", "호", "및", "성", "명", "세", "연령", "만", "년", "월", "일", "구분", "번호",
+               "내용", "기타", "원본대조필인", "원본대조필", "상기", "위와같이", "비고",
+               "영수증번호", "일련번호", "연월", "야간", "공휴일", "종류")
 
 # ── 정규식 ──────────────────────────────────────────────────────────────────
 
@@ -113,6 +134,11 @@ _TOTAL_ROW = re.compile(r"^(합계|총계|소계|계|total|합계금액|끝수�
 _TRUE = re.compile(r"^[\[(]?\s*(y|yes|o|v|1|true|예|체크|해당|√|✓|✔|☑|■|●)\s*[\])]?$|[✓✔√☑■●]|체크", re.I)
 _WARD = re.compile(r"^(?=.*\d)[A-Za-z0-9/:\-]+호?$")
 _EMPTY = ("", "[]", "{}", "none", "null", "nan", "-", "n/a")
+_WORD = re.compile(r"[0-9A-Za-z가-힣]")
+_HTML = re.compile(r"</?(?:t[dhr]|table|br|p)\b", re.I)
+_MARKED_DATE = re.compile(r"(\d{4}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{1,2})\s*[(\[]\s*(" + "|".join(MARKS) + r")\s*[)\]]")
+_EDI_CODE = re.compile(r"^([A-Za-z]{0,3})([0-9A-Za-z]{2,})$")
+_EDI_DIGITS = str.maketrans({"O": "0", "I": "1", "L": "1", "S": "5", "B": "8"})
 
 # ── kind별 정규화 ───────────────────────────────────────────────────────────
 
@@ -137,7 +163,8 @@ def _dates_in(text):
 
 
 def _text(text):
-    return re.sub(r"\s+", " ", text).strip() or None
+    text = re.sub(r"\s+", " ", text).strip()
+    return text if _WORD.search(text) else None  # 구두점·기호만 남은 칸은 값이 아니다
 
 
 def _date(text):
@@ -154,7 +181,7 @@ def _amount(text):
 
 
 def _number(text):
-    text = text.replace(",", ".")
+    text = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", text).replace(",", ".")  # 천 단위 콤마는 빼고, 남은 콤마는 소수점
     pair = re.search(r"(\d+(?:\.\d+)?)\s*[xX*×]\s*(\d+(?:\.\d+)?)", text)
     if pair:
         return _trim(float(pair[1]) * float(pair[2]))
@@ -187,6 +214,16 @@ def _code(text):
     return ", ".join(codes) or None
 
 
+def _edi(text):
+    """EDI·원내 코드: 공백·구분기호를 빼고 대문자로, 숫자부의 흔한 오인식(O·I·L·S·B)을 숫자로 돌린다."""
+    text = re.sub(r"[\s.\-_{}()\[\]]+", "", text).upper()
+    match = _EDI_CODE.match(text)
+    if not match:
+        return _text(text)
+    head, tail = match[1], match[2]
+    return head + (tail.translate(_EDI_DIGITS) if set(tail) <= set("0123456789OILSB") else tail)
+
+
 def _bool(text):
     return "Y" if _TRUE.search(text.strip()) else "N"
 
@@ -196,7 +233,7 @@ def _enum_text(text):
 
 
 _NORMALIZERS = {"text": _text, "date": _date, "dates": _dates, "amount": _amount, "number": _number,
-                "idnum": _idnum, "phone": _phone, "code": _code, "bool": _bool, "enum": _enum_text}
+                "idnum": _idnum, "phone": _phone, "code": _code, "edi": _edi, "bool": _bool, "enum": _enum_text}
 
 
 def normalize(kind: str, value) -> str | None:
@@ -213,6 +250,7 @@ def same(kind: str, a, b) -> bool:
 
     표기 차이를 같게 보도록 느슨하게 판정한다: 금액·수량은 빈 칸과 0을 같게 보고(빈 금액 칸은 0이다),
     텍스트는 한쪽이 다른 쪽을 통째로 품고 있으면 같게 본다('(주상병)이상체중감소'와 '이상체중감소').
+    다만 짧은 쪽이 네 글자는 되어야 한다 — '외과'는 '정형외과'와 다른 값이다.
     """
     left, right = normalize(kind, a), normalize(kind, b)
     if kind in ("amount", "number"):
@@ -223,7 +261,7 @@ def same(kind: str, a, b) -> bool:
         return set(left.split(", ")) == set(right.split(", "))
     if kind == "text":
         short, long = sorted((re.sub(r"[\s\W_]+", "", value) for value in (left, right)), key=len)
-        return short == long or (len(short) >= 2 and short in long)
+        return short == long or (len(short) >= 4 and short in long)
     return left == right
 
 
@@ -233,7 +271,8 @@ def same(kind: str, a, b) -> bool:
 def _name(text):
     text = re.sub(r"[^가-힣]", "", _NAME_WORDS.sub(" ", _LICENSE.sub(" ", text)))
     half = len(text) // 2
-    return (text[:half] if half and text[:half] == text[half:] else text) or None
+    text = text[:half] if half and text[:half] == text[half:] else text
+    return text if 2 <= len(text) <= 5 else None  # 사람 이름 길이를 벗어나면 라벨 글자가 섞인 것이다
 
 
 def _hospital(text):
@@ -255,21 +294,57 @@ FIELD_RULES = {  # 필드 → 추가 정제(정규화 뒤에 적용)
 }
 
 
+def _key(text):
+    return re.sub(r"[\s:：()\[\]._-]+", "", str(text))
+
+
+_LABEL_WORDS = frozenset(  # 값 자리에 들어온 서식 라벨을 가려낼 낱말 모음
+    _key(word) for word in (*_FORM_WORDS, *(word for words in LABELS.values() for word in words),
+                            *(key for spec in doctypes.DOC_TYPES.values() for key in
+                              (*spec["fields"], *spec["tables"],
+                               *(column for columns in spec["tables"].values() for column in columns))))
+)
+
+
+def _junk(value) -> bool:
+    """값이 아니라 서식의 라벨 글자나 표 마크업이 흘러든 것인지('성별', '질병군(DRG)번호', '</td><td>')."""
+    rest = _key(value)
+    if _HTML.search(str(value)):
+        return True
+    while rest:
+        word = max((word for word in _LABEL_WORDS if word and rest.startswith(word)), key=len, default=None)
+        if not word:
+            return False
+        rest = rest[len(word):]
+    return True
+
+
 def _enum(key, text):
-    """정규값 목록이 있는 필드는 동의어를 정규값으로 바꾸고, 어디에도 맞지 않으면 버린다."""
+    """정규값 목록이 있는 필드는 동의어를 정규값으로 바꾸고, 어디에도 맞지 않으면 버린다.
+
+    서식에 인쇄된 보기('남 여')처럼 정규값 둘이 똑같은 근거로 걸리면 고르지 않는다. 한쪽 동의어가
+    다른 쪽을 품는 관계('비급여'⊃'급여')는 더 긴 쪽이 이긴다.
+    """
     table = ENUMS.get(key)
     if not table or text is None:
         return text
     lowered = text.lower()
+    hits = {}
     for canonical, words in table.items():
-        if lowered == canonical.lower() or any(word == lowered or (len(word) > 1 and word in lowered) for word in words):
-            return canonical
-    return None
+        found = [word for word in (canonical.lower(), *words)
+                 if word == lowered or (len(word) > 1 and word in lowered)]
+        if found:
+            hits[canonical] = max(map(len, found))
+    best = max(hits.values(), default=0)
+    winners = [canonical for canonical, length in hits.items() if length == best]
+    return winners[0] if len(winners) == 1 else None
 
 
 def _value(doc_type, key, value, table=None):
     kind = doctypes.kind(doc_type, key, table)
     text = normalize(kind, value)
+    if text is not None and kind != "bool" and table is None and _junk(value):
+        return None
     rule = FIELD_RULES.get(key)
     if text is not None and rule:
         text = rule(text)
@@ -279,39 +354,44 @@ def _value(doc_type, key, value, table=None):
 # ── 블록에서 라벨로 값 찾기 ─────────────────────────────────────────────────
 
 
-def _key(text):
-    return re.sub(r"[\s:：()\[\]._-]+", "", str(text))
-
-
 def _matches(cell, labels):
     cell = _key(cell)
     return bool(cell) and any(cell == label or (cell.startswith(label) and len(cell) <= len(label) + 2) for label in labels)
 
 
+def _lines(blocks):
+    """블록의 텍스트 줄 전부(줄 목록과 text 모두)."""
+    for block in blocks:
+        yield from (line["text"] for line in block.get("lines") or [])
+        yield from (block.get("text") or "").split("\n")
+
+
 def _candidates(labels, blocks):
     """라벨 오른쪽 셀(표)과 ``라벨: 값`` 패턴(텍스트)에서 값 후보를 순서대로 낸다."""
     keys = [_key(label) for label in labels]
-    patterns = [re.compile(r"\s*".join(map(re.escape, label)) + r"\s*[:：]?\s*([^\n|]{1,60})") for label in labels]
+    # 라벨이 다른 낱말 꼬리에 걸리지 않게 앞 글자를 막는다('환자성명'의 '성명'은 의사명 라벨이 아니다).
+    patterns = [re.compile(r"(?<![가-힣A-Za-z0-9])" + r"\s*".join(map(re.escape, label))
+                           + r"(?![가-힣])\s*[:：]?\s*([^\n|]{1,60})") for label in labels]
     for block in blocks:
         for row in block.get("rows") or []:
             for index, cell in enumerate(row):
                 if _matches(cell, keys):
                     yield from (other for other in row[index + 1:] if str(other or "").strip())
-        text = block.get("text") or ""
-        for line in [*(line["text"] for line in block.get("lines") or []), *text.split("\n")]:
-            for pattern in patterns:
-                match = pattern.search(line)
-                if match:
-                    yield match[1]
+    for line in _lines(blocks):
+        for pattern in patterns:
+            match = pattern.search(line)
+            if match:
+                yield match[1]
 
 
 def _fill(doc_type, out, blocks):
+    """빠진 스칼라를 라벨 동의어로 찾아 채운다. 짝이 되는 필드가 이미 쓰고 있는 값은 그 필드의 것이다."""
     for key, value in out.items():
         if value is not None or key not in LABELS:
             continue
         for candidate in _candidates(LABELS[key], blocks):
             filled = _value(doc_type, key, candidate)
-            if filled:
+            if filled and filled != out.get(DISTINCT.get(key)):
                 out[key] = filled
                 break
 
@@ -346,11 +426,78 @@ def _totals(doc_type, out):
         out[table] = kept
 
 
-def _derive(doc_type, out):
+def _notes(doc_type, out, blocks):
+    """전용 표가 없는 서식에서 소견 문장·비고의 날짜 표시로 치료·검사·수술 내역 행을 만든다(AO 관례)."""
+    tables = doctypes.spec(doc_type)["tables"]
+    for table, (labels, date_column, name_column) in NOTES.items():
+        if table not in tables or out.get(table):
+            continue
+        for candidate in _candidates(labels, blocks):
+            text = normalize("text", candidate)
+            if text and len(_key(text)) >= SENTENCE and not _junk(text):
+                out[table] = [{date_column: None, name_column: text}]
+                break
+    for line in _lines(blocks):
+        for date, mark in _MARKED_DATE.findall(line):
+            table = MARKS[mark]
+            _, date_column, name_column = NOTES[table]
+            row = {date_column: normalize("date", date), name_column: mark}
+            if table in tables and row not in out.setdefault(table, []):
+                out[table].append(row)
+
+
+def _columns(doc_type, out):
+    """표 열의 AO 관례: 진료비영수증은 항목명을 정규화하고, 세부내역서는 코드를 EDI코드 한 열에 모으고
+    급여/비급여 칸과 종료일자를 급여구분·총액·시작일자에서 채운다."""
+    for row in out.get(ITEM_TABLE) or []:
+        if doc_type == "진료비영수증":
+            row["항목"] = item(row.get("항목"))
+            continue
+        if doc_type != "세부내역서":
+            return
+        code, edi = row.get("원내코드"), row.get("EDI코드")
+        if code and (not edi or code == edi):
+            row["원내코드"], row["EDI코드"] = None, edi or code
+        if not row.get("종료일자") and row.get("시작일자"):
+            row["종료일자"] = row["시작일자"]
+        paid = row.get("급여구분")
+        if paid in ("급여", "비급여") and not row.get(paid) and row.get("총액"):
+            row[paid] = row["총액"]
+
+
+def _group_titles(doc_type, out, blocks):
+    """머리글이 '묶음 제목'이라고 말하는 금액 열은 하위 열의 합일 뿐이므로 비운다(진료비영수증 급여·비급여)."""
+    if doc_type != "진료비영수증":
+        return
+    cells = _headers(blocks)
+    for column, (titles, subs, _) in GROUPED.items():
+        if _grouped(cells, titles, subs) is True:
+            for row in out.get(ITEM_TABLE) or []:
+                row[column] = None
+
+
+def _period(out):
+    """진료기간 칸이 비면 표의 시작·종료일자에서 채운다."""
+    for key in out:
+        if out.get(key) or not isinstance(key, str):
+            continue
+        column = "시작일자" if "진료시작일" in key else "종료일자" if "진료종료일" in key else None
+        dates = sorted(row[column] for row in out.get(ITEM_TABLE) or [] if column and row.get(column))
+        if dates:
+            out[key] = dates[0] if column == "시작일자" else dates[-1]
+
+
+def derive(doc_type: str, out: dict) -> dict:
+    """값을 읽어 채울 수 있는 자리를 AO 관례대로 채운다(성별·생년월일·사고발생일자·표 열 관례).
+
+    ``apply``가 마지막에 부르고, 정답셋 라벨도 같은 관례를 쓰도록 ``scripts/verify_label.conform``이
+    그대로 재사용한다 — 관례 정의를 두 벌 두지 않는다.
+    """
+    _columns(doc_type, out)
     fields = doctypes.spec(doc_type)["fields"]
     idnum = next((out[key] for key, meta in fields.items() if meta["kind"] == "idnum" and out.get(key)), None)
     back = idnum.partition("-")[2][:1] if idnum else ""
-    if back in "123456" and "성별" in fields and not out.get("성별"):
+    if back and back in "123456" and "성별" in fields and not out.get("성별"):
         out["성별"] = "남" if back in "135" else "여"
     if back and "생년월일" in fields and not out.get("생년월일"):
         century = "20" if back in "3478" else "19" if back in "1256" else ""
@@ -363,6 +510,7 @@ def _derive(doc_type, out):
     if "사고발생일자" in fields and not out.get("사고발생일자"):
         start = next((out[key] for key in out if "진료시작일" in key and out.get(key)), None)
         out["사고발생일자"] = start or _earliest(out)
+    return out
 
 
 def _earliest(out):
@@ -559,7 +707,9 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
         rows = [row for row in (result.get(table) or []) if isinstance(row, dict)]
         out[table] = [{column: _value(doc_type, column, row.get(column), table) for column in columns} for row in rows]
     _fill(doc_type, out, blocks or [])
+    _notes(doc_type, out, blocks or [])
     _split_codes(out)
     _totals(doc_type, out)
-    _derive(doc_type, out)
-    return out
+    _group_titles(doc_type, out, blocks or [])
+    _period(out)
+    return derive(doc_type, out)
