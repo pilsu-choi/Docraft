@@ -9,6 +9,8 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [README 아키텍처·처리 흐름 시각화](2026-09-22-readme-architecture.md) - 서비스 관계와 일반 추출·AO 검증 흐름을 Mermaid로 정리하고 현행 스키마·설정을 반영
+
 * [verify 룰 1차 추출 전환 계획](2026-09-22-verify-rule-first-plan.md) - 지연 시간 최소화를 위해 모델 추출을 빼고 파싱 블록 룰 추출 + AO 비교 + Judge 1회로 재구성하는 후속 작업 지시서(현황·실측 시간·부작용·단계·완료 기준)
 * [Agentic OCR 2.0 결과 교차검증·자동 교정 API 구현](2026-09-22-ocr-verify.md) - POST /api/verify 구현 기록: doctypes·rules(twin reader 이식·확장)·verify(Judge)·AO 키/값 누락 대응·진료비영수증 표 오류 검출·교정과 정답셋 평가 결과
 * [Agentic OCR 2.0 결과 교차검증·자동 교정 API 계획](2026-09-22-ocr-verify-plan.md) - Docraft Parse→twin reader 룰→Extract 결과와 AO 응답을 LLM-as-Judge로 비교해 교정 JSON을 돌려주는 API의 작업 지시서

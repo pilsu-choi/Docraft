@@ -1,21 +1,53 @@
 # Docraft
 
-문서를 업로드하고 원하는 스키마로 구조화된 JSON을 만드는 MVP입니다. 현재 범위는 `Upload → Parse → Schema → Extract → Validate/Review → Export/API`입니다.
+Docraft는 문서를 파싱하고 JSON Schema에 맞춰 값을 추출한 뒤, 원문 근거와 검토 결과를 제공하는 웹 앱입니다. 별도의 `POST /api/verify`는 Agentic OCR 2.0(AO)의 의료 문서 결과를 독립 추출 결과와 비교해 교정합니다.
 
-## 시작하기
+## 구조
 
-Python 3.11 이상과 pip가 필요합니다.
+```mermaid
+flowchart TD
+    UI[React 화면] --> API[FastAPI]
+    Client[API 클라이언트] --> API
+    API --> DB[(PostgreSQL)]
+    API --> Files[(업로드 파일)]
+    API --> Queue{작업 실행 방식}
+    Queue -- inline --> Thread[API 프로세스 스레드 풀]
+    Queue -- celery --> Broker[Redis 또는 RabbitMQ]
+    Broker --> Worker[Celery worker]
+    Thread --> Jobs[파싱·추출 작업]
+    Worker --> Jobs
+    Jobs --> DB
+    Jobs --> Files
+    Jobs --> Parser[문서 파서]
+    Jobs --> Engine[추출·검증 엔진]
+    Parser -. 선택 .-> OCR[PaddleOCR-VL<br/>레이아웃·표]
+    Parser -. 선택 .-> Lines[PP-OCRv5<br/>줄 좌표]
+    Engine -. provider 모드 .-> LLM[Vision LLM provider]
+    Parser -. TABLE_REFINE .-> LLM
+    API -. 스키마 생성 .-> Engine
+    API --> Verify[AO 교차검증]
+    Verify --> Parser
+    Verify --> Engine
+    Verify --> Rules[의료 문서 규칙]
+    Verify -. 불일치 판정 .-> LLM
+```
+
+일반 프로젝트의 파싱·추출은 작업 큐에서 비동기로 실행합니다. `verify`는 요청 중 파싱, 추출, 판정을 마친 뒤 응답하며 프로젝트 문서나 작업 큐에 저장하지 않습니다. PostgreSQL은 프로젝트·스키마·상태·결과를, `DOCRAFT_DATA_DIR`은 업로드 원본을 저장합니다.
+
+## 빠른 시작
+
+Python 3.11 이상, Node.js 20 이상, Docker Compose가 필요합니다. 저장소 루트에서 실행합니다.
 
 ```bash
 docker compose up -d
 python3 -m venv .venv
-source .venv/bin/activate       # Windows: .venv\\Scripts\\activate
+source .venv/bin/activate
 pip install -r requirements-dev.txt
 cp .env.example .env
 uvicorn backend.main:app --reload
 ```
 
-프론트엔드는 Node.js 18 이상이 필요합니다. 별도 터미널에서 작업 디렉터리를 연 뒤 실행합니다.
+다른 터미널에서 화면을 실행합니다.
 
 ```bash
 cd frontend
@@ -23,169 +55,112 @@ npm install
 npm run dev
 ```
 
-화면은 `http://localhost:5173`, API 서버는 `http://127.0.0.1:8000`, OpenAPI 문서는 API 서버의 `/docs`에서 확인합니다. `docker compose up -d`는 기본적으로 캐시된 PostgreSQL 16 호환 `pgvector/pgvector:0.8.6-pg16` 이미지를 사용합니다(벡터 확장은 현재 사용하지 않습니다). 다른 이미지는 `POSTGRES_IMAGE`로 지정할 수 있습니다. 테스트는 실제 PostgreSQL의 임시 schema에서 `pytest -q`로 실행하며, 프론트 빌드는 `frontend/`에서 `npm run build`로 실행합니다.
+화면: `http://localhost:5173` · API: `http://127.0.0.1:8000` · API 명세: `http://127.0.0.1:8000/docs`. 기본 DB는 Compose의 PostgreSQL(`127.0.0.1:5433`)입니다. `.env`에서 AI와 OCR 서비스를 설정해야 관련 기능을 사용할 수 있습니다. `AI_MODE=local`은 개발용 휴리스틱 추출이고, provider 사용 시 `AI_BASE_URL`·`AI_API_KEY`·`AI_VLM_MODEL`을 설정합니다.
 
-### 로그
+전체 스택은 `docker compose --profile app up -d --build`로 실행할 수 있습니다(화면 `:3000`). GPU OCR까지 실행하려면 `--profile ocr`를 추가합니다. Docker에서는 nginx가 `/api`를 backend로 전달하며, DB·파일 경로·OCR 주소는 Compose 내부 주소로 설정됩니다. 로컬 서버와 Docker backend의 기본 포트 `8000`은 겹치므로 동시에 띄울 때는 `BACKEND_PORT`를 바꿉니다. [AWS 개발 서버 배포 절차](deploy/aws/README.md)도 제공합니다.
 
-백엔드는 `backend` logger로 업로드, 분석·추출 시작과 종료(소요 시간 포함), 상태 전환을 INFO로 남깁니다. 실패는 traceback과 함께 ERROR로 남기고, AI provider 원본 응답(앞뒤 2000자)과 요청 크기는 DEBUG로 남깁니다. 로컬 실행 시 기본값은 `LOG_LEVEL=DEBUG`이고, 콘솔과 저장소 루트의 `docraft.log`(10MB × 3개 회전, git 제외)에 함께 기록합니다. 파일 위치는 `LOG_FILE`로 바꿀 수 있고, 빈 값으로 두면 파일에 쓰지 않습니다. API key와 DB 비밀번호는 기록하지 않습니다.
+## 문서 추출 흐름
 
-```bash
-tail -f docraft.log
+```mermaid
+flowchart TD
+    Upload[파일 업로드] --> Save[원본 저장·문서 queued]
+    Save --> Parse[비동기 파싱]
+    Parse --> Parsed[텍스트·표·블록·좌표 저장]
+    Parsed --> Schema{JSON Schema 선택}
+    Generate[참조 문서로 스키마 생성] --> Schema
+    Import[스키마 가져오기·직접 편집] --> Schema
+    Schema --> Extract[비동기 LLM 추출]
+    Extract --> Ground[원문 근거 연결]
+    Ground --> Validate[JSON Schema·근거 검증]
+    Validate --> Review{검토 필요?}
+    Review -- 예 --> Edit[값 수정·승인]
+    Review -- 아니오 --> Export[JSON·CSV·XLSX 내보내기]
+    Edit --> Export
 ```
 
-### Docker로 전체 스택 실행
+1. 프로젝트에 PDF, 이미지, DOCX, XLSX, CSV, TXT, Markdown, HTML 문서를 업로드합니다. 파서와 PDF 페이지 범위·표 형식을 선택해 다시 분석할 수 있습니다.
+2. `01 문서 분석`에서 블록별 파싱 결과와 원문 위치를 확인합니다. PaddleOCR-VL을 연결하면 이미지·스캔 PDF와 표를 분석합니다. 선택적인 PP-OCRv5 서비스는 줄 단위 근거 좌표를 더합니다.
+3. `02 스키마 설계`에서 참고 문서로 스키마를 생성하거나 JSON Schema를 가져오고 편집합니다. 스키마는 프로젝트에 버전별로 저장됩니다.
+4. `03 데이터 추출`에서 스키마를 골라 추출합니다. provider 모드에서는 OCR 텍스트와, `AI_VISION=true`인 PDF·이미지의 페이지 이미지를 LLM에 보냅니다. 긴 문서는 페이지 경계를 기준으로 나눠 추출합니다. 낮은 신뢰도나 검증 문제를 검토한 뒤 값 수정·승인·내보내기를 진행합니다. `결과 표`에서는 여러 문서의 값을 비교하고 일괄 추출합니다.
 
-```bash
-docker compose --profile app up -d --build                 # postgres + backend + frontend
-docker compose --profile app --profile ocr up -d --build   # PaddleOCR-VL(GPU) + 줄 좌표 OCR 포함
-docker compose logs -f backend
+일반 추출에는 **프로젝트에 저장한 JSON Schema**를 사용합니다. 스키마의 key·자료형·설명·enum과 원문 블록을 전달하면 LLM이 value를 채워 반환합니다. provider 요청은 JSON 객체 응답(`response_format: json_object`)을 요구합니다. JSON Schema는 추출 지시로 전달하고 반환값은 서버에서 검증하며, provider의 strict schema 응답 모드는 사용하지 않습니다. provider 오류를 로컬 추출 결과로 자동 대체하지 않습니다.
+
+## AO 결과 교차검증
+
+`POST /api/verify`는 단일 페이지 이미지(PNG·JPG·JPEG·TIF·TIFF·WebP)와 AO 응답 JSON을 받습니다. 지원 문서 유형은 진단서·소견서·진료비영수증·세부내역서입니다. 일반 프로젝트 스키마와 달리 이 경로의 필드 키·자료형·설명은 [`backend/doctypes.py`](backend/doctypes.py)에 정의되어 있습니다. [`backend/rules.py`](backend/rules.py)의 라벨 동의어·정규화·파생값·표 검사는 twin reader 규칙을 코드로 이식한 것이며, 실행 중 twin reader 확장을 읽지는 않습니다.
+
+```mermaid
+flowchart TD
+    Input[이미지 + AO JSON] --> Parse[PaddleOCR 파싱]
+    Parse --> LLM[문서 유형 스키마로 LLM 추출]
+    LLM --> Rules[룰 정규화·누락 보충]
+    Rules --> Check[AO 값과 비교·이상 검사]
+    Check --> Fix[확실한 오류 룰 교정]
+    Fix --> Diff{불일치·이상 남음?}
+    Diff -- 예 --> Judge[LLM Judge 1회 판정]
+    Diff -- 아니오 --> Output[AO 형식의 교정 결과]
+    Judge --> Output
 ```
 
-화면은 `http://localhost:3000`, API는 `http://127.0.0.1:8000`입니다. frontend의 nginx가 `/api`를 backend로 넘깁니다. backend는 `.env`를 읽되 `DATABASE_URL`, `DOCRAFT_DATA_DIR=/data`(`./data` bind mount), `PADDLEOCR_BASE_URL=http://paddleocr-vl-api:8080`은 컨테이너용 값으로 덮어씁니다. 로그는 파일 없이 stdout으로만 나갑니다. 공유하는 `./data`가 root 소유가 되지 않도록 backend는 `DOCKER_UID`/`DOCKER_GID`(기본 1000) 사용자로 실행됩니다. 호스트 포트는 `POSTGRES_PORT`, `BACKEND_PORT`, `FRONTEND_PORT`로 바꿀 수 있습니다. 로컬 개발 서버와 포트 8000이 겹치므로 둘 중 하나만 띄우세요.
+Judge에는 남은 불일치와 이상만 전달합니다. 결과는 입력 AO 구조를 유지하며 값별 `ao_value`, `docraft_value`, `source`, `reason`을 붙이고, `verify`에 유형·건수·검사 결과를 담습니다. AO에 없던 필드는 `added: true`로 추가될 수 있습니다. `ao_result`는 JSON **문자열** form 필드입니다.
 
-### AWS 개발 서버 배포
+```bash
+curl -X POST http://127.0.0.1:8000/api/verify \
+  -F 'image=@document.tif' \
+  -F 'ao_result=<ao_response.json' \
+  -F 'doc_type=진료비영수증'
+```
 
-GPU가 더 필요하면 harness-v2 개발 서버(NVIDIA L4)에 같은 compose 정의로 올립니다. `deploy/aws/.env.aws`를 채운 뒤 `deploy/aws/deploy.sh`로 배포하고, `deploy/aws/tunnel.sh --bg`로 `http://localhost:13000`에 접속합니다. 자세한 절차와 harness와 나눠 쓰는 규칙은 [deploy/aws/README.md](deploy/aws/README.md)에 있습니다.
+`DOCRAFT_API_KEY`를 설정한 경우 `-H "X-API-Key: $DOCRAFT_API_KEY"`를 추가합니다. API/UI 형식 AO 응답을 지원합니다. 검증 설계와 평가 기록은 [AO 교차검증 문서](wiki/2026-09-22-ocr-verify.md)를 참고하세요.
 
-### 작업 큐(배치 처리)
+## 주요 API
 
-파싱·추출은 `backend/jobs.py`의 `enqueue()`로 넘어가고, 실행 위치는 `QUEUE_BACKEND`가 정합니다.
+| 기능 | 경로 |
+| --- | --- |
+| 프로젝트 생성·조회 | `POST /api/projects`, `GET /api/projects/{project_id}` |
+| 문서 업로드·조회·재파싱 | `POST /api/projects/{project_id}/documents`, `GET /api/documents/{document_id}`, `POST /api/documents/{document_id}/parse` |
+| 스키마 생성·저장 | `POST /api/projects/{project_id}/schemas/generate`, `POST /api/projects/{project_id}/schemas` |
+| 단건·일괄 추출 | `POST /api/documents/{document_id}/extract`, `POST /api/projects/{project_id}/extract` |
+| 값 수정·승인 | `PATCH /api/documents/{document_id}/review`, `POST /api/documents/{document_id}/approve` |
+| 결과 내보내기 | `GET /api/documents/{document_id}/export`, `GET /api/projects/{project_id}/export` |
+| AO 교차검증 | `POST /api/verify` |
 
-| 변수 | 기본값 | 설명 |
+업로드·재파싱·추출은 `202`로 접수하며, 문서 조회의 상태(`queued`, `parsing`, `parsed`, `extracting`, `validating`, `needs_review`, `completed`, `failed`)에서 진행 상황을 확인합니다. 교차검증은 동기 응답입니다. 정확한 요청·응답은 실행 중인 `/docs`를 따릅니다.
+
+## 설정과 운영
+
+| 변수 | 기본값 | 용도 |
 | --- | --- | --- |
-| `QUEUE_BACKEND` | `inline` | `inline`은 API 프로세스의 스레드 풀에서 실행(추가 의존성 없음), `celery`는 브로커로 보내고 별도 worker가 실행 |
-| `QUEUE_CONCURRENCY` | `2` | inline 스레드 수이자 worker 동시 실행 수 |
-| `JOB_LEASE_SECONDS` | `600` | 실행 중 작업은 이 값의 1/3마다 heartbeat를 남깁니다. 이 시간 동안 heartbeat가 없으면 worker가 죽은 것으로 보고 다른 worker가 이어받습니다. API 기동 시 대기·중단 작업을 다시 큐에 넣습니다 |
-| `QUEUE_NAME` | `docraft` | Celery 큐 이름, 태스크 이름 접두사(`docraft.parse`), redis 키 접두사(`docraft:`) |
-| `CELERY_BROKER_URL` | - | `celery`일 때 필수. 예: `redis://127.0.0.1:6379/0` |
-| `CELERY_RESULT_BACKEND` | - | 선택. 결과는 DB에 저장하므로 비워도 됩니다 |
+| `DATABASE_URL`, `DOCRAFT_DATA_DIR` | `.env.example` 참고 | PostgreSQL 연결·원본 저장 |
+| `DOCRAFT_API_KEY` | 빈 값 | 설정 시 `X-API-Key` 인증 활성화 |
+| `AI_MODE`, `AI_BASE_URL`, `AI_API_KEY`, `AI_VLM_MODEL` | `provider`, 빈 URL·키 | 추출·스키마 생성 provider 설정 |
+| `AI_VISION` | `true` | PDF·이미지의 페이지 이미지를 provider에 첨부 |
+| `PARSE_PROVIDER`, `PADDLEOCR_BASE_URL` | `library`, 빈 URL | 기본 라이브러리 파싱 또는 원격 PaddleOCR |
+| `PADDLEOCR_LINES_URL` | 빈 값 | 선택적인 줄 단위 근거 좌표 |
+| `TABLE_REFINE` | `false` | OCR 표 셀 텍스트를 LLM으로 추가 교정 |
+| `QUEUE_BACKEND`, `QUEUE_CONCURRENCY` | `inline`, `2` | 프로세스 스레드 풀 또는 Celery 작업 큐 |
+| `LOG_LEVEL`, `LOG_FILE` | `DEBUG`, 저장소 `docraft.log` | 로그 수준·파일 위치; 빈 `LOG_FILE`은 파일 기록 중단 |
 
-```bash
-pip install -r requirements-queue.txt            # celery[redis]; 기본 설치에는 포함하지 않습니다
-QUEUE_BACKEND=celery CELERY_BROKER_URL=redis://127.0.0.1:6379/0 uvicorn backend.main:app
-CELERY_BROKER_URL=redis://127.0.0.1:6379/0 python -m backend.worker   # 또는 celery -A backend.worker worker -Q docraft
-QUEUE_BACKEND=celery docker compose --profile app --profile queue up -d --build   # redis + worker 포함
-```
+`.env.example`을 복사해 값을 설정합니다. `.env` 탐색 순서는 `DOCRAFT_ENV_FILE` → 현재 디렉터리 → 저장소 → worktree 원본 저장소이며, 처음 찾은 파일만 읽고 기존 환경변수는 유지합니다. 화면의 `API 키 설정`에는 `DOCRAFT_API_KEY`를 입력하고, 모델 provider의 `AI_API_KEY`는 서버에서만 사용합니다. `PARSE_PROVIDER=library`는 스캔 이미지 OCR을 제공하지 않습니다. 로컬 GPU OCR은 `docker compose --profile ocr up -d` 후 `PARSE_PROVIDER=paddle`, `PADDLEOCR_BASE_URL=http://127.0.0.1:8080`으로 연결합니다. 줄 좌표 서비스는 같은 profile의 `http://127.0.0.1:8081`을 `PADDLEOCR_LINES_URL`에 지정합니다. 표 OCR 셀 교정과 페이지 이미지 첨부는 provider에 문서 이미지를 전송합니다. 관련 구성은 [PaddleOCR 호환성](wiki/2026-09-21-paddleocr-compatibility.md), [줄 좌표](wiki/2026-09-22-ocr-line-grounding.md), [표 교정](wiki/2026-09-22-table-refine.md)에 기록되어 있습니다.
 
-이미 운영 중인 redis/RabbitMQ·Celery 인프라를 공용으로 쓰려면 compose의 `redis`는 띄우지 않고 `.env`에 `CELERY_BROKER_URL`만 지정한 뒤 `docker compose up -d worker`로 worker만 추가합니다. 다른 앱과 섞이지 않도록 큐·태스크·redis 키가 모두 `QUEUE_NAME`으로 분리됩니다. worker는 API와 같은 DB와 업로드 파일(`DOCRAFT_DATA_DIR`)을 볼 수 있어야 합니다. 일괄 추출 진행 상황은 기존 문서 목록의 상태로 확인합니다. 설계는 [wiki/2026-09-22-job-queue.md](wiki/2026-09-22-job-queue.md)를 참고하세요.
+Celery를 쓰려면 `pip install -r requirements-queue.txt` 후 `QUEUE_BACKEND=celery`, `CELERY_BROKER_URL`을 설정하고 `python -m backend.worker`를 실행합니다. Compose에서는 `QUEUE_BACKEND=celery docker compose --profile app --profile queue up -d --build`를 사용할 수 있습니다. worker는 API와 같은 DB·업로드 파일을 볼 수 있어야 합니다. [작업 큐 설계](wiki/2026-09-22-job-queue.md)에 복구·lease 동작이 설명되어 있습니다.
 
-`DOCRAFT_API_KEY`를 설정했다면 화면 왼쪽 아래의 `API 키 설정`에 같은 API 키를 입력합니다. 이 키는 브라우저 세션에 저장되고 원문 조회와 다운로드에도 적용됩니다. provider의 `AI_API_KEY`는 서버 전용이며 UI에 입력하지 않습니다.
-
-## OCR 변환 샘플
-
-`samples/agentic-ocr-2.0.1-results/pdf/`에는 UI에서 바로 업로드해 볼 수 있는 의료 문서 PNG 5개의 검색 가능 PDF가 있습니다. 같은 이미지 원본은 `samples/agentic-ocr-2.0.1-results/images/`에 문서 종류별로 보관합니다. PDF는 macOS Vision이 만든 보이지 않는 텍스트 레이어를 포함하므로 현재 `PARSE_PROVIDER=library` 설정에서도 파싱됩니다. 샘플 바이너리는 개인정보 보호를 위해 Git에서 제외됩니다. 생성 방식과 검증 결과는 [wiki/2026-09-21-fixture-conversion.md](wiki/2026-09-21-fixture-conversion.md)에서 확인할 수 있습니다.
-
-## 화면에서 전체 흐름 실행
-
-1. 홈에서 새 프로젝트를 만들거나 프로젝트 목록에서 기존 프로젝트를 엽니다. 프로젝트 이름은 바꾸거나 삭제할 수 있고, 파일 목록의 `×`로 처리 중이 아닌 문서를 삭제할 수 있습니다.
-2. TXT/Markdown/HTML/PDF/Office/스프레드시트/이미지 파일을 업로드합니다. `01 문서 분석` 탭의 `분석 설정`에서 페이지 범위(PDF, 예: `1-3,5`), 파서(자동·기본 라이브러리·PaddleOCR), 표 형식(Markdown·HTML)을 정해 다시 분석할 수 있습니다.
-   - 분석 결과는 `미리보기 | Markdown | HTML | JSON`으로 봅니다. 미리보기는 블록을 `번호 - 유형`(텍스트·제목·표·그림·여백·수식) 카드로 보여 주고, 카드와 원문 상자가 양방향으로 연결됩니다. 카드를 누르면 원문이 해당 페이지·위치로 이동합니다.
-   - 표의 병합 셀(`rowspan`/`colspan`)은 분석 결과에 보존됩니다. 블록의 `rows`는 병합 셀 값이 덮는 칸마다 반복된 직사각형 격자이고, `spans`(`[행, 열, rowspan, colspan]`)로 미리보기와 HTML 출력에서 셀을 다시 병합합니다.
-   - PaddleOCR로 분석한 표에 괘선이 인쇄돼 있고 줄 OCR(`PADDLEOCR_LINES_URL`)이 켜져 있으면, VLM이 생성한 표 HTML 대신 괘선으로 행·열·병합 셀을 복원합니다(블록에 `structure: "ruled"`). 괘선이 없거나 흐린 표는 VLM 구조를 그대로 씁니다. 방식과 검증 결과는 [wiki/2026-09-22-ruled-table-grid.md](wiki/2026-09-22-ruled-table-grid.md)를 참고하세요.
-3. `02 스키마 설계` 탭에서 파싱이 끝난 참고 문서를 하나 이상 골라 `AI 스키마 생성`을 누르거나(참고 문서의 앞 2페이지 이미지도 함께 전달되어 표의 실제 열 구조대로 필드를 만듭니다), JSON Schema 파일을 불러오거나, 직접 필드를 구성합니다. `JSON Schema 내보내기`로 편집 중인 스키마를 파일로 내려받을 수 있습니다(스키마 이름은 `title`로 저장되어 다시 불러와도 유지됩니다). 필드마다 설명·허용 값(enum)·순서를 편집할 수 있습니다.
-4. `03 데이터 추출` 탭에서 스키마를 골라 추출합니다. `신뢰도 기준` 슬라이더보다 낮은 필드는 주황색으로 표시되고, 필드를 누르면 원문 근거 위치로 스크롤됩니다. 값을 수정·승인한 뒤 JSON·CSV·XLSX로 내려받습니다.
-   - 근거 상자는 값이 적힌 줄 단위입니다. 서버가 값이 들어 있는 표의 행을 찾고, 그 블록에 줄 단위 OCR 좌표(`PADDLEOCR_LINES_URL`)가 있으면 값과 일치하는 줄 상자를, 없으면 블록 상자를 표시합니다. 같은 값이 여러 곳에 적혀 있으면(예: 환자부담 총액·납부할 금액·카드가 모두 `47,300`) 필드의 키나 스키마 `title`이 적힌 라벨 줄과 같은 행의 줄을 고릅니다. 표의 한 행에서 와야 할 값이 다른 행에서만 발견되면 신뢰도 0.5로 낮춰 `review`에 드러냅니다. 원문에 그대로 적히지 않는 불리언 필드는 근거 대상에서 제외합니다.
-   - 추출 요청에는 그 페이지의 원본 이미지(PDF는 렌더링, 이미지 파일은 그 자체)가 OCR 텍스트와 함께 첨부됩니다. 모델이 병합 헤더 같은 표 구조를 문서에서 직접 읽어 열별 합계나 빈칸을 지어내지 않습니다(`AI_VISION`, 아래 설정 참고). 페이지 이미지가 없는 형식(DOCX·XLSX·CSV·TXT·HTML)은 기존대로 텍스트만 보냅니다.
-   - 긴 문서는 페이지 경계를 지켜 여러 호출로 나눠 추출합니다(기본 40000자, `EXTRACT_CHUNK_CHARS`로 조정). 결과는 객체는 필드별, 배열은 호출 순서대로 이어 붙이고 경계에서 겹치는 항목만 제거하며, 스칼라 값은 처음 나온 값을 채택해 하나로 합칩니다.
-5. 상세 화면 상단의 `결과 표`에서는 프로젝트 문서 전체를 스키마 필드 기준 표로 비교·검색·정렬하고, 문서를 골라 `선택 문서 추출`로 한 번에 추출하며, 프로젝트 결과를 CSV·XLSX·JSON으로 내보냅니다. 객체 목록 필드는 CSV·XLSX에서 여러 행으로 펼쳐집니다.
-6. `04 API` 탭에서는 현재 프로젝트·문서·스키마에 맞춘 cURL·Python·JavaScript 예시를 복사할 수 있습니다.
-
-## API 흐름
-
-1. `POST /api/projects`로 프로젝트를 만들고 `PATCH`/`DELETE /api/projects/{project_id}`로 관리합니다.
-2. `POST /api/projects/{project_id}/documents`에 `multipart/form-data`의 `files` 필드로 업로드합니다.
-3. `POST /api/projects/{project_id}/schemas`에 JSON Schema를 등록합니다. `PATCH /api/schemas/{schema_id}`는 새 id/버전을 만들며, 문서가 사용한 버전은 삭제할 수 없습니다.
-4. `POST /api/documents/{document_id}/extract`에 schema id를 전달해 추출합니다. 여러 문서는 `POST /api/projects/{project_id}/extract`에 `{schema_id, document_ids}`(빈 목록은 전체)를 보내며, 응답의 `queued`·`skipped`로 결과를 확인합니다.
-5. 결과의 근거와 검증 상태를 확인한 뒤 correction endpoint로 값을 수정합니다.
-6. `GET /api/documents/{document_id}/export?format=json|csv|xlsx` 또는 `GET /api/projects/{project_id}/export?format=json|csv|xlsx&schema_id=<선택>`으로 내려받습니다.
-7. `POST /api/documents/{document_id}/parse`에 `{pages, provider, table_format}`을 보내 옵션을 바꿔 다시 파싱하고, `DELETE /api/documents/{document_id}`로 문서를 삭제합니다.
-8. `POST /api/verify`에 `multipart/form-data`로 `image`(단일 페이지 이미지)와 `ao_result`(Agentic OCR 2.0 응답 JSON 원문), 선택 `doc_type`을 보내면 Docraft가 같은 문서를 독립 추출해 필드별로 비교하고, 어긋난 값만 LLM-as-Judge로 판정해 교정한 AO JSON(`ao_value`·`docraft_value`·`source`·`reason` 포함)을 돌려줍니다.
-
-정확한 요청/응답 모델은 실행 중인 `/docs`를 기준으로 하며, API 키가 필요한 배포에서는 `X-API-Key` 헤더를 사용합니다.
-
-## Agentic OCR 2.0 결과 교차검증(verify)
-
-`POST /api/verify`는 Agentic OCR 2.0(AO)이 낸 결과를 Docraft가 독립적으로 검증·교정하는 단건 API입니다. 이미지 1장(PNG·JPG·TIF, 단일 페이지)과 AO 응답 JSON(API 형식 `documents[]` 또는 UI 형식 `result`)을 받아 다음 순서로 처리합니다.
-
-1. `backend/doctypes.py`의 문서 유형 정의(진단서·소견서·진료비영수증·세부내역서, 필드 키는 AO `key`와 동일)로 PaddleOCR 파싱과 LLM 추출을 수행합니다.
-2. `backend/rules.py`가 twin reader 플러그인에서 이식한 룰(날짜·금액·주민번호·병명코드 정규화, 라벨 동의어 보충, 성별·생년월일·사고발생일자 파생, 합계행 처리)을 적용하고, 진료비영수증 `항목내역`은 급여/비급여 열 오배정·행 병합·합계식 불일치·항목행 누락을 검사해 확실한 것은 바로 교정합니다.
-3. AO 값과 일치하는 필드는 그대로 확정하고, 어긋나거나 한쪽이 비어 있거나 이상이 검출된 필드만 이미지와 함께 한 번의 LLM-as-Judge 호출로 판정합니다.
-4. 응답은 입력 AO JSON 구조 그대로이며 각 원소의 `value`가 최종값으로 바뀌고 `ao_value`·`docraft_value`·`source`(`agree|ao|docraft|corrected|unknown`)·`reason`이 붙습니다. AO에 없던 필드·표는 `added: true`로 추가되고, `documents[0].verify`에 유형·Docraft 결과·`counts`·`checks`가 담깁니다.
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/verify -H "X-API-Key: $DOCRAFT_API_KEY" \
-  -F image=@document.tif -F ao_result=@ao_response.json;type=application/json -F doc_type=진료비영수증
-```
-
-정답셋 라벨링과 단계별 정확도 평가는 `scripts/verify_label.py`·`scripts/verify_eval.py`로 합니다(라벨은 `data/verify/labels/`, 개인정보가 들어 있어 git 제외). 설계·평가 결과는 [wiki/2026-09-22-ocr-verify.md](wiki/2026-09-22-ocr-verify.md)를 참고하세요.
-
-## 처리 모델과 현재 한계
-
-`AI_MODE=local`이면 외부 AI 키 없이 로컬 heuristic 추출을 사용합니다. 기본값은 `provider`이며 이 모드에서는 provider 설정이 없거나 응답이 잘못된 경우 로컬 결과로 조용히 대체하지 않고 오류를 표시합니다. MVP의 로컬 parser는 agentic AI 추론이나 완전한 OCR을 보장하지 않습니다. Office 문서, 복잡한 표, 손글씨 및 비정형 이미지 품질은 배포 전 별도 provider와 평가가 필요합니다.
-
-문서 상태는 queued/parsing/parsed/extracting/validating/completed/failed 계열로 저장되며 파싱과 추출(단건·일괄)은 작업 큐(`QUEUE_BACKEND`, 아래 참고)로 비동기 실행됩니다. `DOCRAFT_API_KEY`를 설정하면 `X-API-Key` 인증이 활성화됩니다. RBAC, webhook, feedback learning, workflow builder는 후속 범위입니다.
-
-## 설정
-
-`.env.example`의 `DATABASE_URL`, `DOCRAFT_DATA_DIR`, `MAX_UPLOAD_BYTES`, `DOCRAFT_API_KEY`, `CORS_ORIGINS`를 복사해 환경에 맞게 수정합니다. 앱은 `.env`를 자동 로드하며 우선순위는 `DOCRAFT_ENV_FILE` → 현재 작업 디렉터리의 `.env` → 저장소 `.env` → worktree의 원본 checkout `.env`입니다. 처음 발견한 파일 하나만 읽고, 이미 프로세스에 설정된 환경변수는 덮어쓰지 않습니다. 비밀값은 `.env`에만 두고 커밋하지 마세요. 기본 DB는 compose의 PostgreSQL이고 업로드 파일은 `DOCRAFT_DATA_DIR/files/`에 보관됩니다. 기존 SQLite metadata는 원본과 파일을 건드리지 않는 명시적 일회성 도구 `python scripts/migrate_sqlite_to_postgres.py <기존 docraft.db>`로 옮길 수 있습니다.
-
-### OpenRouter provider 설정
-
-OpenRouter의 OpenAI 호환 endpoint를 사용하려면 서버 실행 전에 `.env`에 다음을 설정합니다. 모델은 vision 입력과 구조화된 응답을 지원해야 합니다.
+설정 예시(OpenRouter + 로컬 OCR):
 
 ```dotenv
 AI_MODE=provider
 AI_BASE_URL=https://openrouter.ai/api/v1
-AI_API_KEY=<OpenRouter API key>
+AI_API_KEY=<provider-key>
 AI_VLM_MODEL=qwen/qwen3-vl-32b-instruct
-AI_VISION=true
-TABLE_REFINE=true
-```
-
-`AI_VISION`(기본 `true`)은 추출·스키마 생성 요청에 PDF·이미지 문서의 페이지 이미지를 OCR 텍스트와 함께 보냅니다. 긴 변 2000px 이하 JPEG로 축소해 요청당 최대 4장까지 붙이며, 페이지당 prompt 토큰이 약 2,500 늘어납니다. **문서 페이지 이미지가 외부 provider로 전송되므로**(OCR 텍스트는 이전에도 전송됨) 민감 문서를 외부 API로 보낼 수 없는 환경에서는 `AI_VISION=false`로 끄거나 내부망 모델을 쓰세요. 근거와 효과는 [wiki/2026-09-22-vision-extract.md](wiki/2026-09-22-vision-extract.md)에 있습니다.
-
-`TABLE_REFINE`(기본 `false`)을 켜면 PaddleOCR 표를 파싱할 때 셀 텍스트를 `AI_VLM_MODEL`로 한 번 더 교정합니다(`진 찰 로`→`진찰료`, `670825`→`670925` 등). 표 구조(행·열·병합)는 PaddleOCR-VL 결과를 그대로 두고 셀 번호별 교정만 받습니다. 셀을 비우거나 새로 채우는 교정, 원문과 크게 다른 교정(다른 셀의 텍스트 이동), 직인·사진 같은 이미지 셀은 반영하지 않습니다. 표마다 provider 호출이 한 번 늘고(2~40초) 표 영역 이미지가 provider로 전송됩니다. 8B급 모델은 값을 지우거나 약품명을 지어내므로 32B급 이상을 권장합니다. 근거는 [wiki/2026-09-22-table-refine.md](wiki/2026-09-22-table-refine.md)에 있습니다.
-
-`AI_VLM_MODEL`이 우선하며 기존 `AI_MODEL`도 호환 alias로 지원합니다. OpenRouter quickstart와 OpenAI structured outputs 안내를 함께 참고하세요: [OpenRouter Quickstart](https://openrouter.ai/docs/quickstart), [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
-
-### 원격 PaddleOCR
-
-기본 `PARSE_PROVIDER=library`는 pypdf/docx/openpyxl 등 기존 라이브러리로 텍스트 문서를 처리하며 이미지 OCR은 비활성화합니다. 선택적으로 로컬 모델 설치 없이 PaddleOCR-VL 전체 layout pipeline을 운영하는 별도 on-prem 서버를 연결할 수 있습니다.
-
-```dotenv
-PADDLEOCR_BASE_URL=https://your-paddle-service.example
 PARSE_PROVIDER=paddle
-PADDLEOCR_ACCESS_TOKEN=<optional bearer token>
-PADDLEOCR_MODEL=PaddleOCR-VL-1.6-0.9B
+PADDLEOCR_BASE_URL=http://127.0.0.1:8080
 ```
 
-#### 로컬 GPU에서 Docker로 호스팅
-
-NVIDIA GPU(Compute Capability 8.0 이상, CUDA 12.6 이상을 지원하는 드라이버)와 NVIDIA Container Toolkit이 있으면 공식 PaddleOCR-VL 이미지를 compose `ocr` profile로 띄울 수 있습니다. 첫 실행 때는 이미지(수십 GB)를 받고 VLM을 올리는 데 몇 분이 걸립니다.
+## 개발 확인
 
 ```bash
-docker compose --profile ocr up -d
-curl http://127.0.0.1:8080/health   # paddleocr-vl-api가 healthy가 되면 사용 가능
+pytest -q
+cd frontend && npm run build
 ```
 
-`.env`에는 `PARSE_PROVIDER=paddle`, `PADDLEOCR_BASE_URL=http://127.0.0.1:8080`을 설정합니다. `paddleocr-vlm-server`(vLLM, PaddleOCR-VL-1.6-0.9B)와 `paddleocr-vl-api`(PP-DocLayoutV3 layout + `/layout-parsing`) 두 컨테이너가 같은 GPU를 씁니다. 12GB GPU 기준으로 `deploy/paddleocr/vllm_config.yaml`의 `gpu-memory-utilization`을 0.5로 낮춰 두었습니다. GPU 번호와 호스트 포트는 `PADDLEOCR_GPU`, `PADDLEOCR_PORT`로 바꿀 수 있습니다. 서빙 모델은 `.env`의 `PADDLEOCR_MODEL` 하나로 정해집니다. compose가 같은 `.env`를 읽어 vLLM `--model_name`과 pipeline의 VL 모델명에 넣고, 앱 상태 표시도 이 값을 씁니다. 바꾼 뒤에는 `docker compose --profile ocr up -d --force-recreate`로 다시 띄웁니다. 응답의 영역별 `block_bbox`는 원문 미리보기의 근거 상자로 표시됩니다.
-
-서비스는 `POST /layout-parsing` 계약을 지원해야 합니다. 설정하지 않은 상태에서 이미지 또는 스캔 PDF를 업로드하면 명시적인 설정 오류가 표시됩니다. 자세한 계약과 근거는 [wiki/2026-09-21-paddleocr-compatibility.md](wiki/2026-09-21-paddleocr-compatibility.md)를 참고하세요.
-
-#### 줄 단위 좌표(선택)
-
-layout pipeline은 블록 단위 좌표만 돌려주므로 표 한 장이 블록 하나가 되면 근거 상자가 문서 전체를 덮습니다. `PADDLEOCR_LINES_URL`에 줄 단위 좌표 전용 PP-OCRv5 파이프라인을 지정하면 파서가 같은 파일을 이 서비스에도 보내 줄 상자를 블록에 붙이고, 근거 상자가 값이 실제로 적힌 줄이 됩니다. compose `ocr` profile의 `paddleocr-lines-api`(`deploy/paddleocr/ocr_lines.yaml`, 호스트 포트 `PADDLEOCR_LINES_PORT`, 기본 8081)가 이 역할을 합니다.
-
-```dotenv
-PADDLEOCR_LINES_URL=http://127.0.0.1:8081
-```
-
-비워 두면 기존 동작대로 블록 상자를 씁니다. 이 서비스 호출이 실패해도 파싱은 경고 로그만 남기고 블록 상자로 계속됩니다. 구조·내용은 PaddleOCR-VL이, 좌표는 PP-OCRv5가 맡는 이 구성의 배경과 검증 수치는 [wiki/2026-09-22-ocr-line-grounding.md](wiki/2026-09-22-ocr-line-grounding.md)에 있습니다.
-
-## 프로젝트 문서
-
-구현 요구사항과 검증 근거는 [wiki/2026-09-21-implementation.md](wiki/2026-09-21-implementation.md)에 기록합니다.
-
-검증 결과: 실제 PostgreSQL의 격리된 테스트 schema에서 백엔드 테스트 47개가 통과했고 프론트엔드 빌드도 통과했습니다. 합성 PDF 기반 Chrome E2E는 프로젝트 CRUD, 파싱 후 빈 프롬프트 스키마 생성, 빨간 원문 근거 박스, 패널 접기·펼치기를 검증합니다. 이미지·스캔 OCR은 `ocr` profile의 로컬 PaddleOCR-VL 컨테이너로 합성 영수증 PNG·스캔 PDF 업로드부터 영역 bbox 저장까지 확인했습니다.
-
-원문 미리보기의 너비 맞춤·확대·근거 상자는 오프라인 Chrome 회귀 테스트로 확인할 수 있습니다. `frontend`에서 `npm run dev -- --host 127.0.0.1 --port 5175`를 실행한 뒤 저장소 루트에서 `python tests/ui_preview_layout.py`를 실행하세요. API 응답은 합성 PDF·이미지로 전부 모킹하며 프로젝트 데이터나 AI provider를 사용하지 않습니다. 다른 포트는 `DOCRAFT_UI_URL`로 지정할 수 있습니다.
+테스트는 PostgreSQL의 격리된 schema를 사용합니다. 자세한 구현·검증 기록은 [wiki/index.md](wiki/index.md)에서 찾을 수 있습니다.
