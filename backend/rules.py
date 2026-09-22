@@ -7,8 +7,9 @@
   값 정규화, 값 자리에 들어온 서식 라벨·표 마크업 제거, 빠진 필드의 라벨 동의어 기반 보충,
   소견 문장에서 치료·검사 내역 행 만들기, 병명코드 분리, 합계행 정리, 묶음 제목 금액 열 비우기,
   ``derive``의 관례 채우기를 차례로 한다.
-- ``derive(doc_type, fields)``: 읽은 값에서 채울 수 있는 자리를 AO 관례대로 채운다(성별·생년월일,
-  진료비영수증 항목명 정규화, 세부내역서 코드 열·급여 칸·종료일자, 사고발생일자).
+- ``derive(doc_type, fields, blocks=None)``: 읽은 값에서 채울 수 있는 자리를 AO 관례대로 채운다
+  (성별·생년월일, 진료비영수증 항목명 정규화, 세부내역서 코드 열·비급여 칸·종료일자, 사고발생일자).
+  세부내역서의 급여 칸은 파싱 블록 머리글에 독립된 급여 열이 보일 때만 채운다.
   정답셋 라벨도 같은 관례를 쓰도록 ``scripts/verify_label.conform``이 이 함수를 그대로 쓴다.
 - ``same(kind, a, b)``: 두 값이 정규화 후 같은지(금액의 빈 칸·0, 텍스트의 접두·접미 차이는 같게 본다).
 - ``pair_rows(doc_type, table, left, right)``: 두 표의 행을 키 열(``ROW_KEYS``)로 대응시킨다. 행 순서·개수가
@@ -605,9 +606,20 @@ def _notes(doc_type, out, blocks):
                 out[table].append(row)
 
 
-def _columns(doc_type, out):
+def _columns(doc_type, out, blocks=None):
     """표 열의 AO 관례: 진료비영수증은 항목명을 정규화하고, 세부내역서는 코드를 EDI코드 한 열에 모으고
-    급여/비급여 칸과 종료일자를 급여구분·총액·시작일자에서 채운다."""
+    비급여 칸과 종료일자를 급여구분·총액·시작일자에서 채운다.
+
+    세부내역서의 행별 ``급여``는 서식에 급여 금액 칸이 인쇄됐을 때만 값을 갖는다(라벨 관례 ⑨). 서식에서
+    ``급여``가 본인부담·공단부담·전액본인부담을 묶는 머리글이면 값 칸 자체가 없으므로, 총액에서 파생하지
+    않을 뿐 아니라 모델이 총액−비급여로 채워 온 값도 지운다. 판단은 묶음 제목 판별(``_headers``·
+    ``_grouped``·``GROUPED``)을 그대로 쓰고, 근거가 없으면(파싱 블록이 없거나 머리글에 단서가 없으면)
+    채우지도 지우지도 않는다. ``비급여``는 인쇄된 값 열이 관례라 그대로 파생한다.
+    """
+    cells = _headers(blocks) if doc_type == "세부내역서" else set()
+    titles, subs, _ = GROUPED["급여"]
+    grouped = _grouped(cells, titles, subs)  # True면 급여는 하위 열을 묶는 머리글이라 값 칸이 없다
+    paid_column = "급여" in cells and grouped is False
     for row in out.get(ITEM_TABLE) or []:
         if doc_type == "진료비영수증":
             row["항목"] = item(row.get("항목"))
@@ -619,8 +631,11 @@ def _columns(doc_type, out):
             row["원내코드"], row["EDI코드"] = None, edi or code
         if not row.get("종료일자") and row.get("시작일자"):
             row["종료일자"] = row["시작일자"]
+        if grouped is True:
+            row["급여"] = None
         paid = row.get("급여구분")
-        if paid in ("급여", "비급여") and not row.get(paid) and row.get("총액"):
+        if ((paid == "비급여" or (paid == "급여" and paid_column))
+                and not row.get(paid) and row.get("총액")):
             row[paid] = row["총액"]
 
 
@@ -746,13 +761,13 @@ def _period(out):
             out[key] = dates[0] if column == "시작일자" else dates[-1]
 
 
-def derive(doc_type: str, out: dict) -> dict:
+def derive(doc_type: str, out: dict, blocks: list[dict] | None = None) -> dict:
     """값을 읽어 채울 수 있는 자리를 AO 관례대로 채운다(성별·생년월일·사고발생일자·표 열 관례).
 
     ``apply``가 마지막에 부르고, 정답셋 라벨도 같은 관례를 쓰도록 ``scripts/verify_label.conform``이
     그대로 재사용한다 — 관례 정의를 두 벌 두지 않는다.
     """
-    _columns(doc_type, out)
+    _columns(doc_type, out, blocks)
     fields = doctypes.spec(doc_type)["fields"]
     idnum = next((out[key] for key, meta in fields.items() if meta["kind"] == "idnum" and out.get(key)), None)
     back = idnum.partition("-")[2][:1] if idnum else ""
@@ -799,6 +814,7 @@ ITEM_ALIASES = (  # AO 프롬프트의 항목명 정규화 규칙
     (re.compile(r"^입원료.*1인"), "입원료_1인실"),
     (re.compile(r"^입원료.*[23]"), "입원료_2-3인실"),
     (re.compile(r"^입원료.*4인"), "입원료_4인실이상"),
+    (re.compile(r"^입원료.*상급"), "입원료_상급병실"),
     (re.compile(r"^(투약|투약및조제료).*행위"), "투약및조제료_행위료"),
     (re.compile(r"^(투약|투약및조제료).*약품"), "투약및조제료_약품비"),
     (re.compile(r"^주사.*행위"), "주사료_행위료"),
@@ -809,7 +825,7 @@ ITEM_ALIASES = (  # AO 프롬프트의 항목명 정규화 규칙
 # 건강보험 진료비 계산서·영수증의 표준 항목. 파서 표에서 새 행을 만들 때만 이 목록을 적용한다.
 # 모델이 낸 비정형 항목은 버리지 않고 그대로 보존한다.
 RECEIPT_ITEM_NAMES = frozenset((
-    "진찰료", "입원료", "입원료_1인실", "입원료_2-3인실", "입원료_4인실이상", "식대",
+    "진찰료", "입원료", "입원료_1인실", "입원료_2-3인실", "입원료_4인실이상", "입원료_상급병실", "식대",
     "투약및조제료_행위료", "투약및조제료_약품비", "주사료_행위료", "주사료_약품비",
     "처치및수술", "처치및수술료", "검사료", "영상진단료", "방사선치료료", "마취료", "정신요법료",
     "재활및물리치료료", "치료재료대", "전혈및혈액성분제제료", "CT진단료", "MRI진단료", "PET진단료",
@@ -998,6 +1014,6 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     _totals(doc_type, out)
     _group_titles(doc_type, out, blocks or [])
     _period(out)
-    out = derive(doc_type, out)  # derive는 라벨 정리(verify_label.conform)도 쓰므로 마스터 교정은 그 뒤에 한다
+    out = derive(doc_type, out, blocks or [])  # derive는 라벨 정리(verify_label.conform)도 쓰므로 마스터 교정은 그 뒤에 한다
     _master_names(out)
     return out
