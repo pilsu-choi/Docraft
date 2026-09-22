@@ -197,7 +197,7 @@ def test_run_keeps_the_ao_value_when_the_judge_leaves_a_field_out(monkeypatch):
     document = verify.run("scan.png", AO)["documents"][0]
 
     assert field(document, "병원명")["value"] == "고려대병원"
-    assert field(document, "병원명")["source"] == "ao"
+    assert field(document, "병원명")["source"] == "unknown"  # 판정이 없으면 이미지로 확인된 것이 아니다
     assert field(document, "병원명")["reason"] == verify.NO_VERDICT
 
 
@@ -567,7 +567,9 @@ def test_run_marks_an_element_without_a_name_as_unknown(monkeypatch):
     nameless = document["extracted_fields"][-1]
     assert (nameless["source"], nameless["reason"]) == ("unknown", verify.UNKNOWN)
     assert nameless["value"] == "이름 없는 값"  # 값은 그대로 둔다
-    assert document["verify"]["counts"]["unknown"] == 1
+    elements = [*verify._scalars(document), *verify._tables(document)]
+    unjudged = sum(element.get("reason") == verify.NO_VERDICT for _, element in elements)
+    assert document["verify"]["counts"]["unknown"] == 1 + unjudged  # 이름 없는 원소 + 판정 없는 필드
 
 
 def test_run_adds_defined_fields_and_tables_the_ao_result_left_out(monkeypatch):

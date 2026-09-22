@@ -24,7 +24,7 @@ from .parsers import parse
 logger = logging.getLogger(__name__)
 
 SOURCES = ("agree", "ao", "docraft", "corrected", "unknown")
-NO_VERDICT = "판정 결과가 없어 AO 값을 유지했습니다."
+NO_VERDICT = "판정 결과가 없어 AO 값을 유지했습니다(이미지로 확인되지 않음)."
 UNKNOWN = "key도 display_label도 없어 판정 대상에서 제외했습니다."
 FORMATS = (("extracted_fields", "extracted_tables", "extracted_groups"),  # API 응답 documents[i]
            ("fields", "tables", "groups"))                                # UI 응답 result
@@ -176,7 +176,7 @@ def _row_diff(doc_type, table, ao_rows, docraft_rows):
 
 
 def _decide(doc_type, key, verdict, ao_value, docraft_value, field="value"):
-    """판정 하나를 ``(최종값, source, reason)``으로 편다. 판정이 없으면 AO 값을 유지한다.
+    """판정 하나를 ``(최종값, source, reason)``으로 편다. 판정이 없으면 AO 값을 유지하되 확인된 것이 아니므로 ``unknown``으로 둔다.
 
     Judge가 ``corrected``로 돌려준 값은 ``rules.apply``에 그 key만 담아 통과시켜 정규화한다
     (표는 합계행 정리·합계 필드 보충도 덤으로 얻는다). 정규화한 값이 AO(또는 Docraft) 값과 같으면
@@ -184,7 +184,7 @@ def _decide(doc_type, key, verdict, ao_value, docraft_value, field="value"):
     정규화된 값으로 ``corrected``에 남는다. 표(``field="rows"``)는 ``_row_diff``가 키 열로 행을 대응시켜 본다.
     """
     if verdict is None:
-        return ao_value, "ao", NO_VERDICT
+        return ao_value, "unknown", NO_VERDICT
     source, reason = verdict.get("source"), verdict.get("reason")
     if source == "ao":
         return ao_value, source, reason
@@ -294,7 +294,7 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
         """판정·룰 교정을 합쳐 ``(최종값, source, reason)``. 룰이 고친 값을 Judge가 받아들이면 corrected로 남긴다."""
         chosen = (_decide(doc_type, key, verdicts.get(key), value, docraft.get(key) or ([] if field == "rows" else None), field)
                   if key in disputes else (value, "agree", None))
-        if key in fixes and chosen[1] in ("agree", "ao"):
+        if key in fixes and chosen[1] in ("agree", "ao", "unknown"):
             return chosen[0], "corrected", " / ".join(filter(None, (fixes[key][1], chosen[2])))
         return chosen
 

@@ -81,6 +81,14 @@ curl -X POST http://127.0.0.1:8000/api/verify \
 
 `pytest tests/test_verify.py`: 51 passed. 전체 스위트 `pytest`: 376 passed.
 
+## 판정 없음은 `unknown`
+
+harness-v2 폴백(`feat/0923-docraft-fallback`)은 `source`가 `ao`면 "이미지가 AO 값을 확인했다"로 읽는다. 그런데 Judge가
+key를 빠뜨려 판정이 없을 때도 `source="ao"`(`NO_VERDICT`)로 내보내고 있어 거짓 확인이 됐다. 이제 판정이 없으면 값은 AO
+그대로 두되 `source="unknown"`으로 표시하고 `counts.unknown`에 센다. 룰이 확실히 고친 key(`rules.correct`)는 판정이
+없어도 룰 교정이 근거이므로 기존처럼 `corrected`로 남는다. `unknown`은 이제 "이름이 없어 제외"와 "판정 없음" 두 경우를 함께
+뜻하며, 어느 쪽인지는 `reason`(`UNKNOWN`/`NO_VERDICT`)으로 가린다.
+
 ## 관련 자료
 
 - [Agentic OCR 2.0 결과 교차검증·자동 교정 API 구현](2026-09-22-ocr-verify.md) — `verify.run`의 기본

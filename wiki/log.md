@@ -1,5 +1,8 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-23 (7)
+* **Update**: [verify-hint-paths](2026-09-23-verify-hint-paths.md)에 "판정 없음은 `unknown`" 절을 추가했다. Judge 판정이 없는 key를 `source="ao"` 대신 `unknown`으로 내보내 harness 폴백이 거짓 확인으로 읽지 않게 했고, 룰 교정 key는 `corrected`를 유지한다. 전체 `pytest` 376 passed.
+
 ## 2026-09-23 (6)
 * **Creation**: `POST /api/verify`에 선택 form 필드 `hint_paths`(JSON 배열 문자열, key는 `verify._name()`이 쓰는 필드·표 이름)를 추가한 작업을 [verify-hint-paths](2026-09-23-verify-hint-paths.md)에 기록했다(브랜치 `feat/verify-hint-paths`, 워크트리 `.worktrees/verify-hint-paths`). `backend/verify.py::run`에 `hint_paths=None` 인자를 더해, 주어지면 정의된 key만 남긴 `only` 집합으로 (a) `doctypes.schema()`의 `properties`/`required`를 좁혀(`verify._restrict`) 추출 비용을 줄이고, (b) `_add_missing`의 누락 필드 보충을 그 key만으로 제한하고, (c) 불일치 판정(`disputes`)·Judge 호출을 그 key만으로 제한하고, (d) 최종 값 반영 루프에서 `only` 밖 key는 건너뛰어 AO 입력 값 그대로 남기고 `value`·`source`·`reason`·`ao_value`·`docraft_value`를 붙이지 않는다(판정 여부를 `"source" in field`로 가릴 수 있음). `verify.counts`는 판정된 key만 집계한다. 정의에 없는 key는 무시하고 로거에 경고를 한 번 남긴다. JSON이 아니거나 배열이 아니면(원소가 문자열이 아니어도) 라우트가 422를 낸다. `backend/main.py`의 `verify_result`에 `hint_paths: str | None = Form(None)` 파싱·검증을 추가했다. `tests/test_verify.py`에 `hinted_stub()` 헬퍼와 8개 테스트(disputes·counts 제한, 스키마 축소, 힌트 없음/빈 배열 시 기존 동작, 알 수 없는 key 무시+경고, 라우트 전달·422 2건)를 추가하고 기존 두 라우트 테스트의 `verify.run` monkeypatch 시그니처를 맞췄다. `pytest tests/test_verify.py` 51 passed, 전체 `pytest` 376 passed.
 * **Update**: [index](index.md)에 새 문서를 연결했다. [README](../README.md)의 AO 결과 교차검증 절에 `hint_paths` 설명 한 단락을 추가했다.
