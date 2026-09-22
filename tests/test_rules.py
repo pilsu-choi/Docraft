@@ -545,6 +545,20 @@ def test_detail_paid_column_stays_null_when_it_only_groups_the_share_columns():
                                               {"급여구분": "비급여", "총액": "60000"}]}, blocks)["항목내역"]
 
     assert (out[0]["급여"], out[1]["비급여"]) == (None, "60000")
+
+
+def test_detail_paid_column_is_cleared_when_the_form_has_no_paid_amount_cell():
+    """급여 값 칸이 없는 서식에서 모델이 총액-비급여로 채워 온 급여는 인쇄값이 아니므로 지운다."""
+    blocks = [{"rows": [["항목", "총액", "급여", "급여", "급여", "비급여"],
+                        ["", "", "본인부담", "공단부담", "전액본인부담", ""]]}]
+    rows = [{"급여구분": "급여", "총액": "12380", "급여": "12380", "본인부담": "3714", "공단부담": "8666"}]
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]
+
+    assert out[0]["급여"] is None
+    assert (out[0]["본인부담"], out[0]["공단부담"]) == ("3714", "8666")  # 인쇄된 하위 열은 그대로 둔다
+
+
 def test_treatment_period_comes_from_the_item_table():
     rows = [{"시작일자": "20191021", "종료일자": "20191104"}, {"시작일자": "20191022", "종료일자": "20191022"}]
 

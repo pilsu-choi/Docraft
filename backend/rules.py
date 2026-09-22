@@ -609,15 +609,16 @@ def _columns(doc_type, out, blocks=None):
     """표 열의 AO 관례: 진료비영수증은 항목명을 정규화하고, 세부내역서는 코드를 EDI코드 한 열에 모으고
     비급여 칸과 종료일자를 급여구분·총액·시작일자에서 채운다.
 
-    세부내역서의 행별 ``급여``는 서식에 급여 금액 칸이 인쇄됐을 때만 채운다(라벨 관례 ⑨). 서식에서
-    ``급여``가 본인부담·공단부담·전액본인부담을 묶는 머리글이면 값 칸이 아니므로 총액에서 파생하면
-    없는 값을 지어내는 셈이다. 판단은 묶음 제목 판별(``_headers``·``_grouped``·``GROUPED``)을 그대로
-    쓰고, 파싱 블록이 없어 머리글을 볼 수 없으면 채우지 않는다. ``비급여``는 인쇄된 값 열이 관례라
-    그대로 파생한다.
+    세부내역서의 행별 ``급여``는 서식에 급여 금액 칸이 인쇄됐을 때만 값을 갖는다(라벨 관례 ⑨). 서식에서
+    ``급여``가 본인부담·공단부담·전액본인부담을 묶는 머리글이면 값 칸 자체가 없으므로, 총액에서 파생하지
+    않을 뿐 아니라 모델이 총액−비급여로 채워 온 값도 지운다. 판단은 묶음 제목 판별(``_headers``·
+    ``_grouped``·``GROUPED``)을 그대로 쓰고, 근거가 없으면(파싱 블록이 없거나 머리글에 단서가 없으면)
+    채우지도 지우지도 않는다. ``비급여``는 인쇄된 값 열이 관례라 그대로 파생한다.
     """
     cells = _headers(blocks) if doc_type == "세부내역서" else set()
     titles, subs, _ = GROUPED["급여"]
-    paid_column = "급여" in cells and _grouped(cells, titles, subs) is False
+    grouped = _grouped(cells, titles, subs)  # True면 급여는 하위 열을 묶는 머리글이라 값 칸이 없다
+    paid_column = "급여" in cells and grouped is False
     for row in out.get(ITEM_TABLE) or []:
         if doc_type == "진료비영수증":
             row["항목"] = item(row.get("항목"))
@@ -629,6 +630,8 @@ def _columns(doc_type, out, blocks=None):
             row["원내코드"], row["EDI코드"] = None, edi or code
         if not row.get("종료일자") and row.get("시작일자"):
             row["종료일자"] = row["시작일자"]
+        if grouped is True:
+            row["급여"] = None
         paid = row.get("급여구분")
         if ((paid == "비급여" or (paid == "급여" and paid_column))
                 and not row.get(paid) and row.get("총액")):
