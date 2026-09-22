@@ -89,8 +89,27 @@ LABELS = {  # 필드 → 라벨 동의어. 블록에서 빠진 값을 찾을 때
     "비급여총액": ["비급여", "비급여총액", "비급여계", "비급"],
 }
 
-DISTINCT = {"주소": "병원주소", "연락처": "병원연락처"}  # 환자 칸에 병원 값이(그 반대도) 흘러들지 않게 할 짝
-DISTINCT.update({hospital: patient for patient, hospital in DISTINCT.items()})
+# 같은 라벨('주소'·'성명'·'진료기간')을 여러 칸이 나눠 쓰는 필드 무리. 한 무리에서 한 값은 한 필드만 쓴다.
+EXCLUSIVE = (
+    ("주소", "병원주소", "의료기관정보-주소"),
+    ("연락처", "병원연락처"),
+    ("이름", "환자성명", "환자정보-성명", "의사명", "병원명", "의료기관정보-명칭"),
+    ("진단일", "발급일", "초진일", "입원일자", "퇴원일자", "통원일"),
+    ("환자정보-진료시작일", "환자정보-진료종료일"),
+    ("환자정보(진료시작일)", "환자정보(진료종료일)"),
+)
+SECTIONS = {  # 영역 → 그 영역이 시작됐다는 표시. 의료기관 표시가 환자 표시를 이긴다.
+    "기관": ("의료기관", "요양기관", "병의원", "면허번호", "사업자등록번호", "위와같이", "원본대조필",
+            "상호", "의사", "발행인", "사업장"),
+    "환자": ("환자", "수진자", "주민등록번호", "생년월일", "병록번호"),
+}
+FIELD_SECTION = {  # 환자 칸·의료기관 칸이 같은 라벨을 나눠 쓰는 필드만 영역을 따진다.
+    **dict.fromkeys(("주소", "연락처", "이름", "환자성명", "환자정보-성명"), "환자"),
+    **dict.fromkeys(("병원주소", "병원연락처", "병원명", "의사명",
+                     "의료기관정보-주소", "의료기관정보-명칭"), "기관"),
+}
+EXPLICIT = {("소견서", "진단일"), ("소견서", "초진일")}  # 그 유형에 원래 드문 필드. 제 이름 라벨일 때만 채운다.
+LAST_DATE = ("진료종료일",)  # '진료기간 A ~ B' 한 칸에서 마지막 날짜를 취할 필드
 
 TOTALS = {  # 표 합계행 → 합계 필드. 합계행은 표에서 빼고 비어 있는 필드만 채운다.
     "세부내역서": {"항목내역": {"본인부담": "급여_본인부담총액", "공단부담": "급여_공단부담총액",
@@ -128,7 +147,7 @@ _DATE = re.compile(
 _CODE = re.compile(r"[A-Za-z01][0-9]{2,5}(?:\.[0-9]{1,2})?")
 _CODE_IN_TEXT = re.compile(r"[(\[{]?\s*[A-Za-z]\d{2,5}(?:\.\d{1,2})?\s*[)\]}]?")
 _LICENSE = re.compile(r"\(?\s*(제)?\s*\d{4,6}\s*(호)?\s*\)?")
-_NAME_WORDS = re.compile(r"의사|성명|이름|환자|면허|직인|서명|담당|주치의|전문의")
+_NAME_WORDS = re.compile(r"의사|성명|이름|환자|면허|직인|서명|담당|주치의|전문의|연령|나이")
 _PHONE_IN_TEXT = re.compile(r"\(?\d{2,4}\)?\s*-\s*\d{3,4}\s*-\s*\d{4}\)?")
 _TOTAL_ROW = re.compile(r"^(합계|총계|소계|계|total|합계금액|끝수처리조정금액?)$", re.I)
 _TRUE = re.compile(r"^[\[(]?\s*(y|yes|o|v|1|true|예|체크|해당|√|✓|✔|☑|■|●)\s*[\])]?$|[✓✔√☑■●]|체크", re.I)
@@ -136,6 +155,7 @@ _WARD = re.compile(r"^(?=.*\d)[A-Za-z0-9/:\-]+호?$")
 _EMPTY = ("", "[]", "{}", "none", "null", "nan", "-", "n/a")
 _WORD = re.compile(r"[0-9A-Za-z가-힣]")
 _HTML = re.compile(r"</?(?:t[dhr]|table|br|p)\b", re.I)
+_OPTIONS = re.compile(r"[\[(][^\]\)]{0,3}[\])]|[□☐■▣☑✔√●○]")  # 서식의 선택지 표시([ ] 의사 [ ] 치과의사)
 _MARKED_DATE = re.compile(r"(\d{4}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{1,2})\s*[(\[]\s*(" + "|".join(MARKS) + r")\s*[)\]]")
 _EDI_CODE = re.compile(r"^([A-Za-z]{0,3})([0-9A-Za-z]{2,})$")
 _EDI_DIGITS = str.maketrans({"O": "0", "I": "1", "L": "1", "S": "5", "B": "8"})
@@ -272,6 +292,8 @@ def _name(text):
     text = re.sub(r"[^가-힣]", "", _NAME_WORDS.sub(" ", _LICENSE.sub(" ", text)))
     half = len(text) // 2
     text = text[:half] if half and text[:half] == text[half:] else text
+    if set(text) <= set("남여녀"):  # 성별 보기 칸
+        return None
     return text if 2 <= len(text) <= 5 else None  # 사람 이름 길이를 벗어나면 라벨 글자가 섞인 것이다
 
 
@@ -284,7 +306,8 @@ def _hospital(text):
 def _address(text):
     text = re.split(r"주\s*소\s*[:：]?", text)[-1]
     text = re.sub(r"(전화|연락처|tel|fax)\s*[:：]?.*", "", _PHONE_IN_TEXT.sub(" ", text), flags=re.I | re.S)
-    return _text(_DATE.sub(" ", text))
+    text = _text(_DATE.sub(" ", text))
+    return text if text and re.search(r"[가-힣]{2}", text) else None
 
 
 FIELD_RULES = {  # 필드 → 추가 정제(정규화 뒤에 적용)
@@ -295,7 +318,7 @@ FIELD_RULES = {  # 필드 → 추가 정제(정규화 뒤에 적용)
 
 
 def _key(text):
-    return re.sub(r"[\s:：()\[\]._-]+", "", str(text))
+    return re.sub(r"[\s:：()\[\]._|-]+", "", str(text))
 
 
 _LABEL_WORDS = frozenset(  # 값 자리에 들어온 서식 라벨을 가려낼 낱말 모음
@@ -307,9 +330,9 @@ _LABEL_WORDS = frozenset(  # 값 자리에 들어온 서식 라벨을 가려낼 
 
 
 def _junk(value) -> bool:
-    """값이 아니라 서식의 라벨 글자나 표 마크업이 흘러든 것인지('성별', '질병군(DRG)번호', '</td><td>')."""
-    rest = _key(value)
-    if _HTML.search(str(value)):
+    """값이 아니라 서식의 라벨 글자나 표 마크업이 흘러든 것인지('성별', '4 환자구분', '</td><td>')."""
+    rest = re.sub(r"^\d{1,2}(?=\D)", "", _key(value))  # 서식의 항목 번호('4 환자구분')는 라벨의 일부다
+    if _HTML.search(str(value)) or len(_OPTIONS.findall(str(value))) > 1:
         return True
     while rest:
         word = max((word for word in _LABEL_WORDS if word and rest.startswith(word)), key=len, default=None)
@@ -355,8 +378,19 @@ def _value(doc_type, key, value, table=None):
 
 
 def _matches(cell, labels):
+    """라벨 셀이면 근거 등급(정확히 같으면 0, 라벨로 시작하면 1), 라벨 셀이 아니면 None."""
     cell = _key(cell)
-    return bool(cell) and any(cell == label or (cell.startswith(label) and len(cell) <= len(label) + 2) for label in labels)
+    if not cell:
+        return None
+    if cell in labels:
+        return 0
+    return 1 if any(cell.startswith(label) and len(cell) <= len(label) + 2 for label in labels) else None
+
+
+def _section(text, current):
+    """블록 순서를 따라가며 지금 읽는 칸이 환자 칸인지 의료기관 칸인지 기억한다."""
+    text = _key(text)
+    return next((name for name, marks in SECTIONS.items() if any(mark in text for mark in marks)), current)
 
 
 def _lines(blocks):
@@ -367,31 +401,72 @@ def _lines(blocks):
 
 
 def _candidates(labels, blocks):
-    """라벨 오른쪽 셀(표)과 ``라벨: 값`` 패턴(텍스트)에서 값 후보를 순서대로 낸다."""
+    """라벨 오른쪽 셀(표)과 ``라벨: 값`` 패턴(텍스트)에서 ``(등급, 영역, 값)``을 순서대로 낸다.
+
+    등급이 낮을수록 근거가 확실하다(라벨과 똑같은 표 셀 0, 라벨로 시작하는 표 셀 1, 텍스트 줄 2).
+    영역은 그 후보를 만나기까지 지나온 라벨이 가리키는 환자 칸·의료기관 칸이다.
+    """
     keys = [_key(label) for label in labels]
     # 라벨이 다른 낱말 꼬리에 걸리지 않게 앞 글자를 막는다('환자성명'의 '성명'은 의사명 라벨이 아니다).
     patterns = [re.compile(r"(?<![가-힣A-Za-z0-9])" + r"\s*".join(map(re.escape, label))
                            + r"(?![가-힣])\s*[:：]?\s*([^\n|]{1,60})") for label in labels]
+    section = None
     for block in blocks:
         for row in block.get("rows") or []:
+            section = _section(" ".join(str(cell or "") for cell in row), section)
             for index, cell in enumerate(row):
-                if _matches(cell, keys):
-                    yield from (other for other in row[index + 1:] if str(other or "").strip())
+                rank = _matches(cell, keys)
+                if rank is None:
+                    continue
+                here = _section(str(cell), section)
+                values = [other for other in row[index + 1:] if str(other or "").strip()]
+                for other in values or [None]:  # 값이 없는 라벨 칸도 근거 등급은 알린다
+                    yield rank, here, other
+    section = None
     for line in _lines(blocks):
+        section = _section(line, section)
         for pattern in patterns:
             match = pattern.search(line)
             if match:
-                yield match[1]
+                yield 2, _section(line[:match.start()], section), match[1]
+
+
+def _exclusive(key):
+    """key와 같은 라벨을 나눠 쓰는 다른 필드들."""
+    return tuple(other for group in EXCLUSIVE if key in group for other in group if other != key)
+
+
+def _picked(doc_type, key, candidate):
+    """후보 텍스트에서 필드가 취할 값. 진료기간처럼 범위 한 칸을 쓰는 종료일은 마지막 날짜를 취한다."""
+    if any(mark in key for mark in LAST_DATE):
+        return next(reversed(_dates_in(str(candidate))), None)
+    return _value(doc_type, key, candidate)
+
+
 def _fill(doc_type, out, blocks):
-    """빠진 스칼라를 라벨 동의어로 찾아 채운다. 짝이 되는 필드가 이미 쓰고 있는 값은 그 필드의 것이다."""
-    for key, value in out.items():
-        if value is not None or key not in LABELS:
+    """빠진 스칼라를 라벨 동의어로 찾아 채운다.
+
+    값이 있어야 할 영역(환자 칸·의료기관 칸) 밖의 후보, 같은 무리의 다른 필드가 이미 쓰는 값,
+    근거 등급이 같은데 값이 갈리는 후보는 쓰지 않는다 — 잘못 채우는 쪽이 비워 두는 쪽보다 나쁘다.
+    """
+    for key in list(out):
+        if out.get(key) is not None or key not in LABELS:
             continue
-        for candidate in _candidates(LABELS[key], blocks):
-            filled = _value(doc_type, key, candidate)
-            if filled and filled != out.get(DISTINCT.get(key)):
-                out[key] = filled
-                break
+        labels = [label for label in LABELS[key] if key in label] if (doc_type, key) in EXPLICIT else LABELS[key]
+        want = FIELD_SECTION.get(key)
+        taken = {out.get(other) for other in _exclusive(key)} - {None}
+        seen, found = set(), {}
+        for rank, section, candidate in _candidates(labels, blocks):
+            if want and section != want:
+                continue
+            seen.add(rank)
+            value = _picked(doc_type, key, candidate) if candidate is not None else None
+            if value and value not in taken:
+                found.setdefault(rank, []).append(value)
+        # 서식에 그 필드의 라벨 칸이 있는데 비어 있으면, 더 약한 근거로 채우지 않고 빈 칸으로 둔다.
+        best = min(found, default=None)
+        if best is not None and best <= min(seen) and len(set(found[best])) == 1:
+            out[key] = found[best][0]
 
 
 # ── 표·파생 필드 후처리 ─────────────────────────────────────────────────────
@@ -432,7 +507,7 @@ def _notes(doc_type, out, blocks):
             continue
         if out.get(table):
             continue
-        for candidate in _candidates(labels, blocks):
+        for _, _, candidate in _candidates(labels, blocks):
             text = normalize("text", candidate)
             if text and len(_key(text)) >= SENTENCE and not _junk(text):
                 # 소견 속 날짜는 진료일이 아니라 과거력·예정일인 경우가 많아 표의 날짜 칸에는 넣지 않는다.

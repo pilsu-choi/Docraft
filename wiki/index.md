@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [라벨 보충(_fill) 오탐 억제](2026-09-22-kv-fill-false-positives.md) - 영역 제약·상호배제·근거 등급으로 rules 보충 오탐을 줄인 구현과 전후 수치
 * [key-value 추출 정확도 개선 지점 검토](2026-09-22-kv-accuracy-review.md) - 76건 rules 단계 오류 분포와 코드 검토를 대조한 정확도 개선 우선순위(구현 없음)
 
 * [정확도 평가 확장과 홀드아웃 라벨 매니페스트](2026-09-22-accuracy-eval-expansion.md) - 기존 36건과 콘텐츠 중복 없는 40건 holdout, 독립 라벨 provenance, strict/legacy 평가 집계

@@ -189,6 +189,55 @@ def test_fill_uses_lines_when_text_is_empty():
     assert rules.apply("진단서", {"면허번호": None}, blocks)["면허번호"] == "12345"
 
 
+def test_fill_keeps_hospital_values_out_of_the_patient_columns():
+    """의료기관 칸에서 읽은 주소·연락처는 환자 칸을 채우지 않는다(영역 제약)."""
+    blocks = [block(kind="table", rows=[["환자의 성명", "홍길동"]]),
+              block(text="의료기관 명칭 : 서울정형외과의원\n주소 : 서울특별시 도봉구 창동 650\n전화번호 : 02-123-4567")]
+    out = rules.apply("진단서", {"주소": None, "병원주소": None, "연락처": None, "병원연락처": None}, blocks)
+    assert out["병원주소"] == "서울특별시 도봉구 창동 650"
+    assert out["병원연락처"] == "02-123-4567"
+    assert (out["주소"], out["연락처"]) == (None, None)
+
+
+def test_fill_does_not_reuse_a_value_another_field_already_holds():
+    """이름류는 한 무리 안에서 상호배제한다 — 환자 이름이 의사명으로 되풀이되지 않는다."""
+    blocks = [block(text="위와 같이 진단합니다.\n의사 성명 : 홍길동")]
+    assert rules.apply("진단서", {"이름": "홍길동", "의사명": None}, blocks)["의사명"] is None
+    assert rules.apply("진단서", {"이름": None, "의사명": None}, blocks)["의사명"] == "홍길동"
+
+
+def test_fill_skips_when_candidates_of_the_same_rank_disagree():
+    blocks = [block(kind="table", rows=[["진단연월일", "2023.02.28"], ["진단연월일", "2023.03.05"]])]
+    assert rules.apply("진단서", {"진단일": None}, blocks)["진단일"] is None
+
+
+def test_fill_leaves_an_empty_form_cell_empty():
+    """서식에 그 필드의 라벨 칸이 있는데 비어 있으면 더 약한 근거로 채우지 않는다."""
+    blocks = [block(kind="table", rows=[["환자의 성명", "홍길동"], ["환자의 주소", ""]]),
+              block(text="환자 정보\n주소 : 서울특별시 도봉구 창동 650")]
+    assert rules.apply("진단서", {"주소": None}, blocks)["주소"] is None
+
+
+def test_fill_rejects_form_options_and_label_fragments():
+    options = [block(text="의료기관 명칭 : 서울정형외과의원\n[ ▣ ] 의사 [ ] 치과의사 [ ] 한의사 면허번호 제")]
+    assert rules.apply("진단서", {"의사명": None}, options)["의사명"] is None
+    fragment = [block(kind="table", rows=[["질병군(DRG)번호", "4 환자구분"], ["성명", "홍길동"]])]
+    assert rules.apply("진료비영수증", {"환자정보-질병군(DRG)번호": None}, fragment)["환자정보-질병군(DRG)번호"] is None
+
+
+def test_care_period_takes_the_first_and_the_last_date():
+    blocks = [block(kind="table", rows=[["진료기간", "2019.09.15 ~ 2019.10.15"]])]
+    out = rules.apply("진료비영수증", {"환자정보-진료시작일": None, "환자정보-진료종료일": None}, blocks)
+    assert (out["환자정보-진료시작일"], out["환자정보-진료종료일"]) == ("20190915", "20191015")
+
+
+def test_report_diagnosis_date_needs_its_own_label():
+    """소견서에 원래 드문 진단일은 제 이름 라벨이 있을 때만 채운다."""
+    blocks = [block(text="소견일 : 2020.10.05")]
+    assert rules.apply("소견서", {"진단일": None}, blocks)["진단일"] is None
+    assert rules.apply("진단서", {"진단일": None}, blocks)["진단일"] == "20201005"
+
+
 def test_total_row_moves_to_total_fields():
     rows = [{"항목": "진찰료", "본인부담": "1,000", "공단부담": "2,000"},
             {"항목": "합 계", "본인부담": "5,000", "공단부담": "7,000"}]
