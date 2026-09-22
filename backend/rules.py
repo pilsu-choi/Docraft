@@ -8,7 +8,7 @@
   소견 문장에서 치료·검사 내역 행 만들기, 병명코드 분리, 합계행 정리, 묶음 제목 금액 열 비우기,
   ``derive``의 관례 채우기를 차례로 한다.
 - ``derive(doc_type, fields)``: 읽은 값에서 채울 수 있는 자리를 AO 관례대로 채운다(성별·생년월일,
-  진료비영수증 항목명 정규화, 세부내역서 코드 열·급여 칸·종료일자, 사고발생일자).
+  진료비영수증 항목명 정규화, 세부내역서 코드 열·비급여 칸·종료일자, 사고발생일자).
   정답셋 라벨도 같은 관례를 쓰도록 ``scripts/verify_label.conform``이 이 함수를 그대로 쓴다.
 - ``same(kind, a, b)``: 두 값이 정규화 후 같은지(금액의 빈 칸·0, 텍스트의 접두·접미 차이는 같게 본다).
 - ``pair_rows(doc_type, table, left, right)``: 두 표의 행을 키 열(``ROW_KEYS``)로 대응시킨다. 행 순서·개수가
@@ -607,7 +607,7 @@ def _notes(doc_type, out, blocks):
 
 def _columns(doc_type, out):
     """표 열의 AO 관례: 진료비영수증은 항목명을 정규화하고, 세부내역서는 코드를 EDI코드 한 열에 모으고
-    급여/비급여 칸과 종료일자를 급여구분·총액·시작일자에서 채운다."""
+    비급여 칸과 종료일자를 급여구분·총액·시작일자에서 채운다."""
     for row in out.get(ITEM_TABLE) or []:
         if doc_type == "진료비영수증":
             row["항목"] = item(row.get("항목"))
@@ -619,9 +619,12 @@ def _columns(doc_type, out):
             row["원내코드"], row["EDI코드"] = None, edi or code
         if not row.get("종료일자") and row.get("시작일자"):
             row["종료일자"] = row["시작일자"]
-        paid = row.get("급여구분")
-        if paid in ("급여", "비급여") and not row.get(paid) and row.get("총액"):
-            row[paid] = row["총액"]
+        # 급여 열은 급여 금액 칸이 따로 인쇄된 서식에만 있다(AO gold·silver 급여 행 285건 모두 null).
+        # 총액을 베낀 값은 지우고, 비급여 행만 비급여 칸을 총액으로 채운다.
+        if row.get("급여구분") == "급여" and row.get("급여") and row.get("급여") == row.get("총액"):
+            row["급여"] = None
+        if row.get("급여구분") == "비급여" and not row.get("비급여") and row.get("총액"):
+            row["비급여"] = row["총액"]
 
 
 def _group_titles(doc_type, out, blocks):
