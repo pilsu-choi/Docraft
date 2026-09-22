@@ -1,6 +1,8 @@
 .venv/
 .worktrees/
 data/
+# 워크트리의 data는 메인 저장소로의 심볼릭 링크라 data/ 패턴에 걸리지 않는다
+/data
 __pycache__/
 *.py[cod]
 .pytest_cache/

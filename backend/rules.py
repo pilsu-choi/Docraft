@@ -15,17 +15,20 @@
   달라도 같은 행끼리 맞물리게 하며, ``is_total(row)``은 그중 합계·소계 행을 가린다. 교차검증
   (``verify._row_diff``)과 채점(``scripts/verify_eval``)이 같은 규칙을 쓰도록 여기 한 곳에 둔다.
 - ``check(doc_type, ao, docraft, blocks)``: 진료비영수증 항목내역의 이상 징후 목록(금액 겹침·없는 열·
-  합계 베끼기·합계 불일치·행 누락). 다른 유형은 빈 목록이다.
+  합계 베끼기·합계 불일치·행 누락)에 마스터에 없는 병명코드를 더한 것. 다른 유형은 병명코드 검사만 한다.
 - ``correct(doc_type, checks, ao, docraft)``: 그중 확실한 이상을 Judge 없이 바로 교정한다.
 
 룰은 데이터 테이블(``LABELS``·``FIELD_RULES``·``TOTALS``·doctypes.ENUMS)과 공통 엔진으로 나눠 둔다.
 """
 
+import logging
 import re
 from datetime import date as _calendar_date
 
-from . import doctypes
+from . import doctypes, master
 from .doctypes import ENUMS
+
+logger = logging.getLogger(__name__)
 
 # ── 데이터 테이블 ────────────────────────────────────────────────────────────
 
@@ -90,6 +93,11 @@ LABELS = {  # 필드 → 라벨 동의어. 블록에서 빠진 값을 찾을 때
     "선택진료료총액": ["선택진료료", "선택진료", "지정진료비", "선택진료료총액"],
     "선택진료료외총액": ["선택진료료이외", "선택진료료외", "선택진료외", "선택진료료외총액"],
     "비급여총액": ["비급여", "비급여총액", "비급여계", "비급"],
+}
+
+MASTER_NAMES = {  # 표 → (코드 열, 명칭 열, 마스터 계통). 코드가 마스터에 있을 때만 명칭을 고친다
+    "항목내역": ("EDI코드", "EDI명칭", "edi"),
+    "병명내역": ("병명코드", "병명", "kcd"),
 }
 
 # 같은 라벨('주소'·'성명'·'진료기간')을 여러 칸이 나눠 쓰는 필드 무리. 한 무리에서 한 값은 한 필드만 쓴다.
@@ -537,6 +545,19 @@ def is_total(row) -> bool:
     return bool(_TOTAL_ROW.match(_key((row or {}).get("항목") or "")))
 
 
+def _master_names(out):
+    """코드가 마스터에 있는 행에 한해 명칭의 1글자 OCR 오인식을 되돌린다(``master.correct_name``).
+
+    코드가 없거나 마스터에 없으면 아무것도 하지 않는다 — 명칭에서 코드를 역추론하지 않는다.
+    """
+    for table, (code_column, name_column, system) in MASTER_NAMES.items():
+        for row in out.get(table) or []:
+            fixed = master.correct_name(system, row.get(code_column), row.get(name_column))
+            if fixed:
+                logger.info("master 교정: %s %s %r → %r", table, row.get(code_column), row[name_column], fixed)
+                row[name_column] = fixed
+
+
 def _totals(doc_type, out):
     """합계 행의 금액으로 빈 합계 필드를 채운다.
 
@@ -840,13 +861,28 @@ def _grouped(cells, titles, subs):
     return None if not (title or sub) else sub or not title
 
 
+def _master_checks(fields):
+    """마스터에 없는 병명코드를 Judge 참고용으로 알린다(교정은 하지 않는다).
+
+    EDI코드는 원내코드가 섞여 들어와 미적중이 28%(76건 평가)라 신호가 되지 않으므로 보지 않는다.
+    명칭 불일치도 고시 표기와 인쇄 표기가 달라 오탐이 절반을 넘어 알리지 않는다.
+    """
+    code_column, _name_column, system = MASTER_NAMES["병명내역"]
+    if not master.ready():
+        return []
+    return [_flag("code_unknown", f"병명내역 {index}행 병명코드 '{row[code_column]}'가 KCD 마스터에 없다.",
+                  key="병명내역", row=index, column=code_column)
+            for index, row in enumerate(fields.get("병명내역") or [])
+            if row.get(code_column) and not master.names(system, row[code_column])]
+
+
 def check(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dict]) -> list[dict]:
-    """문서의 이상 징후 ``{"code", "key", "row"?, "message"}`` 목록. 진료비영수증 항목내역 전용."""
+    """문서의 이상 징후 ``{"code", "key", "row"?, "message"}`` 목록. 진료비영수증 항목내역과 병명코드."""
+    found = _master_checks(ao_fields)
     rows = ao_fields.get(ITEM_TABLE) or []
     if doc_type != "진료비영수증" or not rows:
-        return []
+        return found
     mine = docraft_fields.get(ITEM_TABLE) or []
-    found = []
     for side, side_rows in (("AO", rows), ("Docraft", mine)):
         for index, row in enumerate(side_rows):
             for column in ITEM_COLUMNS:
@@ -961,4 +997,6 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     _totals(doc_type, out)
     _group_titles(doc_type, out, blocks or [])
     _period(out)
-    return derive(doc_type, out)
+    out = derive(doc_type, out)  # derive는 라벨 정리(verify_label.conform)도 쓰므로 마스터 교정은 그 뒤에 한다
+    _master_names(out)
+    return out
