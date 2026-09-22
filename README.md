@@ -117,7 +117,7 @@ curl -X POST http://127.0.0.1:8000/api/verify \
 
 `DOCRAFT_API_KEY`를 설정한 경우 `-H "X-API-Key: $DOCRAFT_API_KEY"`를 추가합니다. API/UI 형식 AO 응답을 지원합니다. 검증 설계와 평가 기록은 [AO 교차검증 문서](wiki/2026-09-22-ocr-verify.md)를 참고하세요.
 
-정확도 평가는 기존 36건과 추가 40건을 고정 매니페스트로 구분합니다. 추가 40건은 2026-09-23 이미지 대조 검수를 거쳤으나 사람 검수 gold는 아닙니다. `rules`는 **모델 추출 후 룰 적용** 결과이고, `final`은 실제 AO JSON이 연결된 문서만 평가합니다.
+정확도 평가는 기존 36건과 추가 40건을 고정 매니페스트로 구분합니다. 추가 40건은 2026-09-23 이미지 대조 검수를 거쳤으나 사람 검수 gold는 아닙니다. `rules`는 **모델 추출 후 룰 적용** 결과이고, `final`은 실제 AO JSON이 연결된 문서만 평가합니다. 라벨 관례는 [정답셋 문서](wiki/2026-09-22-ocr-verify-labels.md)에 확정되어 있습니다.
 
 ```bash
 .venv/bin/python scripts/verify_label.py --write-manifest data/verify/accuracy-20260922/manifest.json
