@@ -333,16 +333,43 @@ def build_manifest(path: Path, holdout_per_type: int = 10, doc_types: list[str] 
     return manifest
 
 
+def list_manifest(path: Path, list_path: Path) -> dict:
+    """이미 고른 후보 목록(json 배열: doc_type·image·content_sha256·split·grade)으로 매니페스트를 쓴다.
+    라벨은 모두 매니페스트 옆 ``labels/``에 새로 만들며, gold는 유형의 AO 예시 json을 ``ao``로 잇는다."""
+    path = path.resolve()
+    label_root = path.parent / "labels"
+    items = []
+    for cand in json.loads(Path(list_path).read_text(encoding="utf-8")):
+        image = Path(cand["image"]).resolve()
+        item = {key: cand[key] for key in ("doc_type", "content_sha256", "split", "grade")} | {"image": str(image)}
+        if item["split"] == "existing":
+            item["label"] = str(label_root / item["doc_type"] / f"{image.stem}.json")
+        else:
+            item["status"] = "unreviewed"
+        if item["grade"] == "gold":
+            ao_json, ao_image = ao_example(item["doc_type"])
+            if ao_image.resolve() != image:
+                raise RuntimeError(f"gold 이미지가 AO 예시와 다릅니다: {image}")
+            item["ao"] = str(ao_json.resolve())
+        items.append(item)
+    manifest = {"version": 1, "created_at": date.today().isoformat(), "selection": f"explicit list {Path(list_path).name}",
+                "label_root": str(label_root), "items": items}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return manifest
+
+
 def manifest_jobs(path: Path, split: str | None) -> list[tuple[str, Path, str, Path | None, dict]]:
     data = json.loads(path.read_text(encoding="utf-8"))
     jobs = []
     for item in data["items"]:
-        if item.get("split") == "existing" or split and item.get("split") != split:
+        if split and item.get("split") != split or item.get("split") == "existing" and (
+                "label" not in item or Path(item["label"]).is_file()):
             continue
         image = Path(item["image"])
         if not image.is_file() or content_hash(image) != item["content_sha256"]:
             raise RuntimeError(f"매니페스트 이미지가 없거나 변경됨: {image}")
-        jobs.append((item["doc_type"], image, item.get("grade", "silver"), None,
+        jobs.append((item["doc_type"], image, item.get("grade", "silver"), Path(item["ao"]) if item.get("ao") else None,
                      {"manifest": str(path.resolve()), "split": item.get("split"), "status": item.get("status", "unreviewed")}))
     return jobs
 
@@ -381,13 +408,15 @@ def main():
     parser.add_argument("--only-gold", action="store_true", help="gold(AO 예시) 라벨만 만든다")
     parser.add_argument("--conform-only", action="store_true", help="새로 라벨링하지 않고 기존 라벨에 conform만 적용한다")
     parser.add_argument("--write-manifest", type=Path, help="기존 라벨과 내용이 겹치지 않는 유형별 10건 홀드아웃 매니페스트를 쓴다")
+    parser.add_argument("--from-list", type=Path, help="--write-manifest를 균등 추출 대신 이 후보 목록(json)으로 쓴다")
     parser.add_argument("--manifest", type=Path, help="매니페스트의 새 항목만 라벨링한다")
-    parser.add_argument("--split", default="holdout", help="--manifest에서 라벨링할 split (기본 holdout)")
+    parser.add_argument("--split", default="holdout", help="--manifest에서 라벨링할 split (기본 holdout, all=전부)")
     parser.add_argument("--labels-root", type=Path, help="새 라벨 출력 루트; 매니페스트 label_root 기본값을 쓴다")
     args = parser.parse_args()
 
     if args.write_manifest:
-        manifest = build_manifest(args.write_manifest, doc_types=args.doc_type)
+        manifest = (list_manifest(args.write_manifest, args.from_list) if args.from_list
+                    else build_manifest(args.write_manifest, doc_types=args.doc_type))
         logger.info("매니페스트 저장: %s (기존=%d, holdout=%d)", args.write_manifest,
                     sum(i["split"] == "existing" for i in manifest["items"]), sum(i["split"] == "holdout" for i in manifest["items"]))
         return
@@ -416,7 +445,7 @@ def main():
             for image_path in pick_silver(doc_type, args.per_type):
                 jobs.append((doc_type, image_path, "silver", None, None))
     if args.manifest:
-        jobs = manifest_jobs(args.manifest, args.split)
+        jobs = [job for job in manifest_jobs(args.manifest, None if args.split == "all" else args.split) if job[0] in doc_types]
 
     started = time.monotonic()
     counts = {"ok": 0, "skip": 0, "error": 0}
