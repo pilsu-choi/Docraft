@@ -26,6 +26,11 @@ VISION_NOTE = (
     " The page image is attached: read the table structure (merged cells, column headers) from the image, "
     "and use the OCR text only as a spelling aid."
 )
+TABLE_NOTE = (  # Only for schemas with a table field: rows must be evidence, not recall.
+    " Table rows are evidence, not recall: return exactly the rows the document prints, in printed order, "
+    "and never add a row the document does not print. Keep the item name the document prints even when it is "
+    "not one of the standard names you know."
+)
 
 
 class ProviderConfigurationError(RuntimeError):
@@ -365,6 +370,8 @@ def extract(schema, blocks, source=None):
         "Return only a single JSON object that itself follows the given schema, with no wrapper key "
         "and with the schema's field order kept."
     )
+    if any(prop.get("type") == "array" for prop in schema.get("properties", {}).values()):
+        system += TABLE_NOTE
     results = []
     for index, chunk in enumerate(chunks):
         page_range = _page_range(chunk)

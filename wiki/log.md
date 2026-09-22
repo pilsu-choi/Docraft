@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-22 (22)
+* **Creation**: 추출 프롬프트에 표 근거 제약(`doctypes.GROUND_HINT`·`engine.TABLE_NOTE`)을 더해 인쇄되지 않은 표준 항목 행 생성과 표준 명칭 치환을 억제한 작업을 [extract-grounding](2026-09-22-extract-grounding.md)에 기록했다. 영수증 19건 동일 프롬프트 재실행으로 변동 폭(all rules +43, holdout 0)을 먼저 재고, 1차 지침(글자 그대로 복사·두 번째 코드 열)은 순손실(all rules 7185→7159, strict −160)이라 버렸다. 2차 지침 채택: 76건 rules 7185→7235(87.81→88.43%)·strict 6627→6646·fp 330→249, raw fp 459→244, holdout 세부내역서 정답 1765→1786·fp 105→59. 나빠진 지표는 holdout strict 75.68→73.15%로, −133이 `SA2019040914066` 한 건의 `선택항목_` 접두 때문이다(289 passed).
+* **Update**: [index](index.md)에 새 구현 문서를 연결했다. [README](../README.md)의 교차검증 절에 표 근거 제약 한 줄을 추가했다.
+
 ## 2026-09-22 (21)
 * **Creation**: 세 기능 브랜치(`feat/kv-row-align`·`feat/kv-fill-fp`·`feat/kv-master-correct`)를 main에 차례로 병합하고 76건 rules 단계로 재평가한 결과를 [kv-accuracy-integration](2026-09-22-kv-accuracy-integration.md)에 기록했다(전체 7173→7185·fp 365→330·strict 6617→6627, 기존 36건 94.49→94.78%, holdout 82.60→82.64%·fp 223→212, 개별 델타와 정확히 합산, 285 passed).
 * **Update**: [kv-accuracy-review](2026-09-22-kv-accuracy-review.md)의 세부내역서 단가 fp 원인을 '룰 파생'에서 '모델 추출 단계 오탐(raw에서도 fp 39)'으로 바로잡고, 우선순위 2번에서 '라벨 근거 없는 단가 파생 중단'을 뺐다. '항목명 정규화 시 세분 항목 보존' 가설이 실제로는 `_receipt_table` 행 복원 위치 문제였다는 주석을 붙였다.
