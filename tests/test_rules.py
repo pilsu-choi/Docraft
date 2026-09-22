@@ -717,3 +717,64 @@ def test_empty_and_header_rows_are_dropped_except_on_receipts():
     assert [row["항목"] for row in rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]] == ["검사료"]
     kept = rules.apply("진료비영수증", {"항목내역": receipt(("기타", {}))}, [])["항목내역"]
     assert [row["항목"] for row in kept] == ["기타"]  # 금액이 모두 0인 인쇄 행은 지키고
+
+
+# --- 산술 검사·열 통째 바뀜 ----------------------------------------------------
+
+def detail(*rows):
+    return [{"단가": price, "투여량": dose, "횟수": "1", "일수": days, "총액": total, "급여구분": "급여"}
+            for price, dose, days, total in rows]
+
+
+@pytest.mark.parametrize("rows, expected", [
+    (detail(("1000", None, "3", "3000"), ("13", "0.5", "1", "7")), []),        # 원 단위 반올림은 맞다
+    (detail(("1000", None, "3", "2000")), [0]),
+    (detail(*[("850", None, "1", "1020")] * 3, ("500", None, "1", "500")), []),  # 여러 행이 같은 비율(종별 가산)
+])
+def test_detail_row_arithmetic(rows, expected):
+    found = rules.check("세부내역서", {"항목내역": rows}, {}, [])
+    assert [flag["row"] for flag in found if flag["code"] == "row_arith"] == expected
+
+
+def test_detail_row_split_must_add_up_to_the_total():
+    rows = [{"총액": "1000", "급여구분": "급여", "본인부담": "300", "공단부담": "700"},
+            {"총액": "1000", "급여구분": "급여", "본인부담": "300", "공단부담": "900"}]
+    assert [flag["row"] for flag in rules.check("세부내역서", {"항목내역": rows}, {}, [])] == [1]
+
+
+@pytest.mark.parametrize("fields, expected", [
+    ({"진료비총액": "70470", "환자부담총액": "56800", "공단부담총액": "13670"}, []),
+    ({"진료비총액": "70470", "환자부담총액": "56800", "공단부담총액": "10717"}, ["진료비총액", "환자부담총액", "공단부담총액"]),
+    ({"납부한금액_합계": "56800", "납부한금액_카드": "56800", "납부한금액_현금": "100"}, ["납부한금액_합계", "납부한금액_카드", "납부한금액_현금"]),
+    ({"납부한금액_합계": "56800", "납부한금액_카드": "50000"}, []),  # 구성 필드가 하나뿐이면 따지지 않는다
+])
+def test_printed_totals_must_add_up(fields, expected):
+    assert [flag["key"] for flag in rules.check("진료비영수증", fields, {}, [])] == expected
+
+
+SHIFTED = receipt(("진찰료", {"선택진료료": "20000"}), ("검사료", {"선택진료료": "15000"}),
+                  ("합계", {"선택진료료외": "35000"}))
+
+
+def test_a_whole_column_read_into_its_neighbour_is_swapped_back():
+    out = rules.apply("진료비영수증", {"항목내역": SHIFTED}, [])["항목내역"]
+    assert [(row["선택진료료"], row["선택진료료외"]) for row in out] == [("0", "20000"), ("0", "15000"), ("0", "35000")]
+
+    flags = rules.check("진료비영수증", {"항목내역": SHIFTED}, {"항목내역": out}, [])
+    swap = [flag for flag in flags if flag["code"] == "column_shift" and "row" not in flag]
+    assert [(flag["column"], flag["target"]) for flag in swap] == [("선택진료료", "선택진료료외")]
+    fixed, reason = rules.correct("진료비영수증", flags, {"항목내역": SHIFTED}, {"항목내역": out})["항목내역"]
+    assert [row["선택진료료외"] for row in fixed] == ["20000", "15000", "35000"] and "맞바꿨다" in reason
+
+
+def test_an_ambiguous_column_swap_is_left_alone():
+    rows = receipt(("진찰료", {"선택진료료": "35000"}), ("합계", {"선택진료료외": "35000", "비급여": "35000"}))
+    assert rules._swaps(rows) == []
+
+
+@pytest.mark.parametrize("field, expected", [("13846", "17983"), ("17990", "17990")])
+def test_total_field_follows_a_confirmed_total_row(field, expected):
+    """항목 행 합이 합계 행을 뒷받침하고 진료비총액=환자+공단이 맞을 때만 공단부담총액을 합계 행 값으로 바꾼다."""
+    rows = receipt(("진찰료", {"공단부담금": "17983"}), ("합계", {"공단부담금": "17983"}))
+    read = {"항목내역": rows, "공단부담총액": field, "진료비총액": "25690", "환자부담총액": "7700"}
+    assert rules.apply("진료비영수증", read, [])["공단부담총액"] == expected
