@@ -1,5 +1,8 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-22 (23)
+* **Update**: [extract-grounding](2026-09-22-extract-grounding.md)에 3차 지침 절을 추가했다. `_RECEIPT_ITEM["항목"]`에 "분류 칸(기본항목·선택항목 등)은 항목명에 붙이지 않는다"를 더하고 영수증 19건만 재추출(`grounded-v3`, `eval-20260922-212737.json`). 2차 대비 all strict 6646→6701·fp 249→243, holdout strict 3435→3487·fp 178→167로 회복해 채택했다. 문제 문서 `SA2019040914066`의 strict는 40→136(기준선 173)이며 `선택항목_` 접두 자체는 남아 완전 복구는 아니다. 기준선 대비 누계 all 7185→7238·strict 6627→6701·fp 330→243(289 passed).
+
 ## 2026-09-22 (22)
 * **Creation**: 추출 프롬프트에 표 근거 제약(`doctypes.GROUND_HINT`·`engine.TABLE_NOTE`)을 더해 인쇄되지 않은 표준 항목 행 생성과 표준 명칭 치환을 억제한 작업을 [extract-grounding](2026-09-22-extract-grounding.md)에 기록했다. 영수증 19건 동일 프롬프트 재실행으로 변동 폭(all rules +43, holdout 0)을 먼저 재고, 1차 지침(글자 그대로 복사·두 번째 코드 열)은 순손실(all rules 7185→7159, strict −160)이라 버렸다. 2차 지침 채택: 76건 rules 7185→7235(87.81→88.43%)·strict 6627→6646·fp 330→249, raw fp 459→244, holdout 세부내역서 정답 1765→1786·fp 105→59. 나빠진 지표는 holdout strict 75.68→73.15%로, −133이 `SA2019040914066` 한 건의 `선택항목_` 접두 때문이다(289 passed).
 * **Update**: [index](index.md)에 새 구현 문서를 연결했다. [README](../README.md)의 교차검증 절에 표 근거 제약 한 줄을 추가했다.
