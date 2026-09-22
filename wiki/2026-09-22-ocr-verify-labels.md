@@ -241,3 +241,5 @@ VLM(claude-sonnet-4.5)이 이미지만 보고 만든 라벨은 오류율이 높�
   둘 중 하나로 맞추거나 `rules.same`이 `0 ≡ null`을 흡수해야 진료비영수증 표의 오탐이 더 줄어든다.
 - `ao`/`final` 단계는 gold 4건뿐이라 표본이 작다 — silver에도 AO 응답이 있다면(harness-v2 쪽에 요청 필요)
   표본을 늘릴 수 있다.
+
+홀드아웃 40건의 이미지 대조 검수는 [label-review](2026-09-23-label-review.md)에 기록했다.
