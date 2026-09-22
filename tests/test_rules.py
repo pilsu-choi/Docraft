@@ -503,6 +503,7 @@ def test_edi_code_normalize(raw, expected):
     ("「식대」", "식대"),
     ("처치 및 수술료", "처치및수술료"),
     ("입원료_1인실", "입원료_1인실"),  # 하위 항목 밑줄은 ITEM_ALIASES가 되살리는 canonical 표기다
+    ("입원료 상급병실", "입원료_상급병실"),  # 세로 병합된 '입원료' 상위 칸 + 하위 칸 '상급병실'
     ("선택항목_CT진단료", "선택항목CT진단료"),  # alias에 없는 조합은 밑줄 없이 이어붙는다
 ])
 def test_receipt_item_name_drops_every_non_alphanumeric_character(raw, expected):
@@ -544,8 +545,6 @@ def test_detail_paid_column_stays_null_when_it_only_groups_the_share_columns():
                                               {"급여구분": "비급여", "총액": "60000"}]}, blocks)["항목내역"]
 
     assert (out[0]["급여"], out[1]["비급여"]) == (None, "60000")
-
-
 def test_treatment_period_comes_from_the_item_table():
     rows = [{"시작일자": "20191021", "종료일자": "20191104"}, {"시작일자": "20191022", "종료일자": "20191022"}]
 
