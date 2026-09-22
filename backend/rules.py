@@ -874,17 +874,26 @@ RECEIPT_ITEM_NAMES = frozenset((
     "처치및수술", "처치및수술료", "검사료", "영상진단료", "방사선치료료", "마취료", "정신요법료",
     "재활및물리치료료", "치료재료대", "전혈및혈액성분제제료", "CT진단료", "MRI진단료", "PET진단료",
     "초음파진단료", "보철교정료", "제증명료", "정액수가", "정액수가요양병원", "포괄수가진료비",
-    "65세이상등정액", "시행령별표2제4호의요양급여", "합계",
+    "65세이상등정액", "시행령별표2제4호의요양급여", "기타", "합계",
 ))
+_ITEM_GROUP = re.compile(r"^(필수항목|선택항목|필수|선택|필)")  # 항목명 앞에 붙어 오는 서식의 분류 칸 글자
 LUMP_ITEMS = ("정액수가", "65세이상등정액", "질병군포괄수가")  # 항목 행을 묶어 담는 포괄수가 행
 _MULTI_AMOUNT = re.compile(r"\d[\d,]*\s+\d")
 _RECEIPT_ITEM_TEXT = re.compile(r"^[0-9A-Z가-힣_-]{1,24}$")
 
 
-def item(name) -> str | None:
-    """진료비영수증 항목명을 AO 프롬프트 규칙대로 정규화한다(입원료 1인실 → 입원료_1인실 등)."""
-    text = re.sub(r"[^0-9A-Za-z가-힣]", "", str(name or ""))
+def _alias(text):
     return next((canonical for pattern, canonical in ITEM_ALIASES if pattern.match(text)), text or None)
+
+
+def item(name) -> str | None:
+    """진료비영수증 항목명을 AO 프롬프트 규칙대로 정규화한다(입원료 1인실 → 입원료_1인실 등).
+
+    서식의 분류 칸 글자가 붙어 온 이름('필주사료_약품비'·'선택항목_CT진단료')은 떼어 낸 나머지가 표준 항목일 때만 뗀다.
+    """
+    text = re.sub(r"[^0-9A-Za-z가-힣]", "", str(name or ""))
+    bare = _alias(_ITEM_GROUP.sub("", text, count=1))
+    return bare if bare in RECEIPT_ITEM_NAMES else _alias(text)
 
 
 def _money(value) -> int | None:
