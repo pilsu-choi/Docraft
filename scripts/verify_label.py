@@ -41,6 +41,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from copy import deepcopy
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -285,7 +286,67 @@ def _label_path(doc_type: str, image_path: Path) -> Path:
     return path
 
 
-def label_one(doc_type: str, image_path: Path, schema: dict, model: str, grade: str, force: bool, ao_path: Path | None = None):
+def content_hash(path: Path) -> str:
+    """파일 내용 기준 중복 제거용 해시(파일명 중복은 신뢰하지 않는다)."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_manifest(path: Path, holdout_per_type: int = 10) -> dict:
+    """기존 36건과 내용이 겹치지 않는 고정 홀드아웃을 파일명 순서로 고른다."""
+    path = path.resolve()  # worktree를 정리해도 라벨 산출 경로는 공유 data 루트에 남긴다.
+    items, used = [], set()
+    for label_path in sorted(LABELS_ROOT.glob("*/*.json")):
+        label = json.loads(label_path.read_text(encoding="utf-8"))
+        image = Path(label["image"])
+        if image.is_file():
+            digest = content_hash(image)
+            used.add(digest)
+            items.append({"doc_type": label["doc_type"], "image": str(image), "content_sha256": digest,
+                          "split": "existing", "grade": label["grade"], "label": str(label_path.resolve())})
+    for doc_type in DOC_TYPES:
+        candidates = []
+        seen = set(used)
+        for image in sorted((DATA_ROOT / f"{doc_type}_samples").rglob("*")):
+            if not image.is_file() or image.suffix.lower() not in IMAGE_EXTS:
+                continue
+            digest = content_hash(image)
+            if digest not in seen:
+                candidates.append((image, digest))
+                seen.add(digest)
+        chosen = _evenly_spaced(candidates, holdout_per_type)
+        if len(chosen) != holdout_per_type:
+            raise RuntimeError(f"{doc_type}: 고유 홀드아웃이 부족합니다 ({len(chosen)}/{holdout_per_type})")
+        for image, digest in chosen:
+            used.add(digest)
+            items.append({"doc_type": doc_type, "image": str(image.resolve()), "content_sha256": digest,
+                          "split": "holdout", "grade": "silver", "status": "unreviewed"})
+    manifest = {"version": 1, "created_at": date.today().isoformat(), "selection": "sorted paths + evenly spaced; SHA-256 unique against existing labels",
+                "label_root": str(path.parent / "labels"), "items": items}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return manifest
+
+
+def manifest_jobs(path: Path, split: str | None) -> list[tuple[str, Path, str, Path | None, dict]]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    jobs = []
+    for item in data["items"]:
+        if item.get("split") == "existing" or split and item.get("split") != split:
+            continue
+        image = Path(item["image"])
+        if not image.is_file() or content_hash(image) != item["content_sha256"]:
+            raise RuntimeError(f"매니페스트 이미지가 없거나 변경됨: {image}")
+        jobs.append((item["doc_type"], image, item.get("grade", "silver"), None,
+                     {"manifest": str(path.resolve()), "split": item.get("split"), "status": item.get("status", "unreviewed")}))
+    return jobs
+
+
+def label_one(doc_type: str, image_path: Path, schema: dict, model: str, grade: str, force: bool,
+              ao_path: Path | None = None, provenance: dict | None = None):
     path = _label_path(doc_type, image_path)
     if path.exists() and not force:
         return "skip", path, None
@@ -298,6 +359,8 @@ def label_one(doc_type: str, image_path: Path, schema: dict, model: str, grade: 
         raw = _provider(messages, timeout=CALL_TIMEOUT)
         fields = conform(doc_type, _clean_result(schema, raw))
         label = {"doc_type": doc_type, "image": str(image_path.resolve()), "grade": grade, "labeler": model, "fields": fields}
+        if provenance:
+            label["provenance"] = provenance
         if ao_path is not None:
             label["ao"] = str(ao_path.resolve())
         path.write_text(json.dumps(label, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -315,7 +378,23 @@ def main():
     parser.add_argument("--force", action="store_true", help="이미 있는 라벨도 재생성")
     parser.add_argument("--only-gold", action="store_true", help="gold(AO 예시) 라벨만 만든다")
     parser.add_argument("--conform-only", action="store_true", help="새로 라벨링하지 않고 기존 라벨에 conform만 적용한다")
+    parser.add_argument("--write-manifest", type=Path, help="기존 라벨과 내용이 겹치지 않는 유형별 10건 홀드아웃 매니페스트를 쓴다")
+    parser.add_argument("--manifest", type=Path, help="매니페스트의 새 항목만 라벨링한다")
+    parser.add_argument("--split", default="holdout", help="--manifest에서 라벨링할 split (기본 holdout)")
+    parser.add_argument("--labels-root", type=Path, help="새 라벨 출력 루트; 매니페스트 label_root 기본값을 쓴다")
     args = parser.parse_args()
+
+    if args.write_manifest:
+        manifest = build_manifest(args.write_manifest)
+        logger.info("매니페스트 저장: %s (기존=%d, holdout=%d)", args.write_manifest,
+                    sum(i["split"] == "existing" for i in manifest["items"]), sum(i["split"] == "holdout" for i in manifest["items"]))
+        return
+
+    global LABELS_ROOT
+    if args.labels_root:
+        LABELS_ROOT = args.labels_root
+    elif args.manifest:
+        LABELS_ROOT = Path(json.loads(args.manifest.read_text(encoding="utf-8")).get("label_root", LABELS_ROOT))
 
     doc_types = args.doc_type or DOC_TYPES
     if args.conform_only:
@@ -324,22 +403,25 @@ def main():
     model = resolve_model(args.model)
     logger.info("라벨링 모델: %s (추출 모델: %s)", model, ai_settings()["model"])
 
-    jobs = []  # (doc_type, image_path, grade, ao_path|None)
+    jobs = []  # (doc_type, image_path, grade, ao_path|None, provenance|None)
     schemas = {}
     for doc_type in doc_types:
         schemas[doc_type] = schema_for(doc_type)
-        ao_json, ao_image = ao_example(doc_type)
-        jobs.append((doc_type, ao_image, "gold", ao_json))
-        if not args.only_gold:
+        if not args.manifest:
+            ao_json, ao_image = ao_example(doc_type)
+            jobs.append((doc_type, ao_image, "gold", ao_json, None))
+        if not args.only_gold and not args.manifest:
             for image_path in pick_silver(doc_type, args.per_type):
-                jobs.append((doc_type, image_path, "silver", None))
+                jobs.append((doc_type, image_path, "silver", None, None))
+    if args.manifest:
+        jobs = manifest_jobs(args.manifest, args.split)
 
     started = time.monotonic()
     counts = {"ok": 0, "skip": 0, "error": 0}
     with model_override(model), ThreadPoolExecutor(max_workers=WORKERS) as pool:
         futures = {
-            pool.submit(label_one, doc_type, image_path, schemas[doc_type], model, grade, args.force, ao_path): (doc_type, image_path, grade)
-            for doc_type, image_path, grade, ao_path in jobs
+            pool.submit(label_one, doc_type, image_path, schemas[doc_type], model, grade, args.force, ao_path, provenance): (doc_type, image_path, grade)
+            for doc_type, image_path, grade, ao_path, provenance in jobs
         }
         for future in as_completed(futures):
             doc_type, image_path, grade = futures[future]
