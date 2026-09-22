@@ -4,6 +4,9 @@
 집어낸 이상 징후만 모아 이미지 1장과 함께 한 번의 LLM 호출(`judge`)로 판정한다. 응답은 입력 AO JSON과
 같은 구조에 최종 `value`와 판정 정보(`ao_value`, `docraft_value`, `source`, `reason`)를 덧붙인 것이다.
 
+표는 행 순서·개수가 아니라 키 열(``rules.ROW_KEYS``)로 행을 대응시켜 비교한다 — 대응된 행은 어긋난
+셀만, 대응되지 않은 행만 행 단위로 Judge에 알린다(``_row_diff``).
+
 AO 응답은 API 형식(``documents[].extracted_fields/_tables/_groups``)과 UI 형식
 (``result.fields/tables/groups``)을 모두 받는다. 형식 판별은 ``document``·``_keys``가 한 곳에서 한다.
 """
@@ -34,6 +37,10 @@ JUDGE_PROMPT = (
     "similar-looking field can be confused for it.\n"
     "\"hint\", when present, is a rule-based warning about what looks wrong in that field: use it to decide what to "
     "re-read in the image, but trust the image over the hint.\n"
+    "\"diff\", on a table key, lists only where the two sides disagree after their rows were matched by the table's "
+    "key columns: {{\"row\": <index into the \"ao\" rows>, \"column\": <column>, \"ao\": <value>, \"docraft\": <value>}} for a "
+    "cell, or the same entry without \"column\" and with one side null for a row only one side read. Re-read those "
+    "cells and rows first; still return every row of the table.\n"
     "For every key, read what is actually printed in the image and decide:\n"
     "- \"ao\" or \"docraft\" when that side matches the image;\n"
     "- \"corrected\" with the value you read in the image when neither side matches, including when both are null "
@@ -148,12 +155,23 @@ def judge(image: str, doc_type: str, disputes: dict) -> dict:
     return {key: reply[key] for key in disputes if isinstance(reply.get(key), dict)}
 
 
-def _rows_same(doc_type, table, ao_rows, docraft_rows):
-    """표는 정규화된 행 목록 전체가 같아야 일치로 본다."""
-    ao_rows, docraft_rows = ao_rows or [], docraft_rows or []
-    return len(ao_rows) == len(docraft_rows) and all(
-        all(rules.same(doctypes.kind(doc_type, column, table), a.get(column), b.get(column)) for column in {*a, *b})
-        for a, b in zip(ao_rows, docraft_rows))
+def _row_diff(doc_type, table, ao_rows, docraft_rows):
+    """두 표를 키 열(``rules.ROW_KEYS``)로 행 대응시켜 어긋난 곳만 낸다. 빈 목록이면 두 표는 같다.
+
+    대응된 행은 셀 단위로 비교해 다른 셀만 ``{"row", "column", "ao", "docraft"}``로 남기고, 대응되지
+    않은 행(누락·과잉)만 없는 쪽이 null인 행 단위 항목으로 남긴다 — 한 행이 어긋나도 표 전체를
+    Judge에 다시 쓰게 하지 않는다.
+    """
+    diff = []
+    pairs = rules.pair_rows(doc_type, table, ao_rows or [], docraft_rows or [])
+    for index, (mine, theirs) in enumerate(pairs):
+        if mine is None or theirs is None:
+            diff.append({"row": index, "ao": mine, "docraft": theirs})
+            continue
+        diff += [{"row": index, "column": column, "ao": mine.get(column), "docraft": theirs.get(column)}
+                 for column in dict.fromkeys([*mine, *theirs])
+                 if not rules.same(doctypes.kind(doc_type, column, table), mine.get(column), theirs.get(column))]
+    return diff
 
 
 def _decide(doc_type, key, verdict, ao_value, docraft_value, field="value"):
@@ -162,7 +180,7 @@ def _decide(doc_type, key, verdict, ao_value, docraft_value, field="value"):
     Judge가 ``corrected``로 돌려준 값은 ``rules.apply``에 그 key만 담아 통과시켜 정규화한다
     (표는 합계행 정리·합계 필드 보충도 덤으로 얻는다). 정규화한 값이 AO(또는 Docraft) 값과 같으면
     표기 차이일 뿐이므로 교정으로 세지 않고 해당 쪽 원본 값으로 되돌린다. 정말 둘 다 다를 때만
-    정규화된 값으로 ``corrected``에 남는다. 표(``field="rows"``)는 행 목록 전체가 같아야 같다고 본다.
+    정규화된 값으로 ``corrected``에 남는다. 표(``field="rows"``)는 ``_row_diff``가 키 열로 행을 대응시켜 본다.
     """
     if verdict is None:
         return ao_value, "ao", NO_VERDICT
@@ -175,9 +193,9 @@ def _decide(doc_type, key, verdict, ao_value, docraft_value, field="value"):
     if field == "rows":
         rows = [row for row in value or [] if isinstance(row, dict)]
         normalized = rules.apply(doc_type, {key: rows}, [])[key]
-        if _rows_same(doc_type, key, normalized, ao_value):
+        if not _row_diff(doc_type, key, normalized, ao_value):
             return ao_value, "ao", reason
-        if _rows_same(doc_type, key, normalized, docraft_value):
+        if not _row_diff(doc_type, key, normalized, docraft_value):
             return docraft_value, "docraft", reason
         return normalized, "corrected", reason
     normalized = rules.apply(doc_type, {key: value}, [])[key]
@@ -241,10 +259,10 @@ def run(image: str, ao: dict, doc_type: str | None = None) -> dict:
     disputes = {}
     for key, value in ao_flat.items():
         mine, rows = docraft.get(key), isinstance(value, list)
-        agrees = (_rows_same(doc_type, key, value, mine) if rows
-                  else rules.same(doctypes.kind(doc_type, key), value, mine))
-        if not agrees or key in hints:
+        diff = _row_diff(doc_type, key, value, mine) if rows else None
+        if diff or (not rows and not rules.same(doctypes.kind(doc_type, key), value, mine)) or key in hints:
             disputes[key] = {"ao": value, "docraft": (mine or []) if rows else mine,
+                             **({"diff": diff} if diff else {}),
                              **({"hint": " ".join(hints[key])} if key in hints else {})}
     verdicts = judge(image, doc_type, disputes) if disputes else {}
 

@@ -550,3 +550,33 @@ def test_verify_route_rejects_a_payload_with_neither_documents_nor_result(tmp_pa
     response = post(_image(tmp_path), ao_result='{"result": 3}')
 
     assert response.status_code == 422 and "documents" in response.json()["detail"]
+
+
+# ── 표 행 대응 ──────────────────────────────────────────────────────────────
+
+def _detail(code, start, quantity):
+    return {"항목": "식대", "EDI코드": code, "시작일자": start, "횟수": quantity}
+
+
+def test_row_diff_ignores_row_order():
+    """행 순서만 다른 표는 어긋난 곳이 없다 — 표 전체를 Judge에 다시 쓰게 하지 않는다."""
+    rows = [_detail("A100", "20210101", "1"), _detail("A200", "20210102", "2")]
+
+    assert verify._row_diff("세부내역서", "항목내역", rows, rows[::-1]) == []
+
+
+def test_row_diff_reports_only_the_differing_cell_of_a_matched_row():
+    ao = [_detail("A100", "20210101", "1"), _detail("A200", "20210102", "2")]
+    mine = [_detail("A100", "20210101", "1"), _detail("A200", "20210102", "9")]
+
+    assert verify._row_diff("세부내역서", "항목내역", ao, mine) == [
+        {"row": 1, "column": "횟수", "ao": "2", "docraft": "9"}]
+
+
+def test_row_diff_reports_a_row_only_one_side_read_as_a_whole_row():
+    ao = [_detail("A100", "20210101", "1"), _detail("A200", "20210102", "2")]
+    mine = [_detail("A100", "20210101", "1")]
+
+    diff = verify._row_diff("세부내역서", "항목내역", ao, mine)
+
+    assert diff == [{"row": 1, "ao": ao[1], "docraft": None}]

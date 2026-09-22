@@ -11,6 +11,9 @@
   진료비영수증 항목명 정규화, 세부내역서 코드 열·급여 칸·종료일자, 사고발생일자).
   정답셋 라벨도 같은 관례를 쓰도록 ``scripts/verify_label.conform``이 이 함수를 그대로 쓴다.
 - ``same(kind, a, b)``: 두 값이 정규화 후 같은지(금액의 빈 칸·0, 텍스트의 접두·접미 차이는 같게 본다).
+- ``pair_rows(doc_type, table, left, right)``: 두 표의 행을 키 열(``ROW_KEYS``)로 대응시킨다. 행 순서·개수가
+  달라도 같은 행끼리 맞물리게 하며, ``is_total(row)``은 그중 합계·소계 행을 가린다. 교차검증
+  (``verify._row_diff``)과 채점(``scripts/verify_eval``)이 같은 규칙을 쓰도록 여기 한 곳에 둔다.
 - ``check(doc_type, ao, docraft, blocks)``: 진료비영수증 항목내역의 이상 징후 목록(금액 겹침·없는 열·
   합계 베끼기·합계 불일치·행 누락). 다른 유형은 빈 목록이다.
 - ``correct(doc_type, checks, ao, docraft)``: 그중 확실한 이상을 Judge 없이 바로 교정한다.
@@ -100,6 +103,15 @@ TOTALS = {  # 표 합계행 → 합계 필드. 합계행은 표에서 빼고 비
     "진료비영수증": {"항목내역": {"공단부담금": "공단부담총액"}},
 }
 KEEP_TOTALS = {"진료비영수증"}  # AO 스키마가 합계 행을 표에 두는 유형. 합계 필드를 채운 뒤에도 행을 남긴다.
+
+ROW_KEYS = {  # 표 → 행을 식별하는 열. 두 표의 행을 짝지을 때 쓴다(``pair_rows``). 스키마에 없는 열은 건너뛴다.
+    "항목내역": ("항목", "EDI코드", "시작일자"),
+    "병명내역": ("병명코드",),
+    "수술내역": ("수술일자",),
+    "검사내역": ("검사일",),
+    "치료내역": ("치료일",),
+    "행위내역": ("행위일",),
+}
 
 _ACCIDENT_DATES = ("진단일",)  # 사고발생일자 후보(스칼라)
 _ACCIDENT_COLUMNS = ("수술일자", "검사일", "치료일", "행위일")  # 사고발생일자 후보(표 열)
@@ -265,6 +277,44 @@ def same(kind: str, a, b) -> bool:
     return left == right
 
 
+def _prefix_same(kind, a, b):
+    """짝짓기 전용 느슨한 비교: 한쪽이 다른 쪽의 접두면 같은 행으로 본다('주사료' ⊂ '주사료_행위료')."""
+    if kind not in ("text", "edi") or a in (None, "") or b in (None, ""):
+        return same(kind, a, b)
+    short, long = sorted((re.sub(r"[\s\W_]+", "", str(value)) for value in (a, b)), key=len)
+    return len(short) >= 2 and long.startswith(short)
+
+
+def pair_rows(doc_type: str, table: str, left: list, right: list, columns=None,
+              fallback: bool = True) -> list[tuple[dict | None, dict | None]]:
+    """두 표의 행을 ``ROW_KEYS``의 키 열로 짝짓는다.
+
+    값이 같은 행부터 짝짓고, 남은 행은 키 열의 접두가 같은 행에 붙이고(``주사료`` ⊂ ``주사료_행위료``),
+    ``fallback``이면 그래도 남은 행끼리 순서대로 잇는다. 끝내 짝이 없는 행은 상대가 ``None``인
+    쌍(누락·과잉)으로 남는다. 왼쪽 행 순서는 그대로 지킨다.
+    """
+    keys = [column for column in ROW_KEYS.get(table, ())
+            if column in (columns if columns is not None else doctypes.spec(doc_type)["tables"].get(table, ()))]
+    kinds = {column: doctypes.kind(doc_type, column, table) for column in keys}
+    taken, matched = set(), [None] * len(left)
+    for match in (same, _prefix_same):  # 값이 같은 행부터, 남은 행은 접두가 같은 행에
+        for index, row in enumerate(left):
+            if matched[index] is not None or not any(row.get(column) not in (None, "") for column in keys):
+                continue
+            hit = next((other for other, mate in enumerate(right) if other not in taken
+                        and all(match(kinds[column], row.get(column), mate.get(column)) for column in keys)), None)
+            if hit is not None:
+                taken.add(hit)
+                matched[index] = hit
+    spare = iter([index for index in range(len(right)) if index not in taken])
+    pairs = []
+    for index, hit in enumerate(matched):
+        if hit is None and fallback:
+            hit = next(spare, None)
+        pairs.append((left[index], right[hit] if hit is not None else None))
+    return pairs + [(None, right[index]) for index in spare]
+
+
 # ── 필드별 정제 ─────────────────────────────────────────────────────────────
 
 
@@ -407,20 +457,31 @@ def _split_codes(out):
         row["병명"] = normalize("text", _CODE_IN_TEXT.sub(" ", name))
 
 
+def is_total(row) -> bool:
+    """합계·소계 등 표의 집계 행인지. 금액을 더할 때 빼야 하는 행이다."""
+    return bool(_TOTAL_ROW.match(_key((row or {}).get("항목") or "")))
+
+
 def _totals(doc_type, out):
+    """합계 행의 금액으로 빈 합계 필드를 채운다.
+
+    집계 행을 표에 두는 유형(``KEEP_TOTALS``)은 소계 행도 지우지 않는다 — 서식에 인쇄된 행이라
+    지우면 아래 행이 통째로 밀린다. 대신 소계는 합계 필드를 채우지 않고, 금액을 더하는 검사
+    (``_sum_checks``)가 ``is_total``로 빼 준다.
+    """
     for table, mapping in TOTALS.get(doc_type, {}).items():
         kept = []
         for row in out.get(table) or []:
-            if not _TOTAL_ROW.match(_key(row.get("항목") or "")):
+            if not is_total(row):
                 kept.append(row)
                 continue
-            if item(row.get("항목")) != "합계":  # 소계·중간소계는 합계 필드를 채우지 않는다
-                continue
-            for column, field in mapping.items():
-                if field in out and not out[field] and row.get(column):
-                    out[field] = row[column]
+            if item(row.get("항목")) == "합계":  # 소계·중간소계는 합계 필드를 채우지 않는다
+                for column, field in mapping.items():
+                    if field in out and not out[field] and row.get(column):
+                        out[field] = row[column]
+                row = {**row, "항목": "합계"}
             if doc_type in KEEP_TOTALS:
-                kept.append({**row, "항목": "합계"})
+                kept.append(row)
         out[table] = kept
 
 
@@ -550,16 +611,30 @@ def _receipt_rows(blocks):
 
 
 def _receipt_table(doc_type, out, blocks):
-    """모델이 빠뜨린 영수증 항목을 파서 표 행으로 보충한다."""
+    """모델이 뭉치거나 빠뜨린 영수증 항목 행을 파서 표 행으로 바로잡는다.
+
+    파서 표는 서식에 인쇄된 순서와 세분 항목명(``주사료_행위료``·``입원료_1인실``)을 그대로 갖고 있다.
+    항목명이 겹치지 않게 넉넉히 복원됐을 때만 그 목록을 뼈대로 삼아 모델 행을 제자리에 맞추고
+    (값은 모델 쪽을 쓰고 빈 칸만 파서 표로 메운다), 뼈대에 없는 모델 행은 뒤에 남긴다.
+    복원이 부실하면 예전처럼 빠진 항목만 인쇄 순서 자리에 보충한다.
+    """
     if doc_type != "진료비영수증":
         return
-    rows = out.get(ITEM_TABLE) or []
-    names = {item(row.get("항목")) for row in rows}
-    for row in _receipt_rows(blocks):
-        if row["항목"] not in names:
-            total = next((index for index, existing in enumerate(rows) if item(existing.get("항목")) == "합계"), len(rows))
-            rows.insert(total, row)
-            names.add(row["항목"])
+    rows, rebuilt = out.get(ITEM_TABLE) or [], _receipt_rows(blocks)
+    names = [row["항목"] for row in rebuilt]
+    if len(rebuilt) >= max(2, len(rows)) and len(set(names)) == len(names):
+        merged = []
+        for base, mine in pair_rows(doc_type, ITEM_TABLE, rebuilt, rows, fallback=False):
+            merged.append(mine if base is None else {
+                **base, **{column: value for column, value in (mine or {}).items()
+                           if value is not None and column != "항목"}})
+        out[ITEM_TABLE] = merged
+        return
+    present = {item(row.get("항목")) for row in rows}
+    for row in rebuilt:
+        if row["항목"] not in present:
+            rows.insert(_insert_at(rows, rebuilt, row["항목"]), row)
+            present.add(row["항목"])
     out[ITEM_TABLE] = rows
 
 
@@ -724,7 +799,7 @@ def _row_checks(rows, mine):
     """합계 행 베끼기와 AO·Docraft 간 항목 행 누락·과다를 본다."""
     found = []
     names, my_names = [item(row.get("항목")) for row in rows], [item(row.get("항목")) for row in mine]
-    body = [row for row, name in zip(rows, names) if name != "합계"]
+    body = [row for row in rows if not is_total(row)]
     total = next((index for index, name in enumerate(names) if name == "합계"), len(rows) - 1)
     if len(rows) > 1 and sum(any(_amounts(row)) for row in body) > 1:
         copied = next((index for index in range(total) if _amounts(rows[index]) == _amounts(rows[total])
@@ -733,11 +808,11 @@ def _row_checks(rows, mine):
             found.append(_flag("row_copy", f"합계 행({total}행)의 금액이 {copied}행 "
                                            f"'{rows[copied].get('항목')}'과 전부 같다. 합계를 베낀 것으로 보인다.", row=total))
     for name in dict.fromkeys(my_names):
-        if name and name != "합계" and name not in names:
+        if name and not is_total({"항목": name}) and name not in names:
             found.append(_flag("row_missing", f"Docraft가 읽은 항목 '{name}' 행이 AO 표에 없다.", item=name))
-    valued = {name for row, name in zip(rows, names) if any(_amounts(row))}
+    valued = {name for row, name in zip(rows, names) if any(_amounts(row)) and not is_total(row)}
     for name in dict.fromkeys(names):
-        if name in valued and name != "합계" and my_names and name not in my_names:
+        if name in valued and my_names and name not in my_names:
             found.append(_flag("row_extra", f"AO 표의 항목 '{name}' 행이 Docraft 표에는 없다."))
     return found
 
@@ -746,7 +821,7 @@ def _sum_checks(fields, rows):
     """요건 1절의 합계식·열별 합을 본다. 십의 자리 절사는 허용한다."""
     found = []
     total = next((row for row in rows if item(row.get("항목")) == "합계"), None)
-    added = {column: sum(_money(row.get(column)) or 0 for row in rows if item(row.get("항목")) != "합계")
+    added = {column: sum(_money(row.get(column)) or 0 for row in rows if not is_total(row))
              for column in ITEM_COLUMNS}
     stated = {column: _money(total.get(column)) or 0 for column in ITEM_COLUMNS} if total else added
     # 포괄수가 행은 위쪽 항목 행을 다시 담으므로 열별 합이 어긋나는 것이 정상이다.

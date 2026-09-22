@@ -102,6 +102,8 @@ flowchart TD
     Judge --> Output
 ```
 
+표는 행 순서·개수가 아니라 행 식별 열(세부내역서 `항목`+`EDI코드`+`시작일자`, 진료비영수증 `항목`, 진단서류 `병명코드`·`수술일자` 등)로 행을 대응시켜 비교합니다. 대응된 행은 어긋난 셀만, 대응되지 않은 행만 행 단위로 Judge에 알립니다. 이 키 정의(`rules.ROW_KEYS`)와 짝짓기(`rules.pair_rows`)는 교차검증과 정확도 채점이 함께 씁니다.
+
 Judge에는 남은 불일치와 이상만 전달합니다. 결과는 입력 AO 구조를 유지하며 값별 `ao_value`, `docraft_value`, `source`, `reason`을 붙이고, `verify`에 유형·건수·검사 결과를 담습니다. AO에 없던 필드는 `added: true`로 추가될 수 있습니다. `ao_result`는 JSON **문자열** form 필드입니다.
 
 ```bash
