@@ -11,15 +11,20 @@
 ``ImportError``) 그 단계를 "미구현"으로 표시하고 건너뛴다 — 스크립트 자체는 항상 끝까지 돈다.
 
 정확도 = (라벨이 값을 가진 필드 중 ``rules.same(kind, label, pred)``가 True인 수) / (라벨이 값을 가진 필드 수).
-null 라벨은 분모에서 뺀다. 라벨이 null인데 예측이 있으면 오탐(false positive)으로 따로 센다.
-표는 라벨 행과 예측 행을 순서대로 짝짓고 셀 단위로 센다 — 행 수가 다르면 남는 라벨 셀은 누락(값이 있으면
-오답), 남는 예측 셀은 오탐으로 자연히 집계된다(모자란 쪽을 빈 행으로 채워 같은 채점 로직을 그대로 쓴다).
+null 라벨은 분모에서 뺀다. 값의 같고 다름은 오탐 판정까지 전부 ``rules.same``에 맡긴다 — 라벨 null과
+예측 ``"0"``·빈 문자열처럼 표기만 다른 쌍을 오탐에서 뺄지는 ``rules.same``이 정한다.
+
+표는 행 식별 열(진료비영수증·세부내역서 ``항목``+``EDI코드``, 진단서류 ``병명코드``·``수술일자``·``검사일``·
+``치료일``·``행위일``)로 먼저 짝짓고, 남은 행만 순서대로 짝짓는다. 끝내 짝이 없는 행은 빈 행과 맞물려
+누락(라벨 쪽)·과잉(예측 쪽)으로 집계된다.
 
 캐시
 ----
 파싱은 이미지당 20~90초로 느려 ``data/verify/cache/<doc_type>__<stem>.parse.json``에,
 추출 결과를 ``<doc_type>__<stem>.extract.json``에 캐시한다(파일명에 doc_type을 붙여 다른 유형 간
 동명 이미지 충돌을 막는다). ``--no-cache``로 무시하고 다시 계산한다.
+캐시 대상은 raw·rules가 쓰는 parse·extract뿐이다. ``ao``는 AO json을 그대로 읽고 ``final``은 매번
+``backend.verify.run``을 새로 호출하므로(그 안에서 parse·extract를 다시 돈다) verify.py가 바뀌면 곧바로 반영된다.
 
 사용법
 ------
@@ -218,6 +223,43 @@ def run_stages(item: Item, schema: dict, stages: tuple[str, ...], no_cache: bool
 # 채점: score()는 (key, 라벨값, 예측값, kind) 평평한 목록을 내고, aggregate()가 그걸 correct/total/fp/wrong으로 묶는다.
 # --------------------------------------------------------------------------------------
 
+ROW_KEYS = {  # 표 → 행을 식별하는 열(전부 일치해야 같은 행). 스키마에 없는 열은 무시한다.
+    "항목내역": ("항목", "EDI코드"),
+    "병명내역": ("병명코드",),
+    "수술내역": ("수술일자",),
+    "검사내역": ("검사일",),
+    "치료내역": ("치료일",),
+    "행위내역": ("행위일",),
+}
+
+
+def pair_rows(doc_type: str, table: str, columns: list[str], label_rows: list, pred_rows: list) -> list[tuple[dict, dict]]:
+    """행 식별 열로 먼저 짝짓고, 남은 행끼리 순서대로 짝짓는다. 끝내 짝이 없는 행은 빈 행과 맞물려 누락/과잉이 된다."""
+    keys = [col for col in ROW_KEYS.get(table, ()) if col in columns]
+    kinds = {col: field_kind(doc_type, col, table=table) for col in keys}
+    taken: set[int] = set()
+    matched: list[int | None] = []
+    for lrow in label_rows:
+        hit = None
+        if keys and any(lrow.get(col) not in (None, "") for col in keys):
+            for i, prow in enumerate(pred_rows):
+                if i not in taken and all(values_same(kinds[col], lrow.get(col), prow.get(col)) for col in keys):
+                    hit = i
+                    break
+        if hit is not None:
+            taken.add(hit)
+        matched.append(hit)
+
+    spare = iter([i for i in range(len(pred_rows)) if i not in taken])
+    pairs = []
+    for lrow, hit in zip(label_rows, matched):
+        if hit is None:
+            hit = next(spare, None)
+        pairs.append((lrow, pred_rows[hit] if hit is not None else {}))
+    pairs += [({}, pred_rows[i]) for i in spare]
+    return pairs
+
+
 def score(doc_type: str, schema: dict, label_fields: dict, pred: dict) -> list[tuple[str, object, object, str]]:
     rows: list[tuple[str, object, object, str]] = []
     for key, prop in schema.get("properties", {}).items():
@@ -225,9 +267,7 @@ def score(doc_type: str, schema: dict, label_fields: dict, pred: dict) -> list[t
             columns = list(prop.get("items", {}).get("properties", {}).keys())
             label_rows = label_fields.get(key) if isinstance(label_fields.get(key), list) else []
             pred_rows = pred.get(key) if isinstance(pred.get(key), list) else []
-            for i in range(max(len(label_rows), len(pred_rows))):
-                lrow = label_rows[i] if i < len(label_rows) else {}
-                prow = pred_rows[i] if i < len(pred_rows) else {}
+            for lrow, prow in pair_rows(doc_type, key, columns, label_rows, pred_rows):
                 for col in columns:
                     rows.append((f"{key}.{col}", lrow.get(col), prow.get(col), field_kind(doc_type, col, table=key)))
         else:
@@ -235,21 +275,29 @@ def score(doc_type: str, schema: dict, label_fields: dict, pred: dict) -> list[t
     return rows
 
 
+def verdict(label_val, pred_val, kind: str) -> str:
+    """``correct``·``wrong``·``fp``(라벨 null인데 예측이 다름)·``skip``(둘 다 비어 일치). 판정은 전부 ``rules.same``이 한다."""
+    agrees = values_same(kind, label_val, pred_val)
+    if label_val in (None, ""):
+        return "skip" if agrees else "fp"
+    return "correct" if agrees else "wrong"
+
+
 def aggregate(rows: list[tuple[str, object, object, str]]) -> dict:
-    correct = total = fp = 0
+    stat = {"correct": 0, "total": 0, "fp": 0}
     wrong = []
     for key, label_val, pred_val, kind in rows:
-        if label_val in (None, ""):
-            if pred_val not in (None, ""):
-                fp += 1
-                wrong.append((key, label_val, pred_val))
+        result = verdict(label_val, pred_val, kind)
+        if result == "skip":
             continue
-        total += 1
-        if values_same(kind, label_val, pred_val):
-            correct += 1
+        if result == "fp":
+            stat["fp"] += 1
         else:
+            stat["total"] += 1
+            stat["correct"] += result == "correct"
+        if result != "correct":
             wrong.append((key, label_val, pred_val))
-    return {"correct": correct, "total": total, "fp": fp, "wrong": wrong}
+    return {**stat, "wrong": wrong}
 
 
 def process_item(item: Item, stages: tuple[str, ...], no_cache: bool) -> dict:
@@ -290,13 +338,14 @@ def build_summaries(items_out: list[dict], doc_types: list[str], stages: tuple[s
             agg["fp"] += stat["fp"]
             for key, label_val, pred_val, kind in stat["rows"]:
                 cell = field_summary[doc_type][key][stage]
-                if label_val in (None, ""):
-                    if pred_val not in (None, ""):
-                        cell["fp"] += 1
+                result = verdict(label_val, pred_val, kind)
+                if result == "skip":
+                    continue
+                if result == "fp":
+                    cell["fp"] += 1
                     continue
                 cell["total"] += 1
-                if values_same(kind, label_val, pred_val):
-                    cell["correct"] += 1
+                cell["correct"] += result == "correct"
     for doc_type, stage_set in unimplemented.items():
         for stage in stage_set:
             summary[doc_type][stage] = NOT_IMPLEMENTED
@@ -337,16 +386,43 @@ def print_field_tables(field_summary: dict, doc_types: list[str], stages: tuple[
             print(f"| {key} | " + " | ".join(cells) + " |")
 
 
+def print_top_failures(field_summary: dict, doc_types: list[str], stages: tuple[str, ...], limit: int = 20):
+    """유형·필드별 오답(+오탐)을 합쳐 많은 순으로 — 룰 확장 대상을 고르는 표다."""
+    ranked = []
+    for doc_type in doc_types:
+        for key, by_stage in field_summary.get(doc_type, {}).items():
+            cells = [by_stage[s] for s in stages if by_stage[s] != NOT_IMPLEMENTED]
+            miss = sum(cell["total"] - cell["correct"] + cell["fp"] for cell in cells)
+            if miss:
+                ranked.append((miss, doc_type, key, by_stage))
+    if not ranked:
+        return
+    ranked.sort(key=lambda row: (-row[0], row[1], row[2]))
+    print(f"\n## 실패 상위 {limit} 필드 (셀은 오답수/분모, fp=오탐)\n")
+    print("| # | 유형 | 필드 | 실패 | " + " | ".join(stages) + " |")
+    print("|---" * (len(stages) + 4) + "|")
+    for rank, (miss, doc_type, key, by_stage) in enumerate(ranked[:limit], 1):
+        cells = []
+        for stage in stages:
+            cell = by_stage[stage]
+            if cell == NOT_IMPLEMENTED:
+                cells.append(NOT_IMPLEMENTED)
+                continue
+            wrong = cell["total"] - cell["correct"]
+            cells.append(f"{wrong}/{cell['total']}" + (f" fp={cell['fp']}" if cell["fp"] else "") if wrong or cell["fp"] else "-")
+        print(f"| {rank} | {doc_type} | {key} | {miss} | " + " | ".join(cells) + " |")
+
+
 def print_wrong(items_out: list[dict], stages: tuple[str, ...]):
-    print("\n## 틀린 필드 목록\n")
+    print("\n## 틀린 필드 목록 — `단계 | 이미지 | 필드: 라벨 | 예측`\n")
     for entry in items_out:
         for stage in stages:
             stat = entry["stages"].get(stage)
             if not isinstance(stat, dict) or not stat.get("wrong"):
                 continue
-            print(f"\n### {entry['doc_type']}/{entry['image']} · {stage}")
+            print(f"\n### {entry['doc_type']}/{entry['image']} · {stage} ({len(stat['wrong'])}건)")
             for key, label_val, pred_val in stat["wrong"]:
-                print(f"- {key}: 라벨={label_val!r} 예측={pred_val!r}")
+                print(f"- {stage} | {entry['image']} | {key}: {label_val!r} | {pred_val!r}")
 
 
 def strip_rows(entry: dict) -> dict:
@@ -415,6 +491,7 @@ def main():
 
     print_overview(summary, doc_types, stages)
     print_field_tables(field_summary, doc_types, stages)
+    print_top_failures(field_summary, doc_types, stages)
     if args.verbose:
         print_wrong(items_out, stages)
 
