@@ -354,6 +354,9 @@ def case(folder, name):
     ("입원료 1인실", "입원료_1인실"), ("입원료 2·3인실", "입원료_2-3인실"), ("입원료 4인실 이상", "입원료_4인실이상"),
     ("투약 행위료", "투약및조제료_행위료"), ("주사료 약품비", "주사료_약품비"), ("식 대", "식대"),
     ("계", "합계"), ("보철·교정료", "보철교정료"), ("", None),
+    ("필투약및조제료_행위료", "투약및조제료_행위료"), ("필주사료_약품비", "주사료_약품비"),  # 서식 분류 칸 글자
+    ("선택항목_CT진단료", "CT진단료"), ("선택항목_기타", "기타"),
+    ("선별급여", "선별급여"), ("선택진료료", "선택진료료"), ("필름대", "필름대"),  # 뗀 나머지가 표준 항목이 아니면 둔다
 ])
 def test_item_name_follows_the_ao_prompt_rules(name, expected):
     assert rules.item(name) == expected
@@ -461,6 +464,63 @@ def test_check_does_not_guess_a_missing_column_without_header_evidence():
     assert rules.check("진료비영수증", {"항목내역": rows}, {}, other) == []
 
 
+def test_receipt_column_recognizes_a_standalone_leaf_column():
+    """하위 열이 없는 홑 칸이면 비급여·급여도 열 이름으로 본다."""
+    assert rules._receipt_column(["비급여"]) == "비급여"
+    assert rules._receipt_column(["요양급여"]) == "급여"
+
+
+def test_receipt_column_does_not_treat_a_group_title_as_a_leaf():
+    """하위 열(선택진료·본인부담 등)이 딸린 묶음 제목 칸은 leaf로 보지 않는다."""
+    assert rules._receipt_column(["급여", "전액본인"]) is None    # 급여가 전액본인을 묶는 제목
+    assert rules._receipt_column(["비급여", "선택진료"]) is None  # 비급여가 선택진료를 묶는 제목
+
+
+def test_check_finds_a_column_shifted_to_its_neighbor():
+    """AO가 비급여 값을 선택진료료 칸에 냈지만 Docraft(룰 적용 후)는 비급여 칸에 바로 읽었다."""
+    rows = receipt(("초음파진단료", {"선택진료료": "50000"}))
+    mine = receipt(("초음파진단료", {"비급여": "50000"}))
+
+    found = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [])
+    flags = [flag for flag in found if flag["code"] == "column_shift"]
+
+    assert [(flag["row"], flag["column"], flag["target"]) for flag in flags] == [(0, "선택진료료", "비급여")]
+
+
+def test_correct_swaps_a_shifted_column_when_ao_left_the_true_column_empty():
+    rows = receipt(("초음파진단료", {"선택진료료": "50000"}))
+    mine = receipt(("초음파진단료", {"비급여": "50000"}))
+    checks = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [])
+
+    fixed, reason = rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": mine})["항목내역"]
+
+    assert (fixed[0]["선택진료료"], fixed[0]["비급여"]) == ("0", "50000")
+    assert "column_shift" in reason
+
+
+def test_correct_leaves_a_shift_the_judge_should_decide():
+    """AO의 대상 열에 이미 값(0이 아닌)이 있으면 함부로 바꾸지 않고 Judge에게 맡긴다."""
+    rows = receipt(("초음파진단료", {"선택진료료": "50000", "비급여": "30000"}))
+    mine = receipt(("초음파진단료", {"비급여": "50000"}))
+    checks = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [])
+
+    assert rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": mine}) == {}
+
+
+def test_apply_realigns_a_value_shifted_to_the_neighboring_column():
+    """모델이 본인부담금·공단부담금 값을 서로 바꿔 냈으면 파서 표 열 정체성으로 되돌린다."""
+    header = ["구분", "항목", "본인부담금", "공단부담금"]
+    rows = [header, ["기본", "진찰료", "3,423", "7,987"], ["기본", "초음파진단료", "1,030", "442"]]
+    blocks = [block(rows=rows, kind="table")]
+    read = {"항목내역": [{"항목": "진찰료", "본인부담금": "3423", "공단부담금": "7987"},
+                     {"항목": "초음파진단료", "본인부담금": "442", "공단부담금": "1030"}]}  # 뒤 행이 뒤바뀜
+
+    out = rules.apply("진료비영수증", read, blocks)
+
+    assert (out["항목내역"][0]["본인부담금"], out["항목내역"][0]["공단부담금"]) == ("3423", "7987")
+    assert (out["항목내역"][1]["본인부담금"], out["항목내역"][1]["공단부담금"]) == ("1030", "442")
+
+
 def test_headers_find_the_item_row_even_when_cells_are_merged():
     blocks = [{"type": "table", "rows": [["환자등록번호", "환자성명"], ["이비인후과 항목", "급여", "비급여"],
                                           ["본인부담금", "공단부담금", "전액본인부담"]]}]
@@ -515,7 +575,7 @@ def test_edi_code_normalize(raw, expected):
     ("처치 및 수술료", "처치및수술료"),
     ("입원료_1인실", "입원료_1인실"),  # 하위 항목 밑줄은 ITEM_ALIASES가 되살리는 canonical 표기다
     ("입원료 상급병실", "입원료_상급병실"),  # 세로 병합된 '입원료' 상위 칸 + 하위 칸 '상급병실'
-    ("선택항목_CT진단료", "선택항목CT진단료"),  # alias에 없는 조합은 밑줄 없이 이어붙는다
+    ("선택항목_CT진단료", "CT진단료"),  # 서식 분류 칸 글자는 뗀다
 ])
 def test_receipt_item_name_drops_every_non_alphanumeric_character(raw, expected):
     assert rules.item(raw) == expected
@@ -524,10 +584,10 @@ def test_receipt_item_name_drops_every_non_alphanumeric_character(raw, expected)
 def test_detail_item_columns_follow_the_ao_convention():
     """세부내역서: 코드는 EDI코드 한 열에 모으고, 비급여 칸과 종료일자를 채운다.
 
-    급여 칸은 서식에 급여 값 열이 인쇄됐다고 머리글이 말할 때만 채우므로, 파싱 블록이 없는 여기서는 null이다.
+    급여 칸은 총액에서 만들지 않고, 머리글 근거가 없으면 모델 값도 지운다.
     """
     rows = [{"원내코드": "V2200", "EDI코드": None, "시작일자": "20230311", "종료일자": None,
-             "급여구분": "급여", "총액": "12380"},
+             "급여구분": "급여", "총액": "12380", "급여": "12,380"},
             {"원내코드": "AA254", "EDI코드": "AA254", "급여구분": "비급여", "총액": "60000"}]
 
     out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
@@ -537,14 +597,15 @@ def test_detail_item_columns_follow_the_ao_convention():
     assert (out[1]["비급여"], out[1]["급여"]) == ("60000", None)
 
 
-def test_detail_paid_column_is_filled_only_when_the_form_prints_a_paid_amount_column():
-    """머리글에 하위 열 없는 '급여' 값 열이 보이는 서식에서만 총액으로 채운다(라벨 관례 ⑨)."""
+def test_detail_paid_column_keeps_a_printed_value_but_drops_a_copied_total():
+    """독립 '급여' 값 열이 보이는 서식은 모델이 읽은 인쇄값을 두되, 총액을 옮긴 값은 지운다(라벨 관례 ⑨)."""
     blocks = [{"rows": [["항목", "코드", "총액", "급여", "비급여"],
                         ["진찰료", "AA100", "12380", "", ""]]}]
+    rows = [{"급여구분": "급여", "총액": "12380", "급여": "8666"}, {"급여구분": "급여", "총액": "5000", "급여": "5000"}]
 
-    out = rules.apply("세부내역서", {"항목내역": [{"급여구분": "급여", "총액": "12380"}]}, blocks)["항목내역"]
+    out = rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]
 
-    assert out[0]["급여"] == "12380"
+    assert (out[0]["급여"], out[1]["급여"]) == ("8666", None)
 
 
 def test_detail_paid_column_stays_null_when_it_only_groups_the_share_columns():
@@ -665,3 +726,193 @@ def test_receipt_table_restores_detailed_item_names_in_printed_order():
 
     assert [row["항목"] for row in out["항목내역"]] == ["진찰료", "주사료_행위료", "주사료_약품비", "검사료"]
     assert [row["본인부담금"] for row in out["항목내역"]] == ["3423", "442", "88", "0"]
+
+
+# --- 공통 형식 검사·표 구조 정리 --------------------------------------------
+
+@pytest.mark.parametrize("key, value, expected", [
+    ("환자정보-환자등록번호", "야간(공휴일)진료", None),  # 숫자 없는 값은 옆 라벨이 흘러든 것
+    ("환자정보-환자등록번호", "A-12345", "A-12345"),
+    ("차트번호", "진료카드", None),
+])
+def test_registration_number_needs_a_digit(key, value, expected):
+    doc_type = "진료비영수증" if key.startswith("환자정보") else "진단서"
+    assert rules.apply(doc_type, {key: value}, [])[key] == expected
+
+
+@pytest.mark.parametrize("fields, expected", [
+    ({"입원일자": "20230310", "퇴원일자": "20230305", "발급일": "20230320"}, [("입원일자", None)]),
+    ({"진단일": "20230325", "발급일": "20230320"}, [("진단일", None), ("진단일", None)]),  # 발급일 뒤 + 앞뒤 역전
+    ({"퇴원일자": "20230325", "발급일": "20230320"}, []),  # 퇴원 예정일은 발급일 뒤일 수 있다
+    ({"진단일": "18991231"}, [("진단일", None)]),
+    ({"항목내역": [{"시작일자": "20230305", "종료일자": "20230301"}]}, [("항목내역", 0)]),
+])
+def test_bad_dates_are_flagged(fields, expected):
+    doc_type = "세부내역서" if "항목내역" in fields else "진단서"
+    found = [flag for flag in rules.check(doc_type, fields, {}, []) if flag["code"] == "bad_date"]
+    assert [(flag["key"], flag.get("row")) for flag in found] == expected
+
+
+@pytest.mark.parametrize("fields, expected", [
+    ({"환자 주민번호": "900101-2******", "성별": "남", "생년월일": "19900101"}, ["성별"]),
+    ({"환자 주민번호": "900101-1******", "성별": "남", "생년월일": "19900102"}, ["생년월일"]),
+    ({"환자 주민번호": "030101-3******", "성별": "남", "생년월일": "20030101"}, []),
+])
+def test_sex_and_birthday_must_match_the_idnum(fields, expected):
+    assert [flag["key"] for flag in rules.check("소견서", fields, {}, []) if flag["code"] == "id_mismatch"] == expected
+
+
+def test_empty_and_header_rows_are_dropped_except_on_receipts():
+    rows = [{"항목": "항목", "EDI명칭": "명칭", "총액": "금액"}, {"총액": "0"}, {"항목": "검사료", "총액": "1000"}]
+    assert [row["항목"] for row in rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]] == ["검사료"]
+    kept = rules.apply("진료비영수증", {"항목내역": receipt(("기타", {}))}, [])["항목내역"]
+    assert [row["항목"] for row in kept] == ["기타"]  # 금액이 모두 0인 인쇄 행은 지키고
+
+
+# --- 산술 검사·열 통째 바뀜 ----------------------------------------------------
+
+def detail(*rows):
+    return [{"단가": price, "투여량": dose, "횟수": "1", "일수": days, "총액": total, "급여구분": "급여"}
+            for price, dose, days, total in rows]
+
+
+@pytest.mark.parametrize("rows, expected", [
+    (detail(("1000", None, "3", "3000"), ("13", "0.5", "1", "7")), []),        # 원 단위 반올림은 맞다
+    (detail(("1000", None, "3", "2000")), [0]),
+    (detail(*[("850", None, "1", "1020")] * 3, ("500", None, "1", "500")), []),  # 여러 행이 같은 비율(종별 가산)
+])
+def test_detail_row_arithmetic(rows, expected):
+    found = rules.check("세부내역서", {"항목내역": rows}, {}, [])
+    assert [flag["row"] for flag in found if flag["code"] == "row_arith"] == expected
+
+
+def test_detail_row_split_must_add_up_to_the_total():
+    rows = [{"총액": "1000", "급여구분": "급여", "본인부담": "300", "공단부담": "700"},
+            {"총액": "1000", "급여구분": "급여", "본인부담": "300", "공단부담": "900"}]
+    assert [flag["row"] for flag in rules.check("세부내역서", {"항목내역": rows}, {}, [])] == [1]
+
+
+@pytest.mark.parametrize("fields, expected", [
+    ({"진료비총액": "70470", "환자부담총액": "56800", "공단부담총액": "13670"}, []),
+    ({"진료비총액": "70470", "환자부담총액": "56800", "공단부담총액": "10717"}, ["진료비총액", "환자부담총액", "공단부담총액"]),
+    ({"납부한금액_합계": "56800", "납부한금액_카드": "56800", "납부한금액_현금": "100"}, ["납부한금액_합계", "납부한금액_카드", "납부한금액_현금"]),
+    ({"납부한금액_합계": "56800", "납부한금액_카드": "50000"}, []),  # 구성 필드가 하나뿐이면 따지지 않는다
+])
+def test_printed_totals_must_add_up(fields, expected):
+    assert [flag["key"] for flag in rules.check("진료비영수증", fields, {}, [])] == expected
+
+
+SHIFTED = receipt(("진찰료", {"선택진료료": "20000"}), ("검사료", {"선택진료료": "15000"}),
+                  ("합계", {"선택진료료외": "35000"}))
+
+
+def test_a_whole_column_read_into_its_neighbour_is_swapped_back():
+    out = rules.apply("진료비영수증", {"항목내역": SHIFTED}, [])["항목내역"]
+    assert [(row["선택진료료"], row["선택진료료외"]) for row in out] == [("0", "20000"), ("0", "15000"), ("0", "35000")]
+
+    flags = rules.check("진료비영수증", {"항목내역": SHIFTED}, {"항목내역": out}, [])
+    swap = [flag for flag in flags if flag["code"] == "column_shift" and "row" not in flag]
+    assert [(flag["column"], flag["target"]) for flag in swap] == [("선택진료료", "선택진료료외")]
+    fixed, reason = rules.correct("진료비영수증", flags, {"항목내역": SHIFTED}, {"항목내역": out})["항목내역"]
+    assert [row["선택진료료외"] for row in fixed] == ["20000", "15000", "35000"] and "맞바꿨다" in reason
+
+
+def test_an_ambiguous_column_swap_is_left_alone():
+    rows = receipt(("진찰료", {"선택진료료": "35000"}), ("합계", {"선택진료료외": "35000", "비급여": "35000"}))
+    assert rules._swaps(rows) == []
+
+
+@pytest.mark.parametrize("field, expected", [("13846", "17983"), ("17990", "17990")])
+def test_total_field_follows_a_confirmed_total_row(field, expected):
+    """항목 행 합이 합계 행을 뒷받침하고 진료비총액=환자+공단이 맞을 때만 공단부담총액을 합계 행 값으로 바꾼다."""
+    rows = receipt(("진찰료", {"공단부담금": "17983"}), ("합계", {"공단부담금": "17983"}))
+    read = {"항목내역": rows, "공단부담총액": field, "진료비총액": "25690", "환자부담총액": "7700"}
+    assert rules.apply("진료비영수증", read, [])["공단부담총액"] == expected
+
+
+@pytest.mark.parametrize("value, rows, expected", [
+    ("15722", [], None),          # 문서 어디에도 없는 급여총액은 계산해 낸 값이다
+    ("8543", [], "8543"),         # 콤마를 빼면 인쇄돼 있다
+    ("15722", [{"항목": "합계", "본인부담": "1", "급여": "15722"}], "15722"),  # 합계 행이 있으면 그 값을 쓴다
+])
+def test_unprinted_detail_totals_are_dropped(value, rows, expected):
+    blocks = [block("급여 8,543 비급여 1,200")]
+    out = rules.apply("세부내역서", {"급여_급여총액": value, "항목내역": rows}, blocks)
+    assert out["급여_급여총액"] == expected
+    flags = rules.check("세부내역서", {"급여_급여총액": value, "항목내역": []}, out, blocks)
+    assert [flag["code"] for flag in flags] == ([] if value == "8543" else ["ungrounded"])
+    assert rules.correct("세부내역서", flags, {"급여_급여총액": value}, out) == (
+        {} if value == "8543" else {"급여_급여총액": (None, "ungrounded: 인쇄되지 않았거나 구성 금액의 합과 다른 급여 합계라 비웠다")})
+
+
+@pytest.mark.parametrize("visit, expected", [("외래", "20190121"), ("입원", None)])
+def test_outpatient_receipt_ends_on_its_start_date(visit, expected):
+    out = rules.apply("진료비영수증", {"외래/입원": visit, "환자정보-진료시작일": "2019-01-21"}, [])
+    assert out["환자정보-진료종료일"] == expected
+
+
+@pytest.mark.parametrize("total, expected", [("20820", "20820"), ("100820", None)])  # 비급여까지 더한 총액은 지운다
+def test_detail_benefit_total_must_equal_its_parts(total, expected):
+    read = {"급여_급여총액": total, "급여_본인부담총액": "6200", "급여_공단부담총액": "14620", "급여_전액본인부담총액": "0"}
+    assert rules.apply("세부내역서", read, [])["급여_급여총액"] == expected
+
+
+def test_a_table_with_many_broken_rows_is_flagged_as_low_quality():
+    broken = [("1000", None, "2", "900"), ("1000", None, "2", "800"), ("1000", None, "2", "700")]
+    rows = detail(*[("1000", None, "1", "1000")] * 3, *broken)
+    found = [flag["code"] for flag in rules.check("세부내역서", {"항목내역": rows}, {}, [])]
+    assert found.count("row_arith") == 3 and found.count("low_quality") == 0  # 절반이면 아직 아니다
+    rows = detail(*[("1000", None, "1", "1000")] * 2, *broken)
+    assert "low_quality" in [flag["code"] for flag in rules.check("세부내역서", {"항목내역": rows}, {}, [])]
+
+
+# --- FP 감사 후속(서식에 없는 열·베낀 합계·중복 소견·번호 형식) --------------------
+
+DETAIL_HEADER = [block(rows=[["항목", "일자", "코드", "명칭", "횟수", "일수", "총액", "본인부담금", "공단부담금"]], kind="table")]
+
+
+def test_detail_columns_missing_from_the_header_are_cleared():
+    """머리글에 단가·투여량·독립 급여 열이 없으면 모델이 옮겨 적은 값이다."""
+    rows = [{"항목": "검사료", "단가": "6600", "투여량": "1", "횟수": "1", "일수": "1", "총액": "6600",
+             "급여구분": "급여", "급여": "6000"}]
+    out = rules.apply("세부내역서", {"항목내역": rows}, DETAIL_HEADER)["항목내역"][0]
+    assert (out["단가"], out["투여량"], out["급여"], out["총액"]) == (None, None, None, "6600")
+    header = [block(rows=[["항목", "단가", "투여량", "일수", "총액", "급여"]], kind="table")]
+    out = rules.apply("세부내역서", {"항목내역": rows}, header)["항목내역"][0]
+    assert (out["단가"], out["투여량"], out["급여"]) == ("6600", "1", "6000")
+
+
+@pytest.mark.parametrize("total, expected", [("300", None), ("100", None), ("1000", "1000")])
+def test_detail_totals_copied_from_a_row_or_a_subtotal_are_dropped(total, expected):
+    """한 행의 값을 베꼈거나(300) 열 합보다 작은(100, 소계) 합계는 인쇄된 합계가 아니다."""
+    rows = [{"항목": "검사료", "본인부담": "300"}, {"항목": "진찰료", "본인부담": "700"}]
+    out = rules.apply("세부내역서", {"항목내역": rows, "급여_본인부담총액": total}, [block("300 700 100 1000")])
+    assert out["급여_본인부담총액"] == expected
+
+
+def test_treatment_notes_do_not_repeat_a_surgery_already_listed():
+    sentence = "2020년7월15일 복강경하 난소낭종제거 수술함"
+    blocks = [block(rows=[["치료내용", sentence]], kind="table")]
+    surgery = {"수술내역": [{"수술일자": "20200715", "수술명": "복강경하 난소낭종제거 수술함"}]}
+    assert rules.apply("진단서", surgery, blocks)["치료내역"] == []
+    both = {**surgery, "치료내역": [{"치료일": None, "치료명": "복강경하 난소낭종제거 수술함"}]}
+    assert rules.apply("진단서", both, [])["치료내역"] == []
+
+
+def test_edi_code_holding_the_name_takes_the_code_from_the_hospital_column():
+    rows = [{"원내코드": "S2084", "EDI코드": "ESWT 7 (체외충격파치료)", "EDI명칭": "ESWT 7 (체외충격파치료)"}]
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"][0]
+    assert (out["원내코드"], out["EDI코드"]) == (None, "S2084")
+
+
+@pytest.mark.parametrize("key, value, expected", [
+    ("환자정보-질병군(DRG)번호", "N07200", "N07200"),
+    ("환자정보-질병군(DRG)번호", "201902070516", None),       # 영수증번호
+    ("환자정보-환자등록번호", "20191024-M188", None),           # 날짜로 시작하는 접수번호
+    ("환자정보-환자등록번호", "602-82-00286 상호 학교법인", None),  # 사업자등록번호와 라벨
+    ("차트번호", "20201015-00001", "20201015-00001"),          # 차트번호는 날짜로 시작하기도 한다
+    ("의사명", "[] 치과의사", None), ("의사명", "또는인", None), ("의사명", "홍길동", "홍길동"),
+])
+def test_number_and_name_fields_reject_neighbouring_text(key, value, expected):
+    doc_type = "진료비영수증" if key.startswith("환자정보") else "진단서"
+    assert rules.apply(doc_type, {key: value}, [])[key] == expected
