@@ -56,6 +56,10 @@ deploy/aws/down.sh            # 정지. GPU를 harness에 돌려줄 때도 이�
 
 `AI_API_KEY`(OpenRouter)는 backend 컨테이너 환경변수에만 있다. `/api/health`·`/api/ai/status`는 provider 호스트명과 모델명만 돌려주고, 로그에도 키를 남기지 않는다.
 
+## 처리량
+
+L4 서버에서 스캔 이미지 기준 **분당 약 10건**이다(`QUEUE_CONCURRENCY=6`, `TABLE_REFINE=true`). 병목은 PaddleOCR 레이아웃 파이프라인이고, 분당 약 12건에서 포화된다. 동시성을 6보다 올려도 대기 시간만 늘어난다. 측정 방법과 수치는 [wiki/2026-09-22-aws-throughput.md](../../wiki/2026-09-22-aws-throughput.md)에 있다.
+
 ## 기록과 이슈 수집
 
 - **남는 것**: DB 볼륨과 `REMOTE_ROOT/data`에 있어 재배포해도 유지된다.

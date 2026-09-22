@@ -24,6 +24,7 @@ okf_version: "0.2"
 * [표 병합 셀 보존](2026-09-22-table-spans.md) - PaddleOCR-VL 표의 rowspan·colspan을 직사각형 격자와 spans로 보존하고 남은 모델 인식 오류를 정리
 * [괘선 격자 기반 표 구조 복원](2026-09-22-ruled-table-grid.md) - 외부 파서 결과를 분석해 격자 우선 방식을 확인하고, VLM 표 HTML 대신 인쇄된 괘선에서 행·열·병합 셀을 복원
 * [AWS 개발 서버 배포 스크립트](2026-09-22-aws-deploy.md) - harness-v2와 같은 EC2(NVIDIA L4)에 app + PaddleOCR 스택을 오버레이 방식으로 올리는 deploy/aws 스크립트
+* [AWS 이미지 병렬 처리량과 중규모 내구성](2026-09-22-aws-throughput.md) - 서비스별 동시성 한계와 이미지 100건 연속 처리 측정, QUEUE_CONCURRENCY=6 결정, 업로드 413·삭제 파일 잔존 수정
 * [작업 진행 중 로딩바](2026-09-22-loading-bar.md) - 요청 대기·백그라운드 문서 처리 중 상단바에 로딩바와 진행 문구를 보여주는 기능
 * [추출 페이지 단위 분할 호출](2026-09-22-extract-page-chunking.md) - 긴 문서를 페이지 경계 기준으로 나눠 여러 번 호출하고 스키마에 따라 결과를 병합하는 구현
 * [레퍼런스 기반 개선 1~3단계 구현](2026-09-22-refs-improvements.md) - 문서 목록 경량화·삭제, 결과 표·일괄 추출·XLSX, 블록 연동·스키마 편집·API 탭·파싱 옵션 구현

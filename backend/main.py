@@ -195,9 +195,11 @@ def delete_project(project_id: str):
     with connect() as db:
         one(db, "SELECT id FROM projects WHERE id=?", (project_id,))
         audit(db, project_id, "delete", "project", project_id)
+        paths = [row["file_path"] for row in db.execute("SELECT file_path FROM documents WHERE project_id=?", (project_id,)).fetchall()]
         db.execute("DELETE FROM documents WHERE project_id=?", (project_id,))
         db.execute("DELETE FROM schemas WHERE project_id=?", (project_id,))
         db.execute("DELETE FROM projects WHERE id=?", (project_id,))
+    for path in paths: remove_file(path)
 
 
 DOCUMENT_LIST_COLUMNS = "id,project_id,filename,media_type,size,status,error,schema_id,approved_at,created_at,updated_at,result,validation"
@@ -257,6 +259,12 @@ def get_document(document_id: str):
     with connect() as db: return document(db, document_id)
 
 
+def remove_file(file_path):
+    """Delete an uploaded original; only files under FILES, so a tampered path never reaches elsewhere."""
+    path = Path(file_path).resolve()
+    if path.parent == FILES.resolve(): path.unlink(missing_ok=True)
+
+
 @app.delete("/api/documents/{document_id}", status_code=204, dependencies=[Depends(auth)])
 def delete_document(document_id: str):
     with connect() as db:
@@ -265,8 +273,7 @@ def delete_document(document_id: str):
             raise HTTPException(409, "처리 중인 문서는 삭제할 수 없습니다.")
         audit(db, doc["project_id"], "delete", "document", document_id, {"filename": doc["filename"]})
         db.execute("DELETE FROM documents WHERE id=?", (document_id,))
-        path = Path(doc["file_path"]).resolve()
-        if path.parent == FILES.resolve(): path.unlink(missing_ok=True)
+        remove_file(doc["file_path"])
 
 
 def stale_before():
