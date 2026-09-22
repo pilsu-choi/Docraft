@@ -1,5 +1,10 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-22 (21)
+* **Creation**: 세 기능 브랜치(`feat/kv-row-align`·`feat/kv-fill-fp`·`feat/kv-master-correct`)를 main에 차례로 병합하고 76건 rules 단계로 재평가한 결과를 [kv-accuracy-integration](2026-09-22-kv-accuracy-integration.md)에 기록했다(전체 7173→7185·fp 365→330·strict 6617→6627, 기존 36건 94.49→94.78%, holdout 82.60→82.64%·fp 223→212, 개별 델타와 정확히 합산, 285 passed).
+* **Update**: [kv-accuracy-review](2026-09-22-kv-accuracy-review.md)의 세부내역서 단가 fp 원인을 '룰 파생'에서 '모델 추출 단계 오탐(raw에서도 fp 39)'으로 바로잡고, 우선순위 2번에서 '라벨 근거 없는 단가 파생 중단'을 뺐다. '항목명 정규화 시 세분 항목 보존' 가설이 실제로는 `_receipt_table` 행 복원 위치 문제였다는 주석을 붙였다.
+* **Update**: [index](index.md)에 통합 평가 문서를 연결했다.
+
 ## 2026-09-22 (20)
 * **Creation**: [master-name-correction](2026-09-22-master-name-correction.md)에 KCD·EDI 마스터 사전 구축과 코드 일치 행의 1글자 명칭 교정, 임계값 스윕 근거(마스터 명칭 통째 대체는 순손실 -13), 76건 rules 전후 수치(순 +4, strict +3, holdout 무변화)를 기록했다.
 * **Update**: [index](index.md)에 새 구현 문서를 연결했다. [README](../README.md)에 마스터 사전 준비 절과 `MASTER_DIR` 설정을 추가했다.
