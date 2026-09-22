@@ -778,3 +778,39 @@ def test_total_field_follows_a_confirmed_total_row(field, expected):
     rows = receipt(("진찰료", {"공단부담금": "17983"}), ("합계", {"공단부담금": "17983"}))
     read = {"항목내역": rows, "공단부담총액": field, "진료비총액": "25690", "환자부담총액": "7700"}
     assert rules.apply("진료비영수증", read, [])["공단부담총액"] == expected
+
+
+@pytest.mark.parametrize("value, rows, expected", [
+    ("15722", [], None),          # 문서 어디에도 없는 급여총액은 계산해 낸 값이다
+    ("8543", [], "8543"),         # 콤마를 빼면 인쇄돼 있다
+    ("15722", [{"항목": "합계", "본인부담": "1", "급여": "15722"}], "15722"),  # 합계 행이 있으면 그 값을 쓴다
+])
+def test_unprinted_detail_totals_are_dropped(value, rows, expected):
+    blocks = [block("급여 8,543 비급여 1,200")]
+    out = rules.apply("세부내역서", {"급여_급여총액": value, "항목내역": rows}, blocks)
+    assert out["급여_급여총액"] == expected
+    flags = rules.check("세부내역서", {"급여_급여총액": value, "항목내역": []}, out, blocks)
+    assert [flag["code"] for flag in flags] == ([] if value == "8543" else ["ungrounded"])
+    assert rules.correct("세부내역서", flags, {"급여_급여총액": value}, out) == (
+        {} if value == "8543" else {"급여_급여총액": (None, "ungrounded: 인쇄되지 않았거나 구성 금액의 합과 다른 급여 합계라 비웠다")})
+
+
+@pytest.mark.parametrize("visit, expected", [("외래", "20190121"), ("입원", None)])
+def test_outpatient_receipt_ends_on_its_start_date(visit, expected):
+    out = rules.apply("진료비영수증", {"외래/입원": visit, "환자정보-진료시작일": "2019-01-21"}, [])
+    assert out["환자정보-진료종료일"] == expected
+
+
+@pytest.mark.parametrize("total, expected", [("20820", "20820"), ("100820", None)])  # 비급여까지 더한 총액은 지운다
+def test_detail_benefit_total_must_equal_its_parts(total, expected):
+    read = {"급여_급여총액": total, "급여_본인부담총액": "6200", "급여_공단부담총액": "14620", "급여_전액본인부담총액": "0"}
+    assert rules.apply("세부내역서", read, [])["급여_급여총액"] == expected
+
+
+def test_a_table_with_many_broken_rows_is_flagged_as_low_quality():
+    broken = [("1000", None, "2", "900"), ("1000", None, "2", "800"), ("1000", None, "2", "700")]
+    rows = detail(*[("1000", None, "1", "1000")] * 3, *broken)
+    found = [flag["code"] for flag in rules.check("세부내역서", {"항목내역": rows}, {}, [])]
+    assert found.count("row_arith") == 3 and found.count("low_quality") == 0  # 절반이면 아직 아니다
+    rows = detail(*[("1000", None, "1", "1000")] * 2, *broken)
+    assert "low_quality" in [flag["code"] for flag in rules.check("세부내역서", {"항목내역": rows}, {}, [])]
