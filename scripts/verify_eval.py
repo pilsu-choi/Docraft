@@ -4,8 +4,8 @@
 ----
 - raw    : ``backend.engine.extract`` 결과 (스키마: ``backend.doctypes.schema`` 또는 fallback)
 - rules  : raw에 ``backend.rules.apply`` 적용
-- ao     : gold만. AO 응답의 값(``backend.verify.flatten``)
-- final  : gold만. ``backend.verify.run(image, ao_json, doc_type)`` 최종값
+- ao     : 실제 AO JSON이 연결된 문서. AO 응답의 값(``backend.verify.flatten``)
+- final  : 실제 AO JSON이 연결된 문서. ``backend.verify.run(image, ao_json, doc_type)`` 최종값
 
 ``backend.doctypes``/``backend.rules``/``backend.verify``가 아직 구현 전이면(``NotImplementedError``/
 ``ImportError``) 그 단계를 "미구현"으로 표시하고 건너뛴다 — 스크립트 자체는 항상 끝까지 돈다.
@@ -13,6 +13,8 @@
 정확도 = (라벨이 값을 가진 필드 중 ``rules.same(kind, label, pred)``가 True인 수) / (라벨이 값을 가진 필드 수).
 null 라벨은 분모에서 뺀다. 값의 같고 다름은 오탐 판정까지 전부 ``rules.same``에 맡긴다 — 라벨 null과
 예측 ``"0"``·빈 문자열처럼 표기만 다른 쌍을 오탐에서 뺄지는 ``rules.same``이 정한다.
+정규화 후 완전 일치(strict)와 strict 오탐도 별도로 집계한다. AO가 없는 문서는 skipped,
+실행에 실패한 문서는 error로 기록하며, 정확도는 평가에 성공한 문서의 필드를 대상으로 한다.
 
 표는 행 식별 열(진료비영수증·세부내역서 ``항목``+``EDI코드``, 진단서류 ``병명코드``·``수술일자``·``검사일``·
 ``치료일``·``행위일``)로 먼저 짝짓고, 그래도 남은 행은 식별 열의 접두가 같은 행(``starts_with``)에,
@@ -24,6 +26,7 @@ null 라벨은 분모에서 뺀다. 값의 같고 다름은 오탐 판정까지 
 파싱은 이미지당 20~90초로 느려 ``data/verify/cache/<doc_type>__<stem>.parse.json``에,
 추출 결과를 ``<doc_type>__<stem>.extract.json``에 캐시한다(파일명에 doc_type을 붙여 다른 유형 간
 동명 이미지 충돌을 막는다). ``--no-cache``로 무시하고 다시 계산한다.
+``--cache-root``로 실험별 캐시를 격리할 수 있다. 모델·스키마를 바꿀 때는 새 경로나 ``--no-cache``를 쓴다.
 캐시 대상은 raw·rules가 쓰는 parse·extract뿐이다. ``ao``는 AO json을 그대로 읽고 ``final``은 매번
 ``backend.verify.run``을 새로 호출하므로(그 안에서 parse·extract를 다시 돈다) verify.py가 바뀌면 곧바로 반영된다.
 
@@ -74,7 +77,6 @@ logger = logging.getLogger("verify_eval")
 CACHE_ROOT = REPO_ROOT / "data" / "verify" / "cache"
 RESULTS_ROOT = REPO_ROOT / "data" / "verify"
 STAGES = ("raw", "rules", "ao", "final")
-GOLD_ONLY_STAGES = {"ao", "final"}
 NOT_IMPLEMENTED = "미구현"
 
 
@@ -103,6 +105,16 @@ def values_same(kind: str, a, b) -> bool:
 
         return rules.same(kind, a, b)
     except NotImplementedError:
+        return _fallback_same(a, b)
+
+
+def strict_same(kind: str, a, b) -> bool:
+    """정규화 뒤 완전 일치. ``rules.same``의 접두/0-빈칸 관용은 적용하지 않는다."""
+    try:
+        from backend import rules
+
+        return rules.normalize(kind, a) == rules.normalize(kind, b)
+    except (NotImplementedError, ImportError):
         return _fallback_same(a, b)
 
 
@@ -159,13 +171,14 @@ def run_stages(item: Item, schema: dict, stages: tuple[str, ...], no_cache: bool
     preds: dict = {}
     errors: dict = {}
     blocks = None
+    # rules만 요청해도 그 입력인 raw를 계산한다. raw는 결과 단계로 노출하지 않는다.
     if "raw" in stages or "rules" in stages:
         try:
             _markdown, blocks = cached_parse(item.image_path, item.doc_type, no_cache)
         except Exception as exc:
             errors["parse"] = str(exc)
 
-    if "raw" in stages:
+    if "raw" in stages or "rules" in stages:
         if blocks is None:
             preds["raw"] = None
         else:
@@ -192,7 +205,8 @@ def run_stages(item: Item, schema: dict, stages: tuple[str, ...], no_cache: bool
                 errors["rules"] = str(exc)
                 preds["rules"] = None
 
-    if "ao" in stages and item.grade == "gold" and item.ao_path:
+    has_ao = bool(item.ao_path and Path(item.ao_path).is_file())
+    if "ao" in stages and has_ao:
         try:
             from backend.verify import flatten
 
@@ -204,7 +218,7 @@ def run_stages(item: Item, schema: dict, stages: tuple[str, ...], no_cache: bool
             errors["ao"] = str(exc)
             preds["ao"] = None
 
-    if "final" in stages and item.grade == "gold" and item.ao_path:
+    if "final" in stages and has_ao:
         try:
             from backend import verify as verify_mod
             from backend.verify import flatten
@@ -319,24 +333,29 @@ def verdict(label_val, pred_val, kind: str) -> str:
 
 
 def aggregate(rows: list[tuple[str, object, object, str]]) -> dict:
-    stat = {"correct": 0, "total": 0, "fp": 0}
+    stat = {"correct": 0, "total": 0, "fp": 0, "strict_correct": 0, "strict_total": 0, "strict_fp": 0}
     wrong = []
     for key, label_val, pred_val, kind in rows:
         result = verdict(label_val, pred_val, kind)
+        strict = strict_same(kind, label_val, pred_val)
         if result == "skip":
+            stat["strict_fp"] += not strict
             continue
         if result == "fp":
             stat["fp"] += 1
+            stat["strict_fp"] += not strict
         else:
             stat["total"] += 1
             stat["correct"] += result == "correct"
+            stat["strict_total"] += 1
+            stat["strict_correct"] += strict
         if result != "correct":
             wrong.append((key, label_val, pred_val))
     return {**stat, "wrong": wrong}
 
 
 def process_item(item: Item, stages: tuple[str, ...], no_cache: bool) -> dict:
-    item_stages = tuple(s for s in stages if s not in GOLD_ONLY_STAGES or item.grade == "gold")
+    item_stages = stages
     schema = schema_for(item.doc_type)
     preds, errors = run_stages(item, schema, item_stages, no_cache)
     stage_stats = {}
@@ -345,11 +364,14 @@ def process_item(item: Item, stages: tuple[str, ...], no_cache: bool) -> dict:
         if pred == NOT_IMPLEMENTED:
             stage_stats[stage] = NOT_IMPLEMENTED
         elif not isinstance(pred, dict):
-            stage_stats[stage] = {"correct": 0, "total": 0, "fp": 0, "wrong": [], "rows": [], "error": errors.get(stage, "예측 없음")}
+            reason = errors.get(stage, "AO 결과 없음" if stage in {"ao", "final"} else "예측 없음")
+            stage_stats[stage] = {"correct": 0, "total": 0, "fp": 0, "strict_correct": 0, "strict_total": 0, "strict_fp": 0, "wrong": [], "rows": [], "error": reason}
         else:
             rows = score(item.doc_type, schema, item.fields, pred)
             stage_stats[stage] = {**aggregate(rows), "rows": rows}
-    return {"doc_type": item.doc_type, "grade": item.grade, "image": item.image_path.name, "stages": stage_stats, "errors": errors}
+    return {"doc_type": item.doc_type, "grade": item.grade, "image": item.image_path.name,
+            "label": str(item.label_path.resolve()), "labeler": item.label.get("labeler"),
+            "label_provenance": item.label.get("provenance"), "split": getattr(item, "split", None), "stages": stage_stats, "errors": errors}
 
 
 # --------------------------------------------------------------------------------------
@@ -358,7 +380,8 @@ def process_item(item: Item, stages: tuple[str, ...], no_cache: bool) -> dict:
 
 def build_summaries(items_out: list[dict], doc_types: list[str], stages: tuple[str, ...]):
     """(유형별·단계별 요약, 유형·필드별·단계별 요약). NOT_IMPLEMENTED가 하나라도 나온 (유형,단계)는 그걸로 표시."""
-    summary = {dt: {stage: {"correct": 0, "total": 0, "fp": 0} for stage in stages} for dt in doc_types}
+    summary = {dt: {stage: {"correct": 0, "total": 0, "fp": 0, "strict_correct": 0, "strict_total": 0, "strict_fp": 0,
+                            "evaluated": 0, "skipped": 0, "error": 0} for stage in stages} for dt in doc_types}
     field_summary: dict = {dt: defaultdict(lambda: {stage: {"correct": 0, "total": 0, "fp": 0} for stage in stages}) for dt in doc_types}
     unimplemented = {dt: set() for dt in doc_types}
     for entry in items_out:
@@ -368,9 +391,19 @@ def build_summaries(items_out: list[dict], doc_types: list[str], stages: tuple[s
                 unimplemented[doc_type].add(stage)
                 continue
             agg = summary[doc_type][stage]
+            if stat.get("error"):
+                if stat["error"] == "AO 결과 없음":
+                    agg["skipped"] += 1
+                else:
+                    agg["error"] += 1
+                continue
+            agg["evaluated"] += 1
             agg["correct"] += stat["correct"]
             agg["total"] += stat["total"]
             agg["fp"] += stat["fp"]
+            agg["strict_correct"] += stat["strict_correct"]
+            agg["strict_total"] += stat["strict_total"]
+            agg["strict_fp"] += stat["strict_fp"]
             for key, label_val, pred_val, kind in stat["rows"]:
                 cell = field_summary[doc_type][key][stage]
                 result = verdict(label_val, pred_val, kind)
@@ -393,10 +426,13 @@ def _cell(stat) -> str:
     if stat == NOT_IMPLEMENTED:
         return NOT_IMPLEMENTED
     correct, total, fp = stat["correct"], stat["total"], stat["fp"]
+    counts = f" eval={stat['evaluated']} skip={stat['skipped']} error={stat['error']}" if "evaluated" in stat else ""
     if total == 0 and fp == 0:
-        return "-"
+        return "-" + counts
     base = f"{100 * correct / total:.1f}% ({correct}/{total})" if total else "(0/0)"
-    return base + (f" fp={fp}" if fp else "")
+    strict = (f" strict={100 * stat['strict_correct'] / stat['strict_total']:.1f}% ({stat['strict_correct']}/{stat['strict_total']})"
+              if stat.get("strict_total") else (" strict=-" if "strict_total" in stat else ""))
+    return base + strict + (f" fp={fp}" if fp else "") + (f" strict_fp={stat['strict_fp']}" if stat.get("strict_fp") else "") + counts
 
 
 def print_overview(summary: dict, doc_types: list[str], stages: tuple[str, ...]):
@@ -471,20 +507,49 @@ def strip_rows(entry: dict) -> dict:
 
 
 def main():
+    global CACHE_ROOT
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--doc-type", action="append", choices=DOC_TYPES)
     parser.add_argument("--grade", choices=["gold", "silver", "all"], default="all")
     parser.add_argument("--stage", action="append", choices=STAGES)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--no-cache", action="store_true")
+    parser.add_argument("--cache-root", type=Path, help="실험별 파싱·추출 캐시 경로 (기존 캐시와 격리)")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--manifest", type=Path, help="확장 매니페스트의 기존+holdout 라벨만 평가한다")
+    parser.add_argument("--split", choices=["existing", "holdout", "all"], default="all", help="--manifest 평가 split (기본 all)")
     args = parser.parse_args()
+    if args.cache_root:
+        CACHE_ROOT = args.cache_root.resolve()
 
     doc_types = args.doc_type or DOC_TYPES
     stages = tuple(args.stage or STAGES)
 
-    label_paths = [p for doc_type in doc_types for p in sorted((LABELS_ROOT / doc_type).glob("*.json"))]
+    if args.manifest:
+        manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+        selected_items = [item for item in manifest["items"] if item["doc_type"] in doc_types and
+                          (args.split == "all" or item.get("split") == args.split)]
+        selected = {(item["doc_type"], str(Path(item["image"]).resolve())) for item in selected_items}
+        split_by_image = {(item["doc_type"], str(Path(item["image"]).resolve())): item.get("split") for item in selected_items}
+        roots = {LABELS_ROOT, Path(manifest["label_root"])}
+        label_paths = []
+        for root in roots:
+            for path in root.glob("*/*.json"):
+                label = json.loads(path.read_text(encoding="utf-8"))
+                if (label.get("doc_type"), str(Path(label.get("image", "")).resolve())) in selected:
+                    label_paths.append(path)
+        label_paths = sorted(set(label_paths))
+        found = {(json.loads(path.read_text(encoding="utf-8")).get("doc_type"),
+                  str(Path(json.loads(path.read_text(encoding="utf-8")).get("image", "")).resolve())) for path in label_paths}
+        missing = selected - found
+        if missing:
+            raise RuntimeError(f"매니페스트 라벨 누락: {len(missing)}건 (먼저 verify_label.py --manifest 실행 필요)")
+    else:
+        label_paths = [p for doc_type in doc_types for p in sorted((LABELS_ROOT / doc_type).glob("*.json"))]
     items = [Item(p) for p in label_paths]
+    if args.manifest:
+        for item in items:
+            item.split = split_by_image[(item.doc_type, str(item.image_path.resolve()))]
     if args.grade != "all":
         items = [item for item in items if item.grade == args.grade]
     if not items:
@@ -502,6 +567,12 @@ def main():
                 result = future.result()
             except Exception as exc:
                 logger.error("실패: %s/%s: %s", item.doc_type, item.image_path.name, exc)
+                result = {"doc_type": item.doc_type, "grade": item.grade, "image": item.image_path.name,
+                          "label": str(item.label_path.resolve()), "labeler": item.label.get("labeler"),
+                          "split": getattr(item, "split", None), "errors": {"process": str(exc)},
+                          "stages": {stage: {"correct": 0, "total": 0, "fp": 0, "strict_correct": 0,
+                                             "strict_total": 0, "strict_fp": 0, "wrong": [], "rows": [], "error": str(exc)} for stage in stages}}
+                items_out.append(result)
                 continue
             items_out.append(result)
             logger.info(
@@ -513,13 +584,20 @@ def main():
     logger.info("전체 완료: %d건, %.1fs 소요", len(items_out), elapsed)
 
     summary, field_summary = build_summaries(items_out, doc_types, stages)
+    split_summary = {split: build_summaries([entry for entry in items_out if entry.get("split") == split], doc_types, stages)[0]
+                     for split in ("existing", "holdout") if any(entry.get("split") == split for entry in items_out)}
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_path = RESULTS_ROOT / f"eval-{timestamp}.json"
     out_path.write_text(json.dumps({
+        "version": 2,
         "generated_at": timestamp,
-        "args": {"doc_type": doc_types, "grade": args.grade, "stage": list(stages), "workers": args.workers, "no_cache": args.no_cache},
+        "args": {"doc_type": doc_types, "grade": args.grade, "stage": list(stages), "workers": args.workers, "no_cache": args.no_cache,
+                 "manifest": str(args.manifest.resolve()) if args.manifest else None,
+                 "cache_root": str(CACHE_ROOT.resolve())},
+        "provenance": {"labels": [str(path.resolve()) for path in label_paths], "comparison": "legacy rules.same + strict rules.normalize exact"},
         "summary": summary,
+        "split_summary": split_summary,
         "items": [strip_rows(entry) for entry in items_out],
     }, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     logger.info("결과 저장: %s", out_path)

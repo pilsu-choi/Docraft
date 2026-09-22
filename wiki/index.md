@@ -9,6 +9,8 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [정확도 평가 확장과 홀드아웃 라벨 매니페스트](2026-09-22-accuracy-eval-expansion.md) - 기존 36건과 콘텐츠 중복 없는 40건 holdout, 독립 라벨 provenance, strict/legacy 평가 집계
+
 * [룰 검증 성능 개선 우선순위](2026-09-22-rule-performance-review.md) - 표 복원·자동 일치 기준·Judge 범위와 평가 개선 제안
 
 * [README 아키텍처·처리 흐름 시각화](2026-09-22-readme-architecture.md) - 서비스 관계와 일반 추출·AO 검증 흐름을 Mermaid로 정리하고 현행 스키마·설정을 반영

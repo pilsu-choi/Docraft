@@ -382,8 +382,6 @@ def _candidates(labels, blocks):
             match = pattern.search(line)
             if match:
                 yield match[1]
-
-
 def _fill(doc_type, out, blocks):
     """빠진 스칼라를 라벨 동의어로 찾아 채운다. 짝이 되는 필드가 이미 쓰고 있는 값은 그 필드의 것이다."""
     for key, value in out.items():
@@ -430,11 +428,14 @@ def _notes(doc_type, out, blocks):
     """전용 표가 없는 서식에서 소견 문장·비고의 날짜 표시로 치료·검사·수술 내역 행을 만든다(AO 관례)."""
     tables = doctypes.spec(doc_type)["tables"]
     for table, (labels, date_column, name_column) in NOTES.items():
-        if table not in tables or out.get(table):
+        if table not in tables:
+            continue
+        if out.get(table):
             continue
         for candidate in _candidates(labels, blocks):
             text = normalize("text", candidate)
             if text and len(_key(text)) >= SENTENCE and not _junk(text):
+                # 소견 속 날짜는 진료일이 아니라 과거력·예정일인 경우가 많아 표의 날짜 칸에는 넣지 않는다.
                 out[table] = [{date_column: None, name_column: text}]
                 break
     for line in _lines(blocks):
@@ -474,6 +475,92 @@ def _group_titles(doc_type, out, blocks):
         if _grouped(cells, titles, subs) is True:
             for row in out.get(ITEM_TABLE) or []:
                 row[column] = None
+
+
+def _receipt_column(cells):
+    """반복·병합된 영수증 머리글 셀을 AO 항목내역 열 이름으로 바꾼다."""
+    text = _key(" ".join(str(cell or "") for cell in cells))
+    if "선택진료료이외" in text or "선택진료료외" in text:
+        return "선택진료료외"
+    if "선택진료료" in text:
+        return "선택진료료"
+    if "전액본인부담" in text:
+        return "전액본인부담"
+    if "공단부담" in text or "보험자부담" in text:
+        return "공단부담금"
+    if "본인부담" in text:
+        return "본인부담금"
+    return None
+
+
+def _receipt_item(values):
+    """항목이 여러 병합 칸으로 나뉜 행에서 실제 항목명만 조합한다."""
+    values = [str(value).strip() for value in values if str(value or "").strip()]
+    if not values:
+        return None
+    # 첫 칸은 보통 '기본항목' 같은 분류이고, 끝 두 칸이 항목·세부항목이다.
+    tail = values[-2:]
+    text = tail[-1] if len(tail) == 1 or _key(tail[0]) == _key(tail[-1]) else " ".join(tail)
+    name = item(text)
+    # 안내문·날짜·OCR 깨짐은 표 칸 수가 맞아도 항목 행의 근거가 될 수 없다. 실제 항목은 짧은
+    # 한글(필요하면 CT·MRI 같은 대문자 약어)로 이뤄진다.
+    if (not name or name not in RECEIPT_ITEM_NAMES or _junk(text) or not re.search(r"[가-힣]", name) or not _RECEIPT_ITEM_TEXT.fullmatch(name)
+            or normalize("date", name)):
+        return None
+    return name
+
+
+def _receipt_rows(blocks):
+    """파서 표에서 근거가 확실한 진료비영수증 항목 행만 복원한다.
+
+    표 머리글의 항목 병합 칸과 둘 이상의 금액 열을 함께 확인한다. 따라서 본문 문장이나 다른 표를
+    항목으로 해석하지 않으며, 원 추출에 없는 항목만 보충하는 데 쓴다.
+    """
+    rebuilt = []
+    for block in blocks or []:
+        rows = block.get("rows") or []
+        for start, header in enumerate(rows):
+            item_columns = [index for index, cell in enumerate(header) if _key(cell).endswith("항목")]
+            if not item_columns:
+                continue
+            body = next((index for index in range(start + 1, len(rows))
+                         if _receipt_item([rows[index][column] if column < len(rows[index]) else ""
+                                           for column in item_columns])), None)
+            if body is None:
+                continue
+            columns = {index: _receipt_column([row[index] if index < len(row) else "" for row in rows[start:body]])
+                       for index in range(len(header))}
+            leaves = {}
+            for index, column in columns.items():
+                if column:
+                    leaves.setdefault(column, []).append(index)
+            if len(leaves) < 2:
+                continue
+            for source in rows[body:]:
+                name = _receipt_item([source[index] if index < len(source) else "" for index in item_columns])
+                if not name:
+                    continue
+                row = {"항목": name}
+                for column, indexes in leaves.items():
+                    values = {normalize("amount", source[index]) for index in indexes if index < len(source)} - {None}
+                    row[column] = values.pop() if len(values) == 1 else None
+                rebuilt.append(row)
+            break
+    return rebuilt
+
+
+def _receipt_table(doc_type, out, blocks):
+    """모델이 빠뜨린 영수증 항목을 파서 표 행으로 보충한다."""
+    if doc_type != "진료비영수증":
+        return
+    rows = out.get(ITEM_TABLE) or []
+    names = {item(row.get("항목")) for row in rows}
+    for row in _receipt_rows(blocks):
+        if row["항목"] not in names:
+            total = next((index for index, existing in enumerate(rows) if item(existing.get("항목")) == "합계"), len(rows))
+            rows.insert(total, row)
+            names.add(row["항목"])
+    out[ITEM_TABLE] = rows
 
 
 def _period(out):
@@ -547,8 +634,19 @@ ITEM_ALIASES = (  # AO 프롬프트의 항목명 정규화 규칙
     (re.compile(r"^식대?$"), "식대"),
     (re.compile(r"^(계|합계|총계|합계금액)$"), "합계"),
 )
+# 건강보험 진료비 계산서·영수증의 표준 항목. 파서 표에서 새 행을 만들 때만 이 목록을 적용한다.
+# 모델이 낸 비정형 항목은 버리지 않고 그대로 보존한다.
+RECEIPT_ITEM_NAMES = frozenset((
+    "진찰료", "입원료", "입원료_1인실", "입원료_2-3인실", "입원료_4인실이상", "식대",
+    "투약및조제료_행위료", "투약및조제료_약품비", "주사료_행위료", "주사료_약품비",
+    "처치및수술", "처치및수술료", "검사료", "영상진단료", "방사선치료료", "마취료", "정신요법료",
+    "재활및물리치료료", "치료재료대", "전혈및혈액성분제제료", "CT진단료", "MRI진단료", "PET진단료",
+    "초음파진단료", "보철교정료", "제증명료", "정액수가", "정액수가요양병원", "포괄수가진료비",
+    "65세이상등정액", "시행령별표2제4호의요양급여", "합계",
+))
 LUMP_ITEMS = ("정액수가", "65세이상등정액", "질병군포괄수가")  # 항목 행을 묶어 담는 포괄수가 행
 _MULTI_AMOUNT = re.compile(r"\d[\d,]*\s+\d")
+_RECEIPT_ITEM_TEXT = re.compile(r"^[0-9A-Z가-힣_-]{1,24}$")
 
 
 def item(name) -> str | None:
@@ -709,6 +807,7 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     _fill(doc_type, out, blocks or [])
     _notes(doc_type, out, blocks or [])
     _split_codes(out)
+    _receipt_table(doc_type, out, blocks or [])
     _totals(doc_type, out)
     _group_titles(doc_type, out, blocks or [])
     _period(out)

@@ -1,5 +1,12 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-22 (15)
+* **Update**: [accuracy-eval-expansion](2026-09-22-accuracy-eval-expansion.md)에 76건 전후·split별 정확도와 FP, 모델 비교, 원복한 임상 지침 실험, 254개 테스트 및 목표 미달을 기록했다. README에 평가 절차를 추가했다.
+
+## 2026-09-22 (14)
+* **Creation**: [accuracy-eval-expansion](2026-09-22-accuracy-eval-expansion.md)에 기존 36건과 내용 중복 없는 유형별 10건 holdout 매니페스트, 독립 라벨 provenance, rules 단독 실행 의존성, strict/legacy 정확도와 evaluated/skipped/error 집계를 기록했다.
+* **Update**: [index](index.md)에 정확도 평가 확장 문서를 연결했다.
+
 ## 2026-09-22 (13)
 * **Update**: 사용자 우선 목표인 정확도 96%와 유형별 추가 정답 필요량을 [rule-performance-review](2026-09-22-rule-performance-review.md)에 추가했다. 목표 단계·집계 단위는 미확정이며 속도 최적화는 후순위다.
 * **Creation**: [rule-performance-review](2026-09-22-rule-performance-review.md)에 코드·저장 평가 기반 개선 우선순위를 기록했다(구현·신규 성능 측정 없음).

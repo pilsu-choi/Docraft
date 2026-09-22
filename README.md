@@ -113,6 +113,16 @@ curl -X POST http://127.0.0.1:8000/api/verify \
 
 `DOCRAFT_API_KEY`를 설정한 경우 `-H "X-API-Key: $DOCRAFT_API_KEY"`를 추가합니다. API/UI 형식 AO 응답을 지원합니다. 검증 설계와 평가 기록은 [AO 교차검증 문서](wiki/2026-09-22-ocr-verify.md)를 참고하세요.
 
+정확도 평가는 기존 36건과 추가 40건을 고정 매니페스트로 구분합니다. 추가 라벨은 독립 모델로 생성한 silver이며, 전체 원문 검수를 마친 정답셋으로 취급하지 않습니다. `rules`는 **모델 추출 후 룰 적용** 결과이고, `final`은 실제 AO JSON이 연결된 문서만 평가합니다.
+
+```bash
+.venv/bin/python scripts/verify_label.py --write-manifest data/verify/accuracy-20260922/manifest.json
+.venv/bin/python scripts/verify_label.py --manifest data/verify/accuracy-20260922/manifest.json --model anthropic/claude-sonnet-4.5
+.venv/bin/python scripts/verify_eval.py --manifest data/verify/accuracy-20260922/manifest.json --split holdout --stage rules
+```
+
+이미 고정한 매니페스트는 재생성하지 않고 재사용합니다. 평가에는 기존의 느슨한 값 비교와 정규화 후 완전 일치(`strict`), 오탐 수, 평가·제외·오류 문서 수를 함께 기록합니다. 추출 지침이나 모델을 바꾼 실험은 이전 추출 캐시를 재사용하면 반영되지 않으므로 별도 캐시로 비교하거나 `--no-cache`로 다시 처리해야 합니다. [확대 평가 기록](wiki/2026-09-22-accuracy-eval-expansion.md)을 참고하세요.
+
 ## 주요 API
 
 | 기능 | 경로 |
