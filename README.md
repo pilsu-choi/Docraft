@@ -179,7 +179,7 @@ Celery를 쓰려면 `pip install -r requirements-queue.txt` 후 `QUEUE_BACKEND=c
 AI_MODE=provider
 AI_BASE_URL=https://openrouter.ai/api/v1
 AI_API_KEY=<provider-key>
-AI_VLM_MODEL=qwen/qwen3.5-27b
+AI_VLM_MODEL=qwen/qwen3-vl-32b-instruct
 PARSE_PROVIDER=paddle
 PADDLEOCR_BASE_URL=http://127.0.0.1:8080
 ```
