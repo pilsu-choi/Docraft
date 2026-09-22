@@ -91,8 +91,12 @@ deviceIds"를 명시했고, 코드 간결성 지침과도 맞다) — `gpu.nodeS
 
 ## 보안 컨텍스트
 
-backend·worker·frontend·smoke 테스트는 harness와 같은 `restricted` 수준(`runAsNonRoot`, uid 10001,
-`capabilities: drop ALL`, `allowPrivilegeEscalation: false`)을 적용했다. PaddleOCR·vLLM 세 GPU
+backend·worker·smoke 테스트는 harness와 같은 `restricted` 수준(`runAsNonRoot`, uid 10001,
+`capabilities: drop ALL`, `allowPrivilegeEscalation: false`)을 적용했다. frontend는 같은 수준이지만
+uid 101이다 — 공식 `nginx:*-alpine`(root, 80번 포트)이 `capabilities: drop ALL`에서 CHOWN·SETUID·
+SETGID·NET_BIND_SERVICE 없이 크래시루프하는 것을 코드 리뷰로 잡아, 베이스 이미지를
+`nginxinc/nginx-unprivileged`(uid 101, 8080번 포트)로 바꾸고 `dft.podSecurity (uid 101 gid 101)`을
+적용해 고쳤다(Service 외부 포트는 80 그대로, 컨테이너만 8080). PaddleOCR·vLLM 세 GPU
 컴포넌트는 벤더 이미지가 root를 전제로 하므로(compose `user: root`, vLLM은 harness도 같은 전제) 강제하지
 않고 `seccompProfile: RuntimeDefault`와 `allowPrivilegeEscalation: false`만 적용했다 — harness
 `deploy/models/README.md`의 "비 root 전환은 GPU에서 검증하기 전" 결정을 그대로 따랐다.

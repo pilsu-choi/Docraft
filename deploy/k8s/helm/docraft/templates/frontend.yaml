@@ -13,7 +13,7 @@ metadata:
 data:
   default.conf: |
     server {
-        listen 80;
+        listen 8080;
         server_name _;
         root /usr/share/nginx/html;
         index index.html;
@@ -65,17 +65,16 @@ spec:
       labels: {{- include "dft.selector" (dict "ctx" . "component" "frontend") | nindent 8 }}
     spec:
       {{- include "dft.podCommon" . | nindent 6 }}
-      # 공식 nginx 이미지는 마스터 프로세스가 root 로 80번 포트를 바인딩한 뒤 워커로 내려간다 —
-      # runAsNonRoot 를 강제하면 80이 특권 포트라 바인딩에 실패한다. 쓰기 필요한 경로만 emptyDir 로 연다.
+      # nginxinc/nginx-unprivileged(frontend/Dockerfile)는 uid 101로 8080을 듣는다 — 특권 포트
+      # 바인딩·setuid/setgid·chown이 필요 없어 restricted PSS(runAsNonRoot + capabilities drop ALL)를
+      # 그대로 만족한다. 공식 nginx:*-alpine(root, 80번 포트)로 되돌리면 다시 크래시루프된다.
+      {{- include "dft.podSecurity" (dict "uid" 101 "gid" 101) | nindent 6 }}
       containers:
         - name: frontend
           image: {{ include "dft.image" (dict "ctx" . "name" "frontend") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports: [{ name: http, containerPort: 80 }]
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities: { drop: ["ALL"] }
+          ports: [{ name: http, containerPort: 8080 }]
+          {{- include "dft.containerSecurity" (dict "readOnly" true) | nindent 10 }}
           readinessProbe: { httpGet: { path: /, port: http }, periodSeconds: 10 }
           livenessProbe:  { httpGet: { path: /, port: http }, periodSeconds: 30, failureThreshold: 3 }
           resources: {{- toYaml .Values.frontend.resources | nindent 12 }}

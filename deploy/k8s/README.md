@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | `backend` | 켜짐 | FastAPI, `/api/health`. `DOCRAFT_DATA_DIR=/data`(PVC) |
 | `worker` | 꺼짐 | Celery. `queue.backend=celery`일 때만 의미 있다 |
-| `frontend` | 꺼짐 | nginx. 이미지에 구운 `backend:8000` 프록시 주소를 ConfigMap으로 실제 Service 주소로 덮는다 |
+| `frontend` | 꺼짐 | `nginxinc/nginx-unprivileged`(uid 101, 8080번 포트). 이미지에 구운 `backend:8000` 프록시 주소를 ConfigMap으로 실제 Service 주소로 덮는다. Service 외부 포트는 그대로 80 |
 | `paddleocrVl` | 꺼짐(GPU) | PaddleOCR-VL 레이아웃 파서. `vlm-server`(vLLM 백엔드)+`api`(paddlex serve) 두 파드 |
 | `paddleocrLines` | 꺼짐(GPU 드라이버만) | PP-OCRv5 줄 좌표. `--device cpu` 기본이지만 이미지가 paddlepaddle-gpu라 libcuda 로딩에 GPU 가시성이 필요하다 |
 | `vllmVlm` | 꺼짐(GPU) | Qwen3-VL-32B-Instruct vLLM 서버. hostPath 가중치(반입 번들) |
