@@ -104,13 +104,14 @@ def test_same_still_separates_different_values(kind, a, b):
     assert not rules.same(kind, a, b) and not rules.same(kind, b, a)
 
 
-def test_rows_same_follows_the_lenient_comparison():
+def test_row_diff_follows_the_lenient_comparison():
     """표 비교도 같은 규칙을 따른다: 빈 금액 칸 = 0, 접두가 붙은 항목명 = 같은 항목."""
     ao = [{"항목": "초음파진단료", "본인부담금": "1000", "비급여": None}]
     mine = [{"항목": "(기본항목)초음파진단료", "본인부담금": "1,000", "비급여": "0"}]
 
-    assert verify._rows_same("진료비영수증", "항목내역", ao, mine)
-    assert not verify._rows_same("진료비영수증", "항목내역", ao, [{**mine[0], "본인부담금": "2000"}])
+    assert verify._row_diff("진료비영수증", "항목내역", ao, mine) == []
+    assert verify._row_diff("진료비영수증", "항목내역", ao, [{**mine[0], "본인부담금": "2000"}]) == [
+        {"row": 0, "column": "본인부담금", "ao": "1000", "docraft": "2000"}]
 
 
 def test_same_compares_after_normalizing():
@@ -378,14 +379,17 @@ def test_correct_adds_a_missing_row_only_when_it_has_no_amounts():
     assert "CT진단료" in reason
 
 
-def test_apply_keeps_the_final_total_row_of_a_receipt_but_drops_a_subtotal():
+def test_apply_keeps_both_the_subtotal_and_the_total_row_of_a_receipt():
+    """서식에 인쇄된 소계 행을 지우면 아래 행이 밀린다. 남기되 합계 필드는 합계 행만 채운다."""
     rows = [{"항목": "진찰료", "공단부담금": "1,000"}, {"항목": "소계", "공단부담금": "1,000"},
-            {"항목": "계", "공단부담금": "2,000"}]
+            {"항목": "계", "공단부담금": "1,000"}]
 
     out = rules.apply("진료비영수증", {"항목내역": rows}, [])
 
-    assert [row["항목"] for row in out["항목내역"]] == ["진찰료", "합계"]
-    assert out["공단부담총액"] == "2000"  # 합계 행은 합계 필드도 채운다
+    assert [row["항목"] for row in out["항목내역"]] == ["진찰료", "소계", "합계"]
+    assert out["공단부담총액"] == "1000"  # 합계 행만 합계 필드를 채운다(소계는 채우지 않는다)
+    # 남긴 소계를 합계 계산에서는 빼므로 항목 행 합(1,000)이 합계 행과 어긋나지 않는다
+    assert [flag for flag in rules.check("진료비영수증", out, {}, []) if flag["code"] == "sum_mismatch"] == []
 
 
 def test_check_does_not_guess_a_missing_column_without_header_evidence():
@@ -505,3 +509,50 @@ def test_a_field_does_not_take_the_value_of_its_pair():
 
     assert out["병원주소"] == "서울시 강남구 1로 2"
     assert out["주소"] is None
+
+
+# ── 표 행 대응 ──────────────────────────────────────────────────────────────
+
+def test_pair_rows_matches_by_key_columns_not_by_order():
+    """세부내역서는 EDI코드+시작일자로 짝짓는다. 코드 한 글자가 어긋나도 아래 행이 밀리지 않는다."""
+    label = [{"항목": "식대", "EDI코드": "DN001", "시작일자": "20210808", "횟수": "3"},
+             {"항목": "식대", "EDI코드": "DN001", "시작일자": "20210810", "횟수": "2"}]
+    read = [{"항목": "식대", "EDI코드": "CN001", "시작일자": "20210808", "횟수": "3"},
+            {"항목": "식대", "EDI코드": "DN001", "시작일자": "20210810", "횟수": "2"}]
+
+    pairs = rules.pair_rows("세부내역서", "항목내역", label, read)
+
+    assert [(left["시작일자"], right["시작일자"]) for left, right in pairs] == [
+        ("20210808", "20210808"), ("20210810", "20210810")]
+
+
+def test_pair_rows_attaches_a_collapsed_item_name_to_its_detailed_row():
+    """짝이 없으면 접두가 같은 행에 붙인다('주사료' ⊂ '주사료_행위료')."""
+    pairs = rules.pair_rows("진료비영수증", "항목내역",
+                            [{"항목": "주사료_행위료"}, {"항목": "주사료_약품비"}],
+                            [{"항목": "주사료", "본인부담금": "442"}, {"항목": "주사료", "본인부담금": "88"}])
+
+    assert [right["본인부담금"] for _, right in pairs] == ["442", "88"]
+
+
+def test_pair_rows_leaves_a_row_without_a_counterpart_unpaired_when_asked():
+    """``fallback=False``면 키가 맞지 않는 행을 억지로 잇지 않는다."""
+    pairs = rules.pair_rows("진료비영수증", "항목내역", [{"항목": "입원료"}], [{"항목": "수액"}], fallback=False)
+
+    assert pairs == [({"항목": "입원료"}, None), (None, {"항목": "수액"})]
+
+
+def test_receipt_table_restores_detailed_item_names_in_printed_order():
+    """모델이 '주사료' 한 이름으로 뭉친 두 행을 파서 표의 세분 항목명·순서로 되돌린다."""
+    header = ["구분", "항목", "본인부담금", "공단부담금"]
+    rows = [header, ["기본", "진찰료", "3,423", "7,987"], ["기본", "주사료 행위료", "442", "1,030"],
+            ["기본", "주사료 약품비", "88", "205"], ["기본", "검사료", "0", "0"]]
+    blocks = [block(rows=[header[:1] + ["본인부담금"] + header[2:], *rows], kind="table")]
+    read = {"항목내역": [{"항목": "진찰료", "본인부담금": "3,423", "공단부담금": "7,987"},
+                     {"항목": "주사료", "본인부담금": "442", "공단부담금": "1,030"},
+                     {"항목": "주사료", "본인부담금": "88", "공단부담금": "205"}]}
+
+    out = rules.apply("진료비영수증", read, blocks)
+
+    assert [row["항목"] for row in out["항목내역"]] == ["진찰료", "주사료_행위료", "주사료_약품비", "검사료"]
+    assert [row["본인부담금"] for row in out["항목내역"]] == ["3423", "442", "88", "0"]
