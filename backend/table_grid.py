@@ -7,19 +7,29 @@ guaranteed by construction; only merges can go wrong."""
 from bisect import bisect_left
 
 import numpy as np
+from PIL import Image
 
 GAP = 3  # px: rule thickness; profile rows closer than this belong to one rule
-SLACK = 10  # px: how far a warped scan bends a rule away from its table-wide position
+SLACK = 10  # px floor for how far a warped scan bends a rule away from its table-wide position
+COVER = 0.9  # fraction of a cell edge that must carry rule pixels for the edge to count as ruled
+FIRM = 0.5  # a boundary ruled in this share of the rows is a real column everywhere, never a merge
+TILT = 3.0  # degrees of page tilt searched before the rules are read
 
 
 def _runs(dark, length, axis):
-    """Mask of pixels on a dark run of at least `length` along `axis` (erode then dilate with a 1-D window)."""
-    if dark.shape[axis] < length:
+    """Mask of pixels on a dark run of at least `length` along `axis` (erode then dilate with a 1-D window).
+
+    The dilation window is [j - length + 1, j], so the mask keeps the input shape and stays in place; an
+    off-by-one here shifts every rule by a pixel and leaves the last `length - 1` rows/columns blind."""
+    size = dark.shape[axis]
+    if size < length:
         return np.zeros_like(dark)
-    csum = np.cumsum(np.pad(dark.astype(np.int32), [(1, 0) if a == axis else (0, 0) for a in range(2)]), axis=axis)
-    head = np.take(csum, range(length, dark.shape[axis] + 1), axis=axis) - np.take(csum, range(dark.shape[axis] - length + 1), axis=axis) == length
-    csum = np.cumsum(np.pad(head.astype(np.int32), [(length, 0) if a == axis else (0, 0) for a in range(2)]), axis=axis)
-    return np.take(csum, range(length, csum.shape[axis]), axis=axis) - np.take(csum, range(csum.shape[axis] - length), axis=axis) > 0
+    pad = [(1, 0) if a == axis else (0, 0) for a in range(2)]
+    csum = np.cumsum(np.pad(dark.astype(np.int32), pad), axis=axis)
+    head = np.take(csum, range(length, size + 1), axis=axis) - np.take(csum, range(size - length + 1), axis=axis) == length
+    csum = np.cumsum(np.pad(head.astype(np.int32), pad), axis=axis)
+    index = np.arange(size)
+    return np.take(csum, np.minimum(index + 1, size - length + 1), axis=axis) - np.take(csum, np.maximum(index - length + 1, 0), axis=axis) > 0
 
 
 def _positions(profile, size, minimum, text):
@@ -61,6 +71,41 @@ def _dark(gray, window=31, contrast=20):
     return img < total / window ** 2 - contrast
 
 
+def _skew(dark, step=0.2):
+    """Page tilt in degrees: the angle whose horizontal projection is sharpest.
+
+    Rules and text lines pile onto a few rows only when the page is straight. A photographed or photocopied
+    page is often tilted by a degree or more, which moves a rule a hundred pixels across a full-page table —
+    far beyond any fixed `SLACK`, so every cell edge then reads as missing and the whole row merges into one cell."""
+    height, width = dark.shape
+    stride = max(1, width // 256)  # a few hundred columns are enough to see the tilt
+    sample, offsets = dark[:, ::stride], np.arange(0, width, stride)
+    span = round(width * np.tan(np.radians(TILT))) + 1
+    best, angle = -1.0, 0.0
+    for candidate in np.arange(-TILT, TILT + step / 2, step):
+        shifts = np.round(offsets * np.tan(np.radians(candidate))).astype(int)
+        profile = np.zeros(height + 2 * span)  # padded, so every angle keeps the same total ink
+        for shift in np.unique(shifts):
+            profile[span - shift:span - shift + height] += sample[:, shifts == shift].sum(1)
+        score = float((profile ** 2).sum())
+        if score > best:
+            best, angle = score, float(candidate)
+    return angle
+
+
+def _straighten(image, boxes, angle):
+    """Rotate the crop and its OCR boxes together, so the grid is built on axis-aligned rules."""
+    turned = image.rotate(angle, resample=Image.BILINEAR, expand=True, fillcolor=255)
+    sin, cos = np.sin(np.radians(angle)), np.cos(np.radians(angle))
+    cx, cy, nx, ny = image.width / 2, image.height / 2, turned.width / 2, turned.height / 2
+    moved = []
+    for x0, y0, x1, y1, text in boxes:
+        x, y = (x0 + x1) / 2 - cx, (y0 + y1) / 2 - cy
+        px, py, half_w, half_h = nx + x * cos + y * sin, ny - x * sin + y * cos, (x1 - x0) / 2, (y1 - y0) / 2
+        moved.append([px - half_w, py - half_h, px + half_w, py + half_h, text])
+    return turned, moved
+
+
 def _split(box, x):
     """Cut an OCR box at vertical rule `x` on the word gap nearest to it; None when the rule would cut a word.
 
@@ -80,11 +125,15 @@ def ruled_table(image, bbox, lines):
     `lines` are OCR {"text", "bbox"} boxes in the same coordinates; rows/spans follow the `_grid` convention."""
     x0, y0, x1, y1 = (round(v) for v in bbox)
     crop = image.crop((x0, y0, x1, y1)).convert("L")
+    boxes = [[b[0] - x0, b[1] - y0, b[2] - x0, b[3] - y0, str(line["text"]).strip()] for line in lines for b in [line["bbox"]] if str(line["text"]).strip()]
     dark = _dark(np.asarray(crop))
+    angle = _skew(dark)
+    if abs(angle) >= 0.1:  # below the search step the rotation would only add resampling blur
+        crop, boxes = _straighten(crop, boxes, angle)
+        dark = _dark(np.asarray(crop))
     h, w = dark.shape
     # Thicken by one pixel across the line direction so slightly skewed scan rules stay one continuous run.
     thick_h, thick_v = dark | np.roll(dark, 1, 0) | np.roll(dark, -1, 0), dark | np.roll(dark, 1, 1) | np.roll(dark, -1, 1)
-    boxes = [[b[0] - x0, b[1] - y0, b[2] - x0, b[3] - y0, str(line["text"]).strip()] for line in lines for b in [line["bbox"]] if str(line["text"]).strip()]
     # A rule spans at least one cell: cells are taller than 1.2 text heights and wider than two glyphs,
     # while a glyph stroke is at most one text height long.
     text_h = float(np.median([b[3] - b[1] for b in boxes])) if boxes else 25
@@ -97,9 +146,11 @@ def ruled_table(image, bbox, lines):
     if rows < 2 or cols < 2:
         return None
 
+    slack = max(SLACK, round(text_h / 2))  # scale with the page: 10px is nothing on a 300 DPI scan
+
     def ruled(mask, at, start, end, axis):
-        band = mask[max(0, at - SLACK):at + SLACK + 1, start + GAP:end - GAP] if axis else mask[start + GAP:end - GAP, max(0, at - SLACK):at + SLACK + 1]
-        return band.size and band.any(axis=0 if axis else 1).mean() >= 0.9
+        band = mask[max(0, at - slack):at + slack + 1, start + GAP:end - GAP] if axis else mask[start + GAP:end - GAP, max(0, at - slack):at + slack + 1]
+        return band.size and band.any(axis=0 if axis else 1).mean() >= COVER
 
     def row_of(b):
         return next((r for r in range(rows) if (b[1] + b[3]) / 2 <= ys[r + 1]), rows - 1)
@@ -107,10 +158,15 @@ def ruled_table(image, bbox, lines):
     def crosses(b, x):
         return min(x - b[0], b[2] - x) > (b[3] - b[1]) / 2
 
+    # A boundary ruled in most rows is a printed column, so a row where the rule reads as missing is a faint
+    # or broken scan rather than a merge — only text actually running across it still merges the two cells.
+    # Without this, one weak row collapses into a single cell holding the whole row's text.
+    strength = [sum(ruled(vertical, xs[c + 1], ys[r], ys[r + 1], 0) for r in range(rows)) / rows for c in range(cols - 1)]
+    firm = {xs[c + 1] for c in range(cols - 1) if strength[c] >= FIRM}
     queue, boxes = boxes, []
     while queue:  # split boxes that span a real rule at a word gap
         b = queue.pop()
-        x = next((x for x in xs[1:-1] if crosses(b, x) and ruled(vertical, x, ys[row_of(b)], ys[row_of(b) + 1], 0)), None)
+        x = next((x for x in xs[1:-1] if crosses(b, x) and (x in firm or ruled(vertical, x, ys[row_of(b)], ys[row_of(b) + 1], 0))), None)
         parts = _split(b, x) if x is not None else None
         if parts:
             queue.extend(parts)
@@ -118,7 +174,8 @@ def ruled_table(image, bbox, lines):
             boxes.append(b)
     # open_right[r][c]: no rule between (r, c) and (r, c + 1); open_down[r][c]: none between (r, c) and (r + 1, c).
     # Text still running across a rule after splitting means the "rule" is scan noise through a word.
-    open_right = [[not ruled(vertical, xs[c + 1], ys[r], ys[r + 1], 0) or any(crosses(b, xs[c + 1]) and row_of(b) == r for b in boxes)
+    open_right = [[(not ruled(vertical, xs[c + 1], ys[r], ys[r + 1], 0) and strength[c] < FIRM)
+                   or any(crosses(b, xs[c + 1]) and row_of(b) == r for b in boxes)
                    for c in range(cols - 1)] for r in range(rows)]
     open_down = [[not ruled(horizontal, ys[r + 1], xs[c], xs[c + 1], 1) or any(
         min(ys[r + 1] - b[1], b[3] - ys[r + 1]) > (b[3] - b[1]) / 3 and xs[c] <= (b[0] + b[2]) / 2 <= xs[c + 1] for b in boxes)
