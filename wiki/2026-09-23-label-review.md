@@ -220,3 +220,4 @@ null로 지우는** 정리를 더해 재채점했다(기준 `eval-20260923-02280
 - 감사 메타: `data/verify/accuracy-20260922/label-audit.json`의 `review` 절
 - 재채점 결과: `data/verify/eval-20260923-014335.json` (교정 전 기준: `data/verify/eval-20260922-232123.json`)
 - [accuracy-eval-expansion](2026-09-22-accuracy-eval-expansion.md), [extract-grounding](2026-09-22-extract-grounding.md), [ocr-verify-labels](2026-09-22-ocr-verify-labels.md)
+- 관례 정렬을 마친 뒤의 단계별 수치와 추출 모델 비교: [label-alignment-and-model-compare](2026-09-23-label-alignment-and-model-compare.md)

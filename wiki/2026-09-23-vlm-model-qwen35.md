@@ -54,6 +54,19 @@ OpenRouter가 `qwen/qwen3.5-27b` 요청을 SiliconFlow·Novita·AtlasCloud 등 �
 
 `.env.example`, `deploy/aws/.env.aws.example`에 `AI_REASONING=off`를 추가하고, README 환경변수 표에 `AI_REASONING` 행을 더했다.
 
+## 76건 기준선 결과
+
+`AI_REASONING=off` 상태에서 76건을 재추출해(`data/verify/accuracy-20260922/model-qwen35`, 같은 parse 캐시 복사 후 추출만 재실행) 최종 코드·최종 라벨로 이전 모델과 같은 조건에서 채점했다.
+
+| 지표 (rules 단계, 76건 9,238셀) | 이전 `qwen3-vl-32b-instruct` | 새 `qwen3.5-27b` |
+| --- | --- | --- |
+| correct | 8,794 (95.2%) | 8,569 (92.8%) |
+| strict | 7,764 (84.0%) | 7,411 (80.2%) |
+| fp | 330 | 321 |
+| 추출 호출 지연 | 10~30초(과거 기록) | 중앙값 36.9초·p90 105초·최대 268초 |
+
+사고 모드를 껐는데도 지연 중앙값이 이전 모델보다 높고(사고 모드 on일 때의 222초보다는 훨씬 낫다), 정확도는 유형 전반에서 낮다. 다만 fp는 소견서 14→4 등으로 줄어 환각 억제는 새 모델이 낫다. 유형별·existing/holdout 표, 뒤진 원인 상위 5개, 단가 대비 해석과 권고는 [label-alignment-and-model-compare](2026-09-23-label-alignment-and-model-compare.md)에 정리했다.
+
 ## 남은 과제
 
-76건 기준선 재추출(정확도·소요 시간 재측정)은 이 변경 이후 별도로 실행할 예정이며 이 문서에는 포함하지 않았다.
+모델 전환 여부 결정은 사용자에게 보류돼 있다. 현 벤치마크 기준으로는 정확도·지연·단가 모두 이전 모델이 우세하므로 별도 전환 사유가 없으면 `qwen/qwen3-vl-32b-instruct` 유지를 권고한다 — 근거와 반대 근거는 [label-alignment-and-model-compare](2026-09-23-label-alignment-and-model-compare.md) "권고" 절 참고.
