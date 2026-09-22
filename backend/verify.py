@@ -238,6 +238,7 @@ def run(image: str, ao: dict, doc_type: str | None = None) -> dict:
     """이미지와 AO 응답(API·UI 형식)을 받아 교정된 AO JSON을 돌려준다. 유형을 모르면 ValueError."""
     given = document(ao)
     doc_type = doc_type or given.get("doc_type") or given.get("predicted_doc_type")
+    doc_type = doctypes.ALIASES.get(doc_type, doc_type)
     if doc_type not in doctypes.DOC_TYPES:
         raise ValueError(f"지원하지 않는 문서 유형입니다: {doc_type}")
     started = time.monotonic()

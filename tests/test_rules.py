@@ -306,7 +306,7 @@ def _ao_keys(doc_type):
     scalars, tables = set(), {}
     for path in sorted((AO_SAMPLES / doc_type).glob("*.json")):
         for document in json.loads(path.read_text())["documents"]:
-            if document["doc_type"] != doc_type:
+            if doctypes.ALIASES.get(document["doc_type"], document["doc_type"]) != doc_type:
                 continue
             scalars |= {field["key"] for field in document.get("extracted_fields") or []}
             for group in document.get("extracted_groups") or []:
@@ -327,6 +327,18 @@ def test_schema_covers_every_ao_key(doc_type):
     for table, headers in tables.items():
         assert table in properties, table
         assert headers <= set(properties[table]["items"]["properties"]), headers
+
+
+@pytest.mark.skipif(not AO_SAMPLES.exists(), reason="AO 예시 응답이 없는 환경")
+@pytest.mark.parametrize("doc_type", ["수술확인서", "입퇴원확인서", "약제비영수증"])
+def test_schema_matches_ao_keys_and_order_exactly(doc_type):
+    document = json.loads(next((AO_SAMPLES / doc_type).glob("*.json")).read_text())["documents"][0]
+    order = [field["key"] for field in document["extracted_fields"]]
+    order += [field["key"] for group in document["extracted_groups"] for field in group["fields"]]
+    spec = doctypes.spec(doc_type)
+    # 값이 없는 표를 AO는 "[]" 스칼라로 내므로 스칼라·표 키를 합쳐 비교한다.
+    assert set(order) | {table["key"] for table in document["extracted_tables"]} == set(doctypes.schema(doc_type)["properties"])
+    assert [key for key in order if key in spec["fields"]] == list(spec["fields"])
 
 
 # --- 진료비영수증 이상 검출·교정 (rules.check / rules.correct) ----------------
@@ -916,3 +928,34 @@ def test_edi_code_holding_the_name_takes_the_code_from_the_hospital_column():
 def test_number_and_name_fields_reject_neighbouring_text(key, value, expected):
     doc_type = "진료비영수증" if key.startswith("환자정보") else "진단서"
     assert rules.apply(doc_type, {key: value}, [])[key] == expected
+
+
+# ── 수술확인서·입퇴원확인서·약제비영수증 ────────────────────────────────────
+
+
+def test_admission_period_cell_fills_both_admission_and_discharge_dates():
+    blocks = [block(kind="table", rows=[["진료과", "정형외과", "입원기간", "2020-07-03 ~ 2020-07-11 (9일간)"]])]
+    out = rules.apply("입퇴원확인서", {"입원일자": None, "퇴원일자": None}, blocks)
+    assert (out["입원일자"], out["퇴원일자"]) == ("20200703", "20200711")
+
+
+def test_empty_department_cell_does_not_take_the_next_label():
+    blocks = [block(kind="table", rows=[["입원과", "", "호실", "", "입원 년월일", ""]])]
+    assert rules.apply("수술확인서", {"진료과": "호실"}, blocks)["진료과"] is None
+
+
+def test_surgery_date_written_in_the_name_cell_moves_to_its_column():
+    out = rules.apply("수술확인서", {"수술내역": [{"수술일자": None, "수술명": "2019.05.02 Hydrocelectomy (right)"}]}, [])
+    assert out["수술내역"] == [{"수술일자": "20190502", "수술명": "Hydrocelectomy (right)"}]
+
+
+def test_pharmacy_receipt_accident_date_is_the_dispensing_date_and_sums_are_checked():
+    fields = {"조제일자": "2021-06-03", "진료비내역-총액": "19,930", "진료비내역-급여본인부담": "4,100",
+              "진료비내역-공단부담액": "9,730", "진료비내역-비급여및전액본인부담금": "6,100",
+              "진료비내역-환자부담총액": "10,200", "약국정보(사업자등록번호)": "277-74-00289"}
+    out = rules.apply("약제비영수증", fields, [])
+    assert out["사고발생일자"] == "20210603"
+    assert out["약국정보(사업자등록번호)"] == "2777400289"
+    assert not [flag for flag in rules.check("약제비영수증", out, out, []) if flag["code"] == "sum_mismatch"]
+    out["진료비내역-환자부담총액"] = "12200"
+    assert {flag["key"] for flag in rules.check("약제비영수증", out, out, []) if flag["code"] == "sum_mismatch"} >= {"진료비내역-환자부담총액"}

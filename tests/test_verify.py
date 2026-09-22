@@ -106,6 +106,16 @@ def test_flatten_reads_a_real_statement_result_with_a_wide_table():
     assert flat["항목내역"][0]["EDI코드"] == "AA254"
 
 
+@pytest.mark.parametrize("doc_type, name", [("수술확인서", "수술확인서"), ("입퇴원확인서", "입원확인서"),
+                                            ("약제비영수증", "약제영수증")])
+def test_flatten_and_add_missing_on_the_new_types_real_results(doc_type, name):
+    document = sample(doc_type)
+    assert doctypes.ALIASES.get(document["doc_type"], document["doc_type"]) == doc_type == doctypes.ALIASES.get(name, name)
+    flat = verify.flatten(document)
+    assert set(flat) <= set(doctypes.schema(doc_type)["properties"])
+    assert verify._add_missing(document, doc_type) == 0  # AO 예시에 이미 모든 키가 있다
+
+
 def test_flatten_falls_back_to_predicted_value_and_maps_empty_values_to_none():
     flat = verify.flatten({"extracted_fields": [
         {"key": "면허번호", "value": "", "predicted_value": "44577"},
@@ -205,9 +215,20 @@ def test_run_rejects_a_document_type_it_has_no_fields_for(monkeypatch):
     stub(monkeypatch)
 
     with pytest.raises(ValueError, match="지원하지 않는 문서 유형"):
-        verify.run("scan.png", AO, doc_type="약제비영수증")
+        verify.run("scan.png", AO, doc_type="처방전")
     with pytest.raises(ValueError, match="documents"):
         verify.run("scan.png", {"documents": []})
+
+
+def test_run_maps_an_ao_document_type_alias_to_its_type(monkeypatch):
+    calls = stub(monkeypatch)
+    monkeypatch.setitem(doctypes.DOC_TYPES, "약제비영수증", {})
+    ao = deepcopy(AO)
+    ao["documents"][0]["doc_type"] = "약제영수증"
+
+    result = verify.run("scan.png", ao)
+
+    assert calls[0][1] == verify.document(result)["verify"]["doc_type"] == "약제비영수증"
 
 
 def test_run_prefers_the_requested_document_type_over_the_ao_one(monkeypatch):

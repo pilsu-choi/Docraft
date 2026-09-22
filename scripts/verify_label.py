@@ -1,6 +1,6 @@
 """AO(Agentic OCR 2.0) 교차검증용 정답셋(라벨) 구축 스크립트.
 
-문서 유형 4종(진단서·소견서·진료비영수증·세부내역서)의 이미지를 VLM(라벨링 모델 ≠ 추출 모델)에게
+문서 유형(``backend.doctypes.DOC_TYPES``)의 이미지를 VLM(라벨링 모델 ≠ 추출 모델)에게
 이미지만 보여주고(OCR 텍스트 없이) 필드값을 읽게 해 ``data/verify/labels/<doc_type>/<stem>.json``에 저장한다.
 
 라벨 파일 형식::
@@ -18,7 +18,7 @@ raw 단계에서도 그대로 가져다 쓴다).
 
 사용법::
 
-    ../../.venv/bin/python scripts/verify_label.py                       # 4종 전부: gold 4 + silver 32
+    ../../.venv/bin/python scripts/verify_label.py                       # 전 유형: 유형별 gold 1 + silver 8
     ../../.venv/bin/python scripts/verify_label.py --only-gold
     ../../.venv/bin/python scripts/verify_label.py --doc-type 진단서 --doc-type 소견서
     ../../.venv/bin/python scripts/verify_label.py --per-type 4 --force
@@ -33,6 +33,7 @@ raw 단계에서도 그대로 가져다 쓴다).
 from __future__ import annotations
 
 import argparse
+import glob
 import hashlib
 import json
 import logging
@@ -48,6 +49,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo(worktree) root -> `backend` 패키지 임포트용
 
+from backend import doctypes  # noqa: E402
 from backend.config import ai_settings  # noqa: E402
 from backend.engine import _page_images, _provider, _user  # noqa: E402
 
@@ -59,7 +61,7 @@ DATA_ROOT = REPO_ROOT / "data" / "files"
 LABELS_ROOT = REPO_ROOT / "data" / "verify" / "labels"
 AO_ROOT = Path("/home/pilsu/projects/mirae-assets/harness-v2/docs/agentic-ocr-2.0.1-results")
 
-DOC_TYPES = ["진단서", "소견서", "진료비영수증", "세부내역서"]
+DOC_TYPES = list(doctypes.DOC_TYPES)
 MODEL_CANDIDATES = ["anthropic/claude-sonnet-4.5", "google/gemini-2.5-pro", "openai/gpt-5"]
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 TIF_EXTS = {".tif", ".tiff"}
@@ -67,7 +69,7 @@ WORKERS = 4
 CALL_TIMEOUT = 180
 
 LABEL_SYSTEM = (
-    "당신은 한국 의료 문서(진단서·소견서·진료비영수증·세부내역서)를 판독하는 전문가다. "
+    "당신은 한국 의료 문서(진단서·확인서·영수증·세부내역서)를 판독하는 전문가다. "
     "첨부된 문서 이미지 원본만 보고 아래 JSON Schema의 모든 필드를 채워라. OCR 텍스트는 제공되지 않으니 "
     "이미지에 인쇄되거나 손으로 적힌 내용을 있는 그대로 읽어라. 지어내거나 다른 문서 지식으로 추측하지 마라.\n"
     "- 날짜는 YYYYMMDD 8자리 숫자 문자열로 통일한다(예: 2023년 2월 28일 -> 20230228).\n"
@@ -120,8 +122,6 @@ def fallback_schema(doc_type: str) -> dict:
 def schema_for(doc_type: str) -> dict:
     """``backend.doctypes.schema``가 구현되어 있으면 그것을, 아니면 fallback_schema를 쓴다."""
     try:
-        from backend import doctypes
-
         return doctypes.schema(doc_type)
     except NotImplementedError:
         pass
@@ -295,8 +295,9 @@ def content_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_manifest(path: Path, holdout_per_type: int = 10) -> dict:
-    """기존 36건과 내용이 겹치지 않는 고정 홀드아웃을 파일명 순서로 고른다."""
+def build_manifest(path: Path, holdout_per_type: int = 10, doc_types: list[str] | None = None) -> dict:
+    """기존 라벨과 내용이 겹치지 않는 고정 홀드아웃을 파일명 순서로 고른다. ``<stem>_0.png``는 같은 폴더
+    ``<stem>.*`` 원본을 변환한 사본이라 원본이 있으면 뺀다."""
     path = path.resolve()  # worktree를 정리해도 라벨 산출 경로는 공유 data 루트에 남긴다.
     items, used = [], set()
     for label_path in sorted(LABELS_ROOT.glob("*/*.json")):
@@ -307,11 +308,12 @@ def build_manifest(path: Path, holdout_per_type: int = 10) -> dict:
             used.add(digest)
             items.append({"doc_type": label["doc_type"], "image": str(image), "content_sha256": digest,
                           "split": "existing", "grade": label["grade"], "label": str(label_path.resolve())})
-    for doc_type in DOC_TYPES:
+    for doc_type in doc_types or DOC_TYPES:
         candidates = []
         seen = set(used)
         for image in sorted((DATA_ROOT / f"{doc_type}_samples").rglob("*")):
-            if not image.is_file() or image.suffix.lower() not in IMAGE_EXTS:
+            if not image.is_file() or image.suffix.lower() not in IMAGE_EXTS or (
+                    image.stem.endswith("_0") and any(image.parent.glob(f"{glob.escape(image.stem[:-2])}.*"))):
                 continue
             digest = content_hash(image)
             if digest not in seen:
@@ -372,7 +374,7 @@ def label_one(doc_type: str, image_path: Path, schema: dict, model: str, grade: 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--doc-type", action="append", choices=DOC_TYPES, help="반복 지정 가능. 기본은 4종 전부.")
+    parser.add_argument("--doc-type", action="append", choices=DOC_TYPES, help="반복 지정 가능. 기본은 전 유형.")
     parser.add_argument("--per-type", type=int, default=8, help="유형별 silver 라벨 수 (기본 8)")
     parser.add_argument("--model", default=None, help="라벨링 모델 id (기본: OpenRouter 후보 목록에서 자동 선택)")
     parser.add_argument("--force", action="store_true", help="이미 있는 라벨도 재생성")
@@ -385,7 +387,7 @@ def main():
     args = parser.parse_args()
 
     if args.write_manifest:
-        manifest = build_manifest(args.write_manifest)
+        manifest = build_manifest(args.write_manifest, doc_types=args.doc_type)
         logger.info("매니페스트 저장: %s (기존=%d, holdout=%d)", args.write_manifest,
                     sum(i["split"] == "existing" for i in manifest["items"]), sum(i["split"] == "holdout" for i in manifest["items"]))
         return
