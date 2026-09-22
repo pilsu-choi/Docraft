@@ -99,8 +99,25 @@ QUEUE_BACKEND=celery docker compose --profile app --profile queue up -d --build 
 5. 결과의 근거와 검증 상태를 확인한 뒤 correction endpoint로 값을 수정합니다.
 6. `GET /api/documents/{document_id}/export?format=json|csv|xlsx` 또는 `GET /api/projects/{project_id}/export?format=json|csv|xlsx&schema_id=<선택>`으로 내려받습니다.
 7. `POST /api/documents/{document_id}/parse`에 `{pages, provider, table_format}`을 보내 옵션을 바꿔 다시 파싱하고, `DELETE /api/documents/{document_id}`로 문서를 삭제합니다.
+8. `POST /api/verify`에 `multipart/form-data`로 `image`(단일 페이지 이미지)와 `ao_result`(Agentic OCR 2.0 응답 JSON 원문), 선택 `doc_type`을 보내면 Docraft가 같은 문서를 독립 추출해 필드별로 비교하고, 어긋난 값만 LLM-as-Judge로 판정해 교정한 AO JSON(`ao_value`·`docraft_value`·`source`·`reason` 포함)을 돌려줍니다.
 
 정확한 요청/응답 모델은 실행 중인 `/docs`를 기준으로 하며, API 키가 필요한 배포에서는 `X-API-Key` 헤더를 사용합니다.
+
+## Agentic OCR 2.0 결과 교차검증(verify)
+
+`POST /api/verify`는 Agentic OCR 2.0(AO)이 낸 결과를 Docraft가 독립적으로 검증·교정하는 단건 API입니다. 이미지 1장(PNG·JPG·TIF, 단일 페이지)과 AO 응답 JSON(API 형식 `documents[]` 또는 UI 형식 `result`)을 받아 다음 순서로 처리합니다.
+
+1. `backend/doctypes.py`의 문서 유형 정의(진단서·소견서·진료비영수증·세부내역서, 필드 키는 AO `key`와 동일)로 PaddleOCR 파싱과 LLM 추출을 수행합니다.
+2. `backend/rules.py`가 twin reader 플러그인에서 이식한 룰(날짜·금액·주민번호·병명코드 정규화, 라벨 동의어 보충, 성별·생년월일·사고발생일자 파생, 합계행 처리)을 적용하고, 진료비영수증 `항목내역`은 급여/비급여 열 오배정·행 병합·합계식 불일치·항목행 누락을 검사해 확실한 것은 바로 교정합니다.
+3. AO 값과 일치하는 필드는 그대로 확정하고, 어긋나거나 한쪽이 비어 있거나 이상이 검출된 필드만 이미지와 함께 한 번의 LLM-as-Judge 호출로 판정합니다.
+4. 응답은 입력 AO JSON 구조 그대로이며 각 원소의 `value`가 최종값으로 바뀌고 `ao_value`·`docraft_value`·`source`(`agree|ao|docraft|corrected|unknown`)·`reason`이 붙습니다. AO에 없던 필드·표는 `added: true`로 추가되고, `documents[0].verify`에 유형·Docraft 결과·`counts`·`checks`가 담깁니다.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/verify -H "X-API-Key: $DOCRAFT_API_KEY" \
+  -F image=@document.tif -F ao_result=@ao_response.json;type=application/json -F doc_type=진료비영수증
+```
+
+정답셋 라벨링과 단계별 정확도 평가는 `scripts/verify_label.py`·`scripts/verify_eval.py`로 합니다(라벨은 `data/verify/labels/`, 개인정보가 들어 있어 git 제외). 설계·평가 결과는 [wiki/2026-09-22-ocr-verify.md](wiki/2026-09-22-ocr-verify.md)를 참고하세요.
 
 ## 처리 모델과 현재 한계
 

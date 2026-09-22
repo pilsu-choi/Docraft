@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import threading
 import time
 import uuid
@@ -14,15 +15,16 @@ from typing import Literal
 from urllib.parse import quote
 import fitz
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from openpyxl import Workbook
+from PIL import Image
 from pydantic import BaseModel, Field, field_validator
 from jsonschema.exceptions import SchemaError
 
 from .config import public_ai_settings
-from . import engine, jobs
+from . import engine, jobs, verify
 from .db import FILES, audit, connect, decode, init_db, now
 from .parsers import ParseError, parse
 
@@ -31,6 +33,7 @@ logger = logging.getLogger(__name__)
 JSON_FIELDS = ("blocks", "result", "groundings", "validation", "parse_options")
 PAGE_RANGE_RE = re.compile(r"^\d+(-\d+)?(,\d+(-\d+)?)*$")
 ALLOWED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".docx", ".xlsx", ".csv", ".txt", ".md", ".html", ".htm"}
+IMAGES = engine.VISION_SUFFIXES - {".pdf"}  # 페이지 이미지를 가진 형식 중 단일 이미지 파일
 MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
 # Statuses a stale job may be taken over from, keyed by the status the job claims.
 ACTIVE = {"parsing": ("parsing",), "extracting": ("extracting", "validating")}
@@ -635,3 +638,40 @@ def document_page_preview(document_id: str, page: int):
         if not 1 <= page <= len(pdf): raise HTTPException(404, "페이지를 찾을 수 없습니다.")
         pixmap = pdf[page - 1].get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
         return Response(pixmap.tobytes("png"), media_type="image/png")
+
+
+def frames(path):
+    """이미지 파일의 프레임 수. 다중 페이지 TIF를 가려내는 데 쓴다."""
+    try:
+        with Image.open(path) as image: return getattr(image, "n_frames", 1)
+    except Exception: return 1
+
+
+@app.post("/api/verify", dependencies=[Depends(auth)])
+async def verify_result(image: UploadFile = File(...), ao_result: str = Form(...), doc_type: str | None = Form(None)):
+    """AO 결과 JSON(API·UI 형식)과 원본 이미지를 받아 필드별로 교차검증·교정한 JSON을 돌려준다."""
+    filename = Path(image.filename or "upload").name
+    suffix = Path(filename).suffix.lower()
+    if suffix not in IMAGES: raise HTTPException(415, f"이미지 파일만 지원합니다: {suffix or image.content_type}")
+    try:
+        ao = json.loads(ao_result)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(422, "ao_result를 JSON으로 해석할 수 없습니다.") from exc
+    try:
+        verify.document(ao)
+    except (AttributeError, ValueError) as exc:
+        raise HTTPException(422, "ao_result에 documents(또는 result)가 없습니다.") from exc
+    started = time.monotonic()
+    with tempfile.TemporaryDirectory() as folder:
+        target = Path(folder) / f"{uid()}{suffix}"
+        await save_upload(image, target)
+        if frames(target) > 1: raise HTTPException(422, "다중 페이지 문서는 아직 지원하지 않습니다.")
+        try:
+            result = verify.run(str(target), ao, doc_type)
+        except ValueError as exc:  # ParseError 포함
+            raise HTTPException(422, str(exc)) from exc
+        except Exception as exc:
+            logger.exception("verify failed: filename=%s elapsed=%.2fs", filename, time.monotonic() - started)
+            raise HTTPException(502, f"교차검증에 실패했습니다: {exc}") from exc
+    logger.info("verify finished: filename=%s counts=%s elapsed=%.2fs", filename, verify.document(result)["verify"]["counts"], time.monotonic() - started)
+    return result

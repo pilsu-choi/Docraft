@@ -3,7 +3,7 @@ type: Plan
 title: "Agentic OCR 2.0 결과 교차검증·자동 교정 API 계획"
 description: "Docraft Parse→twin reader 룰→Extract 결과와 Agentic OCR 2.0 응답을 LLM-as-Judge로 비교해 필드별로 선정·교정한 JSON을 돌려주는 API의 작업 지시서"
 tags: [plan, agentic-ocr, rule-base, llm-judge, api, harness-v2]
-status: draft
+status: stable
 ---
 
 # Agentic OCR 2.0 결과 교차검증·자동 교정 API 계획
@@ -74,10 +74,10 @@ harness-v2 통합 시에는 **harness 룰 검증에서 `status: failed`인 건�
 
 ## 5. 완료 기준
 
-- [ ] AO 결과 7종 예시 각각에 대해 API가 교정 JSON을 반환한다.
-- [ ] 룰 확장 전후 필드별 정확도 비교표가 있다.
-- [ ] `tests/`에 샘플 기반 테스트를 추가하고 통과한다.
-- [ ] wiki 문서, `wiki/index.md`, `wiki/log.md`를 갱신하고 필요하면 README도 갱신한다.
+- [x] AO 결과 예시(범위 4종) 각각에 대해 API가 교정 JSON을 반환한다(나머지 3종은 `doctypes` 정의 추가 후).
+- [x] 룰 확장 전후 필드별 정확도 비교표가 있다([ocr-verify](2026-09-22-ocr-verify.md) 6절).
+- [x] `tests/`에 샘플 기반 테스트를 추가하고 통과한다(`test_rules.py`·`test_verify.py`).
+- [x] wiki 문서, `wiki/index.md`, `wiki/log.md`를 갱신하고 필요하면 README도 갱신한다.
 
 ## 6. 작업 규칙 (AGENTS.md 요약)
 
@@ -87,7 +87,9 @@ harness-v2 통합 시에는 **harness 룰 검증에서 `status: failed`인 건�
 - 비슷한 기능의 클래스·함수를 중복으로 만들지 않고 기존 extract 경로를 재사용한다.
 - GPU가 부족하면 `harness-v2/deploy/aws`를 참고한다.
 
-## 7. 미결 사항
+## 7. 미결 사항 (2026-09-22 확정)
+
+결정: 1) 정답셋은 채점표 xlsx 대신 AO 예시 gold 4건 + VLM 라벨 silver 32건을 이미지 대조 검수해 구성, 2) 4종 우선, 3) TIF 포함 이미지 1장·다중 페이지 보류. 구현 기록은 [ocr-verify](2026-09-22-ocr-verify.md).
 
 1. **정답셋**: 0917 채점표 xlsx를 정답으로 써도 되는가, 아니면 LLM Judge 결과만으로 충분한가?
 2. **범위**: 7종 전부인가, 샘플이 있는 4종(진단서·소견서·진료비영수증·세부내역서)부터인가?

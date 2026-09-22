@@ -9,7 +9,9 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [Agentic OCR 2.0 결과 교차검증·자동 교정 API 구현](2026-09-22-ocr-verify.md) - POST /api/verify 구현 기록: doctypes·rules(twin reader 이식·확장)·verify(Judge)·AO 키/값 누락 대응·진료비영수증 표 오류 검출·교정과 정답셋 평가 결과
 * [Agentic OCR 2.0 결과 교차검증·자동 교정 API 계획](2026-09-22-ocr-verify-plan.md) - Docraft Parse→twin reader 룰→Extract 결과와 AO 응답을 LLM-as-Judge로 비교해 교정 JSON을 돌려주는 API의 작업 지시서
+* [AO 교차검증 정답셋(라벨)과 단계별 정확도 평가 스크립트](2026-09-22-ocr-verify-labels.md) - VLM으로 문서 유형 4종 정답셋(gold 4+silver 32)을 라벨링하고 36건을 이미지 대조로 검수한 뒤, 표 행 식별자 정렬·rules.same 일원화로 보정한 raw/rules/ao/final 4단계 정확도 측정 기록
 * [추출·스키마 생성에 페이지 이미지 첨부](2026-09-22-vision-extract.md) - OCR 텍스트만 보내던 VLM 호출에 문서 페이지 이미지를 함께 보내 병합 셀 표의 값·합계 오류를 없앤 기록
 * [OCR 줄 좌표 기반 grounding](2026-09-22-ocr-line-grounding.md) - 표 블록을 행 수로 균등 분할해 추정하던 grounding bbox를 PP-OCRv5 줄 단위 OCR 좌표로 교체한 기록
 * [라벨 기준 grounding과 합계 필드 추출 지시](2026-09-22-label-grounding.md) - 같은 값이 여러 셀에 있을 때 필드 라벨 옆 줄을 고르고, 합계 필드가 개별 항목 값을 가져오던 추출 오류를 프롬프트로 바로잡은 기록
