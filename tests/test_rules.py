@@ -461,6 +461,63 @@ def test_check_does_not_guess_a_missing_column_without_header_evidence():
     assert rules.check("진료비영수증", {"항목내역": rows}, {}, other) == []
 
 
+def test_receipt_column_recognizes_a_standalone_leaf_column():
+    """하위 열이 없는 홑 칸이면 비급여·급여도 열 이름으로 본다."""
+    assert rules._receipt_column(["비급여"]) == "비급여"
+    assert rules._receipt_column(["요양급여"]) == "급여"
+
+
+def test_receipt_column_does_not_treat_a_group_title_as_a_leaf():
+    """하위 열(선택진료·본인부담 등)이 딸린 묶음 제목 칸은 leaf로 보지 않는다."""
+    assert rules._receipt_column(["급여", "전액본인"]) is None    # 급여가 전액본인을 묶는 제목
+    assert rules._receipt_column(["비급여", "선택진료"]) is None  # 비급여가 선택진료를 묶는 제목
+
+
+def test_check_finds_a_column_shifted_to_its_neighbor():
+    """AO가 비급여 값을 선택진료료 칸에 냈지만 Docraft(룰 적용 후)는 비급여 칸에 바로 읽었다."""
+    rows = receipt(("초음파진단료", {"선택진료료": "50000"}))
+    mine = receipt(("초음파진단료", {"비급여": "50000"}))
+
+    found = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [])
+    flags = [flag for flag in found if flag["code"] == "column_shift"]
+
+    assert [(flag["row"], flag["column"], flag["target"]) for flag in flags] == [(0, "선택진료료", "비급여")]
+
+
+def test_correct_swaps_a_shifted_column_when_ao_left_the_true_column_empty():
+    rows = receipt(("초음파진단료", {"선택진료료": "50000"}))
+    mine = receipt(("초음파진단료", {"비급여": "50000"}))
+    checks = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [])
+
+    fixed, reason = rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": mine})["항목내역"]
+
+    assert (fixed[0]["선택진료료"], fixed[0]["비급여"]) == ("0", "50000")
+    assert "column_shift" in reason
+
+
+def test_correct_leaves_a_shift_the_judge_should_decide():
+    """AO의 대상 열에 이미 값(0이 아닌)이 있으면 함부로 바꾸지 않고 Judge에게 맡긴다."""
+    rows = receipt(("초음파진단료", {"선택진료료": "50000", "비급여": "30000"}))
+    mine = receipt(("초음파진단료", {"비급여": "50000"}))
+    checks = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [])
+
+    assert rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": mine}) == {}
+
+
+def test_apply_realigns_a_value_shifted_to_the_neighboring_column():
+    """모델이 본인부담금·공단부담금 값을 서로 바꿔 냈으면 파서 표 열 정체성으로 되돌린다."""
+    header = ["구분", "항목", "본인부담금", "공단부담금"]
+    rows = [header, ["기본", "진찰료", "3,423", "7,987"], ["기본", "초음파진단료", "1,030", "442"]]
+    blocks = [block(rows=rows, kind="table")]
+    read = {"항목내역": [{"항목": "진찰료", "본인부담금": "3423", "공단부담금": "7987"},
+                     {"항목": "초음파진단료", "본인부담금": "442", "공단부담금": "1030"}]}  # 뒤 행이 뒤바뀜
+
+    out = rules.apply("진료비영수증", read, blocks)
+
+    assert (out["항목내역"][0]["본인부담금"], out["항목내역"][0]["공단부담금"]) == ("3423", "7987")
+    assert (out["항목내역"][1]["본인부담금"], out["항목내역"][1]["공단부담금"]) == ("1030", "442")
+
+
 def test_headers_find_the_item_row_even_when_cells_are_merged():
     blocks = [{"type": "table", "rows": [["환자등록번호", "환자성명"], ["이비인후과 항목", "급여", "비급여"],
                                           ["본인부담금", "공단부담금", "전액본인부담"]]}]
