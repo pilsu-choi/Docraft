@@ -9,6 +9,8 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [key-value 정확도 개선 3건 통합 평가](2026-09-22-kv-accuracy-integration.md) - 행 정렬·보충 오탐 억제·마스터 명칭 교정 세 브랜치 병합과 76건 재평가, 가산성 확인과 남은 오류 원인
+
 * [KCD·EDI 마스터 사전 명칭 교정](2026-09-22-master-name-correction.md) - 마스터 조회 CSV 생성과 코드 일치 행의 1글자 명칭 교정, 76건 전후 수치와 임계값 근거
 
 * [라벨 보충(_fill) 오탐 억제](2026-09-22-kv-fill-false-positives.md) - 영역 제약·상호배제·근거 등급으로 rules 보충 오탐을 줄인 구현과 전후 수치
