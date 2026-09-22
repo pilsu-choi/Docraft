@@ -267,16 +267,24 @@ def test_run_without_hint_paths_behaves_as_before(monkeypatch):
     assert document["verify"]["counts"]["docraft"] == 1
 
 
-def test_run_ignores_unknown_hint_paths_and_logs_once(monkeypatch, caplog):
+def test_run_ignores_unknown_hint_paths_alongside_known_ones_and_logs_once(monkeypatch, caplog):
     calls, _ = hinted_stub(monkeypatch)
 
     with caplog.at_level("WARNING"):
-        document = verify.run("scan.png", AO, hint_paths=["없는키"])["documents"][0]
+        document = verify.run("scan.png", AO, hint_paths=["병원명", "없는키"])["documents"][0]
 
-    assert calls == []  # 유효한 힌트가 없어 Judge를 부르지 않는다
-    assert "없는키" in caplog.text
-    assert "source" not in field(document, "병원명")
-    assert document["verify"]["counts"] == {"agree": 0, "ao": 0, "docraft": 0, "corrected": 0, "unknown": 0, "added": 0}
+    assert set(calls[0][2]) == {"병원명"}  # 알 수 없는 key는 disputes에 들어가지 않는다
+    assert caplog.text.count("없는키") == 1  # 경고는 한 번만
+    assert "source" not in field(document, "진단명")  # 나머지 힌트 밖 필드는 그대로
+
+
+def test_run_rejects_hint_paths_with_no_key_defined_for_the_doc_type(monkeypatch):
+    calls, _ = hinted_stub(monkeypatch)
+
+    with pytest.raises(ValueError, match="hint_paths"):
+        verify.run("scan.png", AO, hint_paths=["없는키"])
+
+    assert calls == []  # 파싱·추출·Judge 전에 끊긴다
 
 
 def test_run_with_empty_hint_paths_behaves_as_before(monkeypatch):
@@ -306,6 +314,13 @@ def test_verify_route_rejects_invalid_hint_paths_json(tmp_path):
 
 def test_verify_route_rejects_a_non_list_hint_paths(tmp_path):
     response = post(_image(tmp_path), hint_paths=json.dumps({"key": "병원명"}))
+
+    assert response.status_code == 422 and "hint_paths" in response.json()["detail"]
+
+
+def test_verify_route_rejects_hint_paths_with_no_key_defined_for_the_doc_type(tmp_path):
+    """모든 key가 진단서 정의 밖이면(=extraction 낭비 방지) 이미지 파싱 전에 422로 끊는다(실제 verify.run)."""
+    response = post(_image(tmp_path), doc_type="진단서", hint_paths=json.dumps(["없는키"]))
 
     assert response.status_code == 422 and "hint_paths" in response.json()["detail"]
 
@@ -626,6 +641,24 @@ def test_run_reports_the_checks_and_hands_the_judge_a_hint(monkeypatch):
     assert (table["rows"][27][7]["value"], table["rows"][27][4]["value"]) == ("0", "9010000")  # 급여 → 비급여
     assert table["source"] == "corrected" and "no_column" in table["reason"]
     assert not [flag for flag in result["verify"]["checks_after"] if flag["code"] == "no_column"]
+
+
+def test_run_computes_checks_after_over_every_field_even_with_hint_paths(monkeypatch):
+    """checks_after는 final(힌트로 좁힌 부분집합)이 아니라 ao_flat에 final을 얹은 전체 필드로 돌려야
+    한다 — 안 그러면 힌트 밖 구성 필드가 빠져 sum_mismatch 같은 필드 간 검사가 묻힌다."""
+    ao = {"documents": [{"doc_type": "진료비영수증", "extracted_fields": [
+        {"key": "진료비총액", "value": "999999", "confidence": 0.9},
+        {"key": "환자부담총액", "value": "300000", "confidence": 0.9},
+        {"key": "공단부담총액", "value": "200000", "confidence": 0.9},
+    ]}]}
+    real_stub(monkeypatch, {"진료비총액": "999999"}, {})  # docraft가 AO와 같아 dispute 없이 agree
+
+    result = verify.run("scan.png", ao, hint_paths=["진료비총액"])["documents"][0]
+
+    assert set(field(result, key)["value"] for key in ("환자부담총액", "공단부담총액")) == {"300000", "200000"}
+    assert "source" not in field(result, "환자부담총액")  # 힌트 밖이라 판정은 안 붙지만
+    codes = {flag["code"] for flag in result["verify"]["checks_after"]}
+    assert "sum_mismatch" in codes  # 999999 ≠ 300000+200000, 힌트 밖 구성 필드까지 봐야 잡힌다
 
 
 # --- 라우트가 UI 형식을 받는지 ---------------------------------------------

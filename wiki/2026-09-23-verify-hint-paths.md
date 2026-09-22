@@ -25,6 +25,7 @@ Judge LLM에 보냈다(비교 자체는 전체 필드 대상). 호출자인 harn
 - 생략하거나 빈 배열(`[]`)이면 기존과 동일하게 전체 필드를 비교·판정한다.
 - JSON으로 해석할 수 없거나 배열이 아니면(원소가 문자열이 아니어도) `422`.
 - 정의에 없는 key는 무시하고 `backend.verify` 로거에 경고를 한 번 남긴다(요청당 1회, key 목록을 묶어서).
+  단, **모든** key가 정의 밖이면(유효한 key가 0개) `422` — 빈 스키마로 추출을 호출하는 낭비를 막는다.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/verify \
@@ -52,6 +53,10 @@ curl -X POST http://127.0.0.1:8000/api/verify \
   기존처럼 `unknown`으로 표시한다.
 - `verify.counts`는 `only` 안에서 실제로 판정된 key만 센다 — `agree`·`ao`·`docraft`·`corrected`·
   `added` 모두 힌트 밖 필드는 포함하지 않는다.
+- **유효한 key가 0개면 즉시 중단**: `hint_paths`가 있는데 정의된 key가 하나도 없으면(전부 무시 대상)
+  `doc_type` 해석 직후, `parse(image, ...)`(OCR)·`engine.extract`(VLM) 호출 전에 `ValueError`를
+  낸다 — 라우트가 기존 "지원하지 않는 문서 유형" 경로와 같은 처리로 `422`를 돌려준다(단일 지점, 라우트
+  쪽에 별도 검증 코드를 두지 않았다).
 
 ## 구현 메모
 
@@ -62,6 +67,7 @@ curl -X POST http://127.0.0.1:8000/api/verify \
   함수를 만들지 않았다(코드 최소화 지시).
 - `rules.check`/`rules.correct`(이상 검사·룰 교정)는 `only` 없이 문서 전체를 대상으로 그대로 돌린다 —
   `verify.checks`/`checks_after`는 힌트와 무관하게 전체 결과를 보고한다. 값 반영만 `only`로 걸렀다.
+  (`checks_after`는 코드 리뷰 후 `final` 대신 `{**ao_flat, **final}`로 계산한다 — 아래 참고.)
 
 ## 테스트
 
@@ -72,14 +78,37 @@ curl -X POST http://127.0.0.1:8000/api/verify \
   힌트 안 key만 반영하는지
 - 추출 스키마의 `properties`/`required`가 `hint_paths`로 좁혀지는지
 - `hint_paths`가 없거나 빈 배열이면 기존과 동일하게 전체 key가 대상이 되는지
-- 정의에 없는 key만 주면 Judge를 아예 부르지 않고 경고 로그가 남는지
+- 알려진 key와 알 수 없는 key가 섞이면 알 수 없는 쪽만 무시하고 경고가 한 번 남는지
+- 유효한 key가 하나도 없으면 `ValueError`(→ 라우트 `422`)를 내고 Judge를 부르지 않는지(`run`·라우트 양쪽)
 - 라우트가 `hint_paths`를 파싱해 `verify.run`에 그대로 넘기는지, 잘못된 JSON·배열이 아닌 값이 `422`가
   되는지
+- `checks_after`가 `hint_paths`로 힌트 밖에 남은 구성 필드까지 포함해 `sum_mismatch` 같은 필드 간
+  검사를 놓치지 않는지(`test_run_computes_checks_after_over_every_field_even_with_hint_paths`)
 
 기존 `test_verify_route_returns_the_corrected_result`·`test_verify_route_accepts_the_ui_result_format`의
 `verify.run` monkeypatch 시그니처에 `hint_paths=None`을 추가해 새 위치 인자와 맞췄다.
 
-`pytest tests/test_verify.py`: 51 passed. 전체 스위트 `pytest`: 376 passed.
+`pytest tests/test_verify.py`: 54 passed. 전체 스위트 `pytest`: 379 passed.
+
+## 코드 리뷰 반영: 빈 힌트 조기 종료·checks_after 부분집합 버그
+
+코드 리뷰에서 두 가지가 지적됐다.
+
+1. `hint_paths`가 전부 정의 밖 key면 `only`가 빈 집합이 되어 `properties`가 0개인 스키마로
+   `engine.extract`(VLM 호출)를 그대로 부르고 있었다. `run()`이 `only` 계산 직후 — `parse(image, ...)`
+   보다 먼저 — 유효한 key가 0개면 `ValueError`를 내도록 고쳤다. 라우트는 이미 `ValueError`를 `422`로
+   옮기는 경로(`except ValueError as exc: raise HTTPException(422, str(exc))`)를 갖고 있어 별도
+   라우트 코드 없이 그대로 재사용된다 — 검증 로직이 `run()` 한 곳에만 있다.
+2. `checks_after = rules.check(doc_type, final, docraft, blocks)`가 `hint_paths`로 좁힌 `final`(판정된
+   key만 있는 부분집합)만 보고 있어서, 예컨대 `진료비총액`만 힌트에 있고 그 구성 필드(`환자부담총액`·
+   `공단부담총액`)는 힌트 밖이면 `rules._field_sums`가 구성 필드를 못 찾아 `sum_mismatch`를 놓쳤다.
+   `{**ao_flat, **final}`(전체 필드 + 판정으로 갱신된 값)로 바꿔 힌트 밖 필드도 원래 AO 값으로 검사에
+   들어가게 했다.
+
+`tests/test_verify.py`의 `test_run_ignores_unknown_hint_paths_and_logs_once`는 위 1번 때문에 더 이상
+성립하지 않아 두 테스트로 나눴다: 알려진/알 수 없는 key가 섞인 경우(무시+경고, `run` 계속 진행)와
+전부 알 수 없는 경우(`ValueError`). 라우트 422 테스트도 하나 추가했다(`AO`의 실제 `doc_type="진단서"`
+기준 실제 `verify.run` 사용, `ValueError`가 `parse()` 전에 나므로 OCR 없이 끝난다).
 
 ## 판정 없음은 `unknown`
 

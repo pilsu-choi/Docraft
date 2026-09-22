@@ -1,5 +1,8 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-23 (8)
+* **Update**: 코드 리뷰 지적 2건을 [verify-hint-paths](2026-09-23-verify-hint-paths.md)의 "코드 리뷰 반영" 절에 기록하고 반영했다. (1) `hint_paths`가 전부 정의 밖 key여서 `only`가 빈 집합이 되면 속성 0개 스키마로 VLM 추출을 낭비하던 문제 — `verify.run`이 `only` 계산 직후, `parse()`(OCR)·`engine.extract`(VLM) 호출 전에 `ValueError`를 내도록 고쳤고, 라우트는 기존 `ValueError`→`422` 경로를 그대로 재사용해 검증 로직이 `run()` 한 곳에만 있다. (2) `checks_after = rules.check(doc_type, final, ...)`가 `hint_paths`로 좁힌 부분집합만 봐서 힌트 밖 구성 필드가 빠지는 `sum_mismatch` 등 필드 간 검사를 놓치던 문제 — `{**ao_flat, **final}`로 바꿔 힌트 밖 필드도 원래 AO 값으로 검사 대상에 넣었다. `tests/test_verify.py`의 `test_run_ignores_unknown_hint_paths_and_logs_once`를 "알려진/알 수 없는 key 혼합"과 "전부 알 수 없음(ValueError)" 두 테스트로 나누고, 라우트 422 테스트(`test_verify_route_rejects_hint_paths_with_no_key_defined_for_the_doc_type`)와 `checks_after` 회귀 테스트(`test_run_computes_checks_after_over_every_field_even_with_hint_paths`)를 추가했다. `pytest tests/test_verify.py` 54 passed, 전체 `pytest` 379 passed.
+
 ## 2026-09-23 (7)
 * **Update**: [verify-hint-paths](2026-09-23-verify-hint-paths.md)에 "판정 없음은 `unknown`" 절을 추가했다. Judge 판정이 없는 key를 `source="ao"` 대신 `unknown`으로 내보내 harness 폴백이 거짓 확인으로 읽지 않게 했고, 룰 교정 key는 `corrected`를 유지한다. 전체 `pytest` 376 passed.
 

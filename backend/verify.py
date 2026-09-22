@@ -249,7 +249,7 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
     ``hint_paths``를 주면(비어 있지 않은 목록) 그 key(필드·표 key)만 비교·Judge 대상으로 삼고, 추출
     스키마도 그만큼 좁힌다. 나머지 필드·표는 AO 입력 그대로 돌아가며 ``source``·``reason`` 등 판정
     정보가 붙지 않는다 — 그 유무로 호출자가 판정 여부를 가릴 수 있다. 정의에 없는 key는 무시하고
-    한 번 경고 로그를 남긴다.
+    한 번 경고 로그를 남긴다. 유효한 key가 하나도 없으면(모두 정의 밖) 파싱·추출 전에 ValueError.
     """
     given = document(ao)
     doc_type = doc_type or given.get("doc_type") or given.get("predicted_doc_type")
@@ -262,6 +262,8 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
         only, unknown = {key for key in hint_paths if key in known}, {key for key in hint_paths if key not in known}
         if unknown:
             logger.warning("verify: hint_paths에 알 수 없는 key가 있습니다: %s", sorted(unknown))
+        if not only:  # 유효한 key가 하나도 없으면 파싱·추출 전에 끊는다(route가 ValueError를 422로 옮긴다)
+            raise ValueError(f"hint_paths에 {doc_type}에 정의된 key가 없습니다: {sorted(hint_paths)}")
     started = time.monotonic()
     _, blocks = parse(image, Path(image).name, "", {"provider": "paddle"})
     result, _ = engine.extract(_restrict(doctypes.schema(doc_type), only), blocks, source=image)
@@ -322,7 +324,7 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
                      source=source, reason=reason)
     counts = {**{name: counts[name] for name in SOURCES}, "added": added}
     target["verify"] = {"doc_type": doc_type, "docraft": docraft, "counts": counts, "checks": checks,
-                        "checks_after": rules.check(doc_type, final, docraft, blocks)}
+                        "checks_after": rules.check(doc_type, {**ao_flat, **final}, docraft, blocks)}
     logger.info("verify: doc_type=%s fields=%d disputes=%d checks=%d counts=%s elapsed=%.2fs",
                 doc_type, len(ao_flat), len(disputes), len(checks), counts, time.monotonic() - started)
     return output
