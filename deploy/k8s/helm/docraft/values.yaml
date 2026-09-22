@@ -1,0 +1,211 @@
+# =============================================================================
+# Docraft · Helm values
+# =============================================================================
+# harness-installer 우산 차트의 서브차트로 쓸 것을 전제로 한다 — Postgres·Redis는 이 차트가
+# 띄우지 않는다(externalDatabase.url / externalRedis.url 로 harness-v2 쪽을 가리킨다).
+#
+# 자주 바꾸는 것:
+#   image.registry              내부 레지스트리 주소(비우면 노드에 import 한 이미지를 쓴다)
+#   externalDatabase.url        harness pgvector Postgres의 docraft 전용 DB
+#   externalRedis.url           harness redis(QUEUE_NAME 으로 분리)
+#   paddleocrVl.enabled / paddleocrLines.enabled / vllmVlm.enabled   GPU 컴포넌트 켜고 끄기
+#   gpu.nodeSelector             deviceIds 를 쓰는 모든 GPU 파드가 뜰 노드(필수)
+#   models.volume.hostPath       vLLM VLM 가중치 루트(반입 번들이 채운다)
+# =============================================================================
+
+# ── 이미지 ──────────────────────────────────────────────────────────────
+image:
+  # 내부 레지스트리 주소(예: harbor.corp.local/docraft). 값이 있으면 모든 이미지가
+  # "<registry>/<repository>:<tag>" 로 바뀐다. 비워 두면 "<repository>:<tag>" 그대로
+  # — 노드 containerd 에 직접 import 한 경우다.
+  registry: ""
+  # IfNotPresent 여야 노드 import 방식이 동작한다(Always 면 레지스트리를 찾아 나선다).
+  pullPolicy: IfNotPresent
+  pullSecrets: []   # 예: [{name: harbor-cred}]
+
+images:
+  # backend·frontend 는 저장소 Dockerfile 로 빌드해 내부 레지스트리에 올린 이미지다(우산 차트가 빌드).
+  backend:  { repository: docraft-backend,  tag: latest }
+  frontend: { repository: docraft-frontend, tag: latest }
+  # PaddleOCR-VL 레이아웃 파서(compose와 같은 이미지 두 개). vlm-server 는 실제 vLLM 백엔드,
+  # paddleocrVl 은 paddlex serve API(paddleocr-lines 도 같은 이미지를 쓴다).
+  paddleocrVlmServer: { repository: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server, tag: latest-nvidia-gpu-offline }
+  paddleocrVl:        { repository: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-vl,               tag: latest-nvidia-gpu-offline }
+  # Qwen3-VL 서빙. harness와 같은 이미지·태그를 써서 반입 번들에 한 번만 싣는다.
+  vllm:               { repository: vllm/vllm-openai, tag: v0.29.0 }
+
+# ── 비밀값 ──────────────────────────────────────────────────────────────
+auth:
+  # 이미 만든 Secret 을 쓰려면 이름을 준다. 키: DATABASE_URL, CELERY_BROKER_URL,
+  # DOCRAFT_API_KEY(없어도 뜬다 — 그때 API 인증 없음), AI_API_KEY
+  existingSecret: ""
+  # Docraft API 인증(X-API-Key). 비우면 인증 없음(내부망 테스트 기본값).
+  apiKey: ""
+  # vLLM(templates/vllm-vlm.yaml)의 --api-key 와 backend AI_API_KEY 가 함께 읽는 키.
+  # backend/config.py 의 ai_settings() 는 base_url·model 이 있어도 이 값이 비어 있으면
+  # "미설정"으로 본다 — 그래서 기본값도 비워 두지 않는다(운영에서는 openssl rand -hex 32 로 바꾼다).
+  aiApiKey: "docraft"
+
+# ── 백엔드(FastAPI) ────────────────────────────────────────────────────
+backend:
+  replicas: 1
+  port: 8000
+  service:
+    type: ClusterIP
+  # 문자열로 둔다 — helm 의 값 YAML→JSON 왕복에서 큰 정수가 float64 가 되어 quote 시
+  # 지수 표기(2.62144e+07)로 깨지는 문제를 피한다.
+  maxUploadBytes: "26214400"
+  # 콤마 구분 origin. 프론트엔드를 이 차트의 nginx(동일 오리진 프록시)로만 쓰면 비워도 된다.
+  corsOrigins: ""
+  logLevel: INFO
+  aiVision: true
+  aiReasoning: "off"
+  tableRefine: false
+  # 여기 없는 설정을 더 넣을 때(backend/config.py 의 환경변수명 그대로)
+  extraEnv: {}
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits:   { memory: 2Gi }
+
+# Celery 워커(선택). QUEUE_BACKEND=celery 일 때만 의미가 있다 — inline 이면 배포하지 않는다.
+worker:
+  enabled: false
+  replicas: 1
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits:   { memory: 2Gi }
+
+# 프론트엔드(nginx). 기본은 꺼짐 — 우산 차트나 별도 정적 호스팅을 쓸 수 있어 선택으로 둔다.
+frontend:
+  enabled: false
+  replicas: 1
+  service:
+    type: ClusterIP
+    nodePort: ""
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { memory: 256Mi }
+
+# ── 작업 큐 ─────────────────────────────────────────────────────────────
+queue:
+  # inline = API 프로세스 스레드 풀(기본, 추가 인프라 불필요). celery = externalRedis 브로커 사용,
+  # worker.enabled=true 도 같이 켠다.
+  backend: inline
+  # 공용 redis/Celery 를 쓸 때 큐·태스크·키를 분리하는 네임스페이스(backend/jobs.py).
+  name: docraft
+  concurrency: 2
+  # 이 시간(초) 동안 heartbeat 이 없으면 죽은 작업으로 보고 다시 받는다.
+  leaseSeconds: 600
+
+# ── 외부 DB·큐 (이 차트는 Postgres·Redis 를 띄우지 않는다) ───────────────
+externalDatabase:
+  # 필수. 예: postgresql://docraft:<pw>@mlife-harness-postgres:5432/docraft
+  # (harness pgvector Postgres에 docraft 전용 DB를 만들어 가리킨다 — 우산 차트가 채운다)
+  url: ""
+externalRedis:
+  # queue.backend=celery 일 때만 필요. 예: redis://mlife-harness-redis:6379/1
+  # (harness redis 공유 — QUEUE_NAME 으로 키·큐가 분리되므로 DB 번호만 겹치지 않게 한다)
+  url: ""
+
+# ── 스토리지 ────────────────────────────────────────────────────────────
+persistence:
+  storageClass: ""
+  # backend·worker 가 함께 쓰는 /data(업로드 원본).
+  data:
+    accessMode: ReadWriteOnce
+    size: 10Gi
+    storageClass: ""
+  # paddleocr-lines 가 첫 기동 때 받는 PP-OCRv5 모델 캐시($HOME/.paddlex).
+  # ⚠️ 공식 이미지는 이 캐시를 huggingface/paddle 허브에서 내려받는다 — 폐쇄망에서는 사전에
+  # 채워 둬야 한다(반입 번들이 hostPath 로 주입하거나, PVC 를 임시 파드로 채운 뒤 붙인다).
+  paddlexModels:
+    size: 5Gi
+    storageClass: ""
+    # 값이 있으면 PVC 대신 이 경로를 hostPath 로 붙인다(모델 볼륨과 같은 반입 방식).
+    hostPath: ""
+
+# ── vLLM VLM 가중치 볼륨 (Qwen3-VL) ────────────────────────────────────
+models:
+  volume:
+    # 반입 번들이 노드마다 여기에 <모델 서브디렉터리>를 둔다(vllmVlm.modelDir).
+    hostPath: /opt/docraft/models
+    # 값이 있으면 hostPath 대신 이 PVC(같은 구조)를 읽기전용으로 붙인다. hostPath 는 Pod Security
+    # baseline·restricted 네임스페이스에서 거부된다.
+    existingClaim: ""
+
+# ── GPU 파드 공통 스케줄링 ───────────────────────────────────────────────
+# paddleocr-vl(vlm-server·api) · paddleocr-lines · vllm-vlm 세 컴포넌트에 적용된다.
+# 셋 다 deviceIds 로 device plugin 을 우회한다(harness-v2 INSTALL.md §11과 같은 방식) — 전제 조건:
+# 노드의 nvidia-container-toolkit 이 accept-nvidia-visible-devices-envvar-when-unprivileged=true
+# 여야 한다(GPU Operator 기본은 false). 그래서 nvidia.com/gpu 를 요청하지 않고, 아래 nodeSelector 로
+# 노드를 직접 지정해야 한다(비우면 렌더링이 멈춘다).
+gpu:
+  nodeSelector: {}
+  tolerations:
+    - { key: nvidia.com/gpu, operator: Exists, effect: NoSchedule }
+  # nvidia 가 기본 런타임이 아닌 클러스터(k3s·RKE2 등)는 "nvidia".
+  runtimeClassName: ""
+
+# ── PaddleOCR-VL 레이아웃 파서 (GPU) ───────────────────────────────────
+# vlm-server(vLLM 백엔드, 실제 추론)와 api(paddlex serve, HTTP 앞단) 두 파드로 뜬다.
+paddleocrVl:
+  enabled: false
+  model: PaddleOCR-VL-1.6-0.9B
+  # 쓸 GPU 카드 번호(쉼표 구분, 노드의 물리 번호). 기본 배치: GPU0 = paddleocr-vl + harness bge-m3(이
+  # 차트 밖) + paddleocr-lines(드라이버만). GPU1 = vllm-vlm 전용.
+  deviceIds: "0"
+  # GPU 전체 메모리 대비 비율. compose 기본값 0.6 은 L4 24GB(약 14.4GB) 기준이다. 고객 환경(L40S
+  # 48GB)에서는 같은 절대량이면 0.3 이지만, harness bge-m3·paddleocr-lines 와 카드를 나눠 쓰므로
+  # 여유를 더 둬 0.25 를 기본값으로 한다 — 실측 후 조정한다(미확정, 아래 uncertain 참고).
+  gpuMemoryUtilization: 0.25
+  maxNumSeqs: 32
+  maxNumBatchedTokens: 16384
+  # PaddleOCR-VL API 요청 타임아웃(초). backend PADDLEOCR_TIMEOUT 과 값을 맞춘다.
+  timeout: 600
+  resources:
+    vlmServer:
+      requests: { cpu: "1", memory: 4Gi }
+      limits:   { memory: 16Gi }
+    api:
+      requests: { cpu: 500m, memory: 1Gi }
+      limits:   { memory: 4Gi }
+
+# ── PP-OCRv5 줄 좌표 파서 (CPU 추론, GPU 드라이버만 주입) ───────────────
+paddleocrLines:
+  enabled: false
+  # cpu(기본) | gpu:0 등 — paddlex --serve --device 값. CPU 를 써도 이미지가 paddlepaddle-gpu 라
+  # libcuda 로딩에 GPU 가시성이 필요하다(없으면 ImportError, compose 주석과 동일 이유).
+  device: cpu
+  # GPU0 에 드라이버만 얹는다(연산은 하지 않는다) — paddleocrVl 과 같은 카드를 공유한다.
+  deviceIds: "0"
+  resources:
+    requests: { cpu: "1", memory: 2Gi }
+    limits:   { memory: 4Gi }
+
+# ── vLLM VLM — Qwen3-VL-32B-Instruct (GPU) ─────────────────────────────
+vllmVlm:
+  enabled: false
+  # backend AI_VLM_MODEL 로 그대로 전달되는 served 이름.
+  servedModelName: "qwen3-vl-32b-instruct"
+  # models.volume.hostPath(또는 existingClaim) 아래 서브디렉터리 — 반입 번들이 채운다.
+  # 기본은 FP8 양자화판(미확정 실제 배포 모델 ID, 아래 uncertain 참고).
+  modelDir: "Qwen3-VL-32B-Instruct-FP8"
+  # 쓸 GPU 카드 번호(쉼표 구분). 장수는 여기 개수로 정해진다 — --tensor-parallel-size 에 그대로
+  # 들어간다. BF16 + 텐서 병렬로 바꾸려면 modelDir 을 BF16 가중치로, deviceIds 를 "1,2" 처럼
+  # 두 장으로 바꾼다(gpuMemoryUtilization·maxModelLen 은 그대로 두거나 같이 조정).
+  deviceIds: "1"
+  # GPU 전체 메모리 대비 비율. L40S 48GB에 FP8 32B(가중치 약 32GB) + KV cache 여유.
+  gpuMemoryUtilization: 0.90
+  maxModelLen: 32768
+  # 비우면 체크포인트 기본 dtype(FP8) 그대로. BF16 가중치로 바꿀 때 "bfloat16".
+  dtype: ""
+  # Qwen3-VL 계열은 커스텀 모델 코드가 필요하다.
+  extraArgs:
+    - --trust-remote-code
+  resources:
+    requests: { cpu: "2", memory: 16Gi }
+    limits:   { memory: 32Gi }
+
+# 모든 파드에 공통으로 붙일 스케줄링 설정(gpu.* 와 별도로, GPU 파드에도 함께 병합된다)
+nodeSelector: {}
+tolerations: []

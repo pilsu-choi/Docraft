@@ -1,0 +1,102 @@
+{{- if .Values.vllmVlm.enabled }}
+{{- include "dft.requireGpuNode" . }}
+{{- $fn := include "dft.fullname" . -}}
+{{- $v := .Values.vllmVlm -}}
+{{- $count := len (splitList "," (toString $v.deviceIds)) -}}
+# =============================================================================
+# vLLM OpenAI 서버 — Qwen3-VL-32B-Instruct(FP8 기본, hostPath 가중치, 폐쇄망 반입 번들).
+# backend 의 AI_BASE_URL/AI_VLM_MODEL 은 templates/config.yaml 에서 이 Service 로 연결한다.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-vllm-vlm
+  labels: {{- include "dft.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {{- include "dft.selector" (dict "ctx" . "component" "vllm-vlm") | nindent 4 }}
+  ports: [{ name: http, port: 8000, targetPort: http }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-vllm-vlm
+  labels: {{- include "dft.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  # GPU 카드를 신·구 파드가 동시에 잡을 수 없다.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: {{- include "dft.selector" (dict "ctx" . "component" "vllm-vlm") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "dft.selector" (dict "ctx" . "component" "vllm-vlm") | nindent 8 }}
+    spec:
+      {{- include "dft.gpuScheduling" . | nindent 6 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      enableServiceLinks: false
+      # vLLM 이미지는 root 로 돈다(hostPath 가중치 마운트). 비 root 전환은 GPU 에서 검증 전이다
+      # (harness-v2 deploy/models/README.md 와 같은 전제).
+      securityContext: { seccompProfile: { type: RuntimeDefault } }
+      initContainers:
+        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "vllm")) "deviceIds" $v.deviceIds "count" $count) | nindent 8 }}
+      containers:
+        - name: vllm
+          image: {{ include "dft.image" (dict "ctx" . "name" "vllm") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["vllm", "serve"]
+          args:
+            - /models/vlm
+            - --served-model-name={{ $v.servedModelName }}
+            # deviceIds 개수가 곧 텐서 병렬 장수다 — BF16+TP 전환 시 deviceIds 를 "1,2"처럼 늘리면
+            # 여기도 함께 늘어난다(harness 와 같은 패턴, gpuCount 를 따로 두지 않는다).
+            - --tensor-parallel-size={{ $count }}
+            - --gpu-memory-utilization={{ $v.gpuMemoryUtilization }}
+            {{- with $v.maxModelLen }}
+            - --max-model-len={{ . }}
+            {{- end }}
+            {{- with $v.dtype }}
+            - --dtype={{ . }}
+            {{- end }}
+            {{- range $v.extraArgs }}
+            - {{ . }}
+            {{- end }}
+          env:
+            # 키를 인자가 아니라 환경변수로 준다 — 인자는 노드의 ps 에 보인다.
+            - name: VLLM_API_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "dft.secretName" . }}, key: AI_API_KEY, optional: true } }
+            # 폐쇄망 — 허브에 나가지 않는다. hostPath 경로로 부르므로 받을 것도 없다.
+            - { name: HF_HUB_OFFLINE, value: "1" }
+            - { name: TRANSFORMERS_OFFLINE, value: "1" }
+            - { name: VLLM_NO_USAGE_STATS, value: "1" }
+            - { name: DO_NOT_TRACK, value: "1" }
+            {{- include "dft.gpuEnv" $v.deviceIds | nindent 12 }}
+          ports: [{ name: http, containerPort: 8000 }]
+          securityContext: { allowPrivilegeEscalation: false }
+          # 32B 가중치 로딩 + 컴파일까지 여유를 넉넉히 둔다(최대 20분).
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            failureThreshold: 120
+          readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 10, timeoutSeconds: 5 }
+          livenessProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3 }
+          resources: {{- toYaml $v.resources | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /models/vlm
+              subPath: {{ $v.modelDir }}
+              readOnly: true
+            - { name: shm, mountPath: /dev/shm }
+      volumes:
+        - name: models
+          {{- if .Values.models.volume.existingClaim }}
+          persistentVolumeClaim: { claimName: {{ .Values.models.volume.existingClaim }}, readOnly: true }
+          {{- else }}
+          hostPath: { path: {{ .Values.models.volume.hostPath }}, type: Directory }
+          {{- end }}
+        # PyTorch 프로세스 간 공유 메모리.
+        - name: shm
+          emptyDir: { medium: Memory, sizeLimit: 8Gi }
+{{- end }}

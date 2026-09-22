@@ -1,0 +1,96 @@
+{{- if .Values.paddleocrLines.enabled }}
+{{- include "dft.requireGpuNode" . }}
+{{- $fn := include "dft.fullname" . -}}
+{{- $l := .Values.paddleocrLines -}}
+{{- $count := len (splitList "," (toString $l.deviceIds)) -}}
+# =============================================================================
+# PP-OCRv5 줄 좌표 전용 파이프라인. 구조·내용은 paddleocr-vl 이 맡고 여기서는 근거 상자용
+# 좌표만 얻는다. CPU 추론(device: cpu 기본)이지만 이미지가 paddlepaddle-gpu 라 libcuda
+# 로딩에 GPU 가시성이 필요하다(없으면 ImportError) — compose 주석과 같은 이유.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fn }}-paddleocr-lines-config
+  labels: {{- include "dft.labels" . | nindent 4 }}
+data:
+  ocr_lines.yaml: |
+{{ .Files.Get "files/paddleocr/ocr_lines.yaml" | indent 4 }}
+---
+{{- if not .Values.persistence.paddlexModels.hostPath }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fn }}-paddlex-models
+  labels: {{- include "dft.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with (default .Values.persistence.storageClass .Values.persistence.paddlexModels.storageClass) }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources: { requests: { storage: {{ .Values.persistence.paddlexModels.size }} } }
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-paddleocr-lines
+  labels: {{- include "dft.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {{- include "dft.selector" (dict "ctx" . "component" "paddleocr-lines") | nindent 4 }}
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-paddleocr-lines
+  labels: {{- include "dft.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: {{- include "dft.selector" (dict "ctx" . "component" "paddleocr-lines") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "dft.selector" (dict "ctx" . "component" "paddleocr-lines") | nindent 8 }}
+    spec:
+      {{- include "dft.gpuScheduling" . | nindent 6 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: { seccompProfile: { type: RuntimeDefault } }
+      initContainers:
+        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "paddleocrVl")) "deviceIds" $l.deviceIds "count" $count) | nindent 8 }}
+      containers:
+        - name: paddleocr-lines
+          image: {{ include "dft.image" (dict "ctx" . "name" "paddleocrVl") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["paddlex", "--serve", "--pipeline", "/home/paddleocr/ocr_lines.yaml", "--device", {{ $l.device | quote }}]
+          env:
+            {{- include "dft.gpuEnv" $l.deviceIds | nindent 12 }}
+          ports: [{ name: http, containerPort: 8080 }]
+          securityContext: { allowPrivilegeEscalation: false }
+          # 모델 캐시가 비어 있으면 첫 기동 때 받는다(폐쇄망은 미리 채워 둬야 한다 — 아래 volumes 주석).
+          startupProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 10, failureThreshold: 60 }
+          readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 10, timeoutSeconds: 5 }
+          livenessProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3 }
+          resources: {{- toYaml $l.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /home/paddleocr/ocr_lines.yaml, subPath: ocr_lines.yaml }
+            - { name: models, mountPath: /home/paddleocr/.paddlex }
+      volumes:
+        - name: config
+          configMap: { name: {{ $fn }}-paddleocr-lines-config }
+        - name: models
+          # ⚠️ 폐쇄망: 이 경로($HOME/.paddlex)는 정상적으로는 허브에서 자동으로 채워진다. 반입
+          # 번들이 hostPath 로 미리 채우거나(values persistence.paddlexModels.hostPath), 빈 PVC를
+          # 임시 파드로 붙여 kubectl cp 로 채운 뒤 설치한다.
+          {{- if .Values.persistence.paddlexModels.hostPath }}
+          hostPath: { path: {{ .Values.persistence.paddlexModels.hostPath }}, type: DirectoryOrCreate }
+          {{- else }}
+          persistentVolumeClaim: { claimName: {{ $fn }}-paddlex-models }
+          {{- end }}
+{{- end }}

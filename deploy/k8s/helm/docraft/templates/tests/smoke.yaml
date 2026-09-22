@@ -1,0 +1,53 @@
+{{- $fn := include "dft.fullname" . -}}
+# =============================================================================
+# `helm test <릴리스>` — backend /api/health 를 확인한다. GPU 컴포넌트(paddleocr-vl·
+# paddleocr-lines·vllm-vlm)가 켜져 있으면 그 /health 도 함께 본다.
+# =============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ $fn }}-smoke
+  labels: {{- include "dft.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  restartPolicy: Never
+  {{- include "dft.podCommon" . | nindent 2 }}
+  {{- include "dft.podSecurity" (dict "uid" 10001 "gid" 10001) | nindent 2 }}
+  containers:
+    - name: smoke
+      image: {{ include "dft.image" (dict "ctx" . "name" "backend") }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      command: ["python", "-c"]
+      args:
+        - |
+          import os, sys, urllib.request
+
+          fails = 0
+          def check(url, label):
+              global fails
+              try:
+                  code = urllib.request.urlopen(url, timeout=10).getcode()
+                  ok = code == 200
+              except Exception as e:
+                  ok, code = False, e
+              print(("  ✔ " if ok else "  ✘ ") + label + (" (%s)" % code if not ok else ""), flush=True)
+              fails += 0 if ok else 1
+
+          check("http://{{ $fn }}-backend:{{ .Values.backend.port }}/api/health", "backend /api/health")
+          {{- if .Values.paddleocrVl.enabled }}
+          check("http://{{ $fn }}-paddleocr-vl-api:8080/health", "paddleocr-vl-api /health")
+          {{- end }}
+          {{- if .Values.paddleocrLines.enabled }}
+          check("http://{{ $fn }}-paddleocr-lines:8080/health", "paddleocr-lines /health")
+          {{- end }}
+          {{- if .Values.vllmVlm.enabled }}
+          check("http://{{ $fn }}-vllm-vlm:8000/health", "vllm-vlm /health")
+          {{- end }}
+
+          sys.exit(1 if fails else 0)
+      {{- include "dft.containerSecurity" (dict "readOnly" true) | nindent 6 }}
+      resources:
+        requests: { cpu: 50m, memory: 64Mi }
+        limits:   { memory: 128Mi }

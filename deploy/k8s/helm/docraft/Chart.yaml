@@ -1,0 +1,10 @@
+apiVersion: v2
+name: docraft
+description: >-
+  Docraft — 문서 파싱·추출·AO 교차검증 백엔드/프론트엔드와 PaddleOCR-VL·Qwen3-VL vLLM 서빙.
+  harness-installer 우산 차트의 서브차트로 쓰는 것을 전제로 한다(외부 Postgres·Redis는 harness-v2 공용).
+type: application
+# 차트 버전. 템플릿이 바뀌면 올린다.
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0-0"
