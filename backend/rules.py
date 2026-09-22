@@ -369,7 +369,12 @@ def _address(text):
     return text if text and re.search(r"[가-힣]{2}", text) else None
 
 
+def _serial(text):
+    return text if re.search(r"\d", text) else None  # 숫자 없는 등록번호는 옆 라벨('야간(공휴일)진료')이 흘러든 것이다
+
+
 FIELD_RULES = {  # 필드 → 추가 정제(정규화 뒤에 적용)
+    **dict.fromkeys(["환자 등록번호", "차트번호", "환자정보-환자등록번호", "환자정보(환자등록번호)"], _serial),
     **dict.fromkeys(["이름", "의사명", "환자정보-성명", "환자성명"], _name),
     **dict.fromkeys(["병원명", "의료기관정보-명칭"], _hospital),
     **dict.fromkeys(["주소", "병원주소", "의료기관정보-주소"], _address),
@@ -544,6 +549,12 @@ def _split_codes(out):
 def is_total(row) -> bool:
     """합계·소계 등 표의 집계 행인지. 금액을 더할 때 빼야 하는 행이다."""
     return bool(_TOTAL_ROW.match(_key((row or {}).get("항목") or "")))
+
+
+def _hollow(doc_type, table, row):
+    """값이 하나도 없거나 서식 라벨 글자뿐인 행(흘러든 머리글). 진료비영수증은 금액이 모두 0인 인쇄 행과
+    '기타' 같은 라벨꼴 항목명이 흔해 보지 않는다."""
+    return doc_type != "진료비영수증" and all(_junk(value) for value in row.values() if value not in (None, "0"))
 
 
 def _master_names(out):
@@ -796,13 +807,9 @@ def derive(doc_type: str, out: dict) -> dict:
     """
     _columns(doc_type, out)
     fields = doctypes.spec(doc_type)["fields"]
-    idnum = next((out[key] for key, meta in fields.items() if meta["kind"] == "idnum" and out.get(key)), None)
-    back = idnum.partition("-")[2][:1] if idnum else ""
-    if back and back in "123456" and "성별" in fields and not out.get("성별"):
-        out["성별"] = "남" if back in "135" else "여"
-    if back and "생년월일" in fields and not out.get("생년월일"):
-        century = "20" if back in "3478" else "19" if back in "1256" else ""
-        out["생년월일"] = normalize("date", century + idnum[:6])
+    for key, value in _from_idnum(doc_type, out).items():
+        if key in fields and not out.get(key):
+            out[key] = value
     if "외래/입원" in fields and not out.get("외래/입원"):
         out["외래/입원"] = _enum("외래/입원", out.get("환자정보-환자구분") or "") or None
     room = out.get("환자정보(병실)") or ""
@@ -812,6 +819,17 @@ def derive(doc_type: str, out: dict) -> dict:
         start = next((out[key] for key in out if "진료시작일" in key and out.get(key)), None)
         out["사고발생일자"] = start or _earliest(out)
     return out
+
+
+def _from_idnum(doc_type, out):
+    """주민번호 뒷자리 첫 숫자로 알 수 있는 성별·생년월일."""
+    idnum = next((normalize("idnum", out[key]) for key, meta in doctypes.spec(doc_type)["fields"].items()
+                  if meta["kind"] == "idnum" and out.get(key)), None)
+    back = (idnum or "").partition("-")[2][:1]
+    if not back or back not in "12345678":
+        return {}
+    century = "20" if back in "3478" else "19"
+    return {"생년월일": normalize("date", century + idnum[:6]), **({"성별": "남" if back in "135" else "여"} if back in "123456" else {})}
 
 
 def _earliest(out):
@@ -919,9 +937,52 @@ def _master_checks(fields):
             if row.get(code_column) and not master.names(system, row[code_column])]
 
 
+DATE_ORDER = (  # (앞 날짜, 뒤 날짜). 뒤 날짜가 앞서면 한쪽을 잘못 읽은 것이다. 표 열 쌍은 행마다 본다.
+    ("입원일자", "퇴원일자"), ("진단일", "발급일"), ("초진일", "발급일"), ("초진일", "진단일"),
+    ("환자정보-진료시작일", "환자정보-진료종료일"), ("환자정보(진료시작일)", "환자정보(진료종료일)"),
+    ("시작일자", "종료일자"),
+)
+ISSUED = ("발급일", "발행일")  # 문서의 다른 날짜는 발급일보다 늦을 수 없다
+LATER_OK = ("생년월일", "퇴원일자")  # 발급일과 앞뒤를 따지지 않는 날짜(퇴원 예정일은 발급일 뒤일 수 있다)
+OLDEST = "19000101"
+
+
+def _date_checks(doc_type, fields):
+    """날짜의 앞뒤가 맞지 않거나(입원>퇴원, 시작>종료, 진단>발급) 발급일 뒤·1900년 전인 날짜."""
+    spec = doctypes.spec(doc_type)
+    dates = {key: normalize("date", fields.get(key)) for key, meta in spec["fields"].items() if meta["kind"] == "date"}
+    issued = next((dates[key] for key in ISSUED if dates.get(key)), None)
+    found = [_flag("bad_date", f"{key} {value}이 {'1900년 전' if value < OLDEST else f'발급일 {issued} 뒤'}이다.", key=key)
+             for key, value in dates.items() if value and key not in ISSUED
+             and (value < OLDEST or issued and value > issued and key not in LATER_OK)]
+    found += [_flag("bad_date", f"{first} {dates[first]}이 {last} {dates[last]}보다 늦다.", key=first)
+              for first, last in DATE_ORDER if dates.get(first) and dates.get(last) and dates[first] > dates[last]]
+    for table, columns in spec["tables"].items():
+        for index, row in enumerate(fields.get(table) or []):
+            row_dates = {column: normalize("date", row.get(column)) for column in columns
+                         if doctypes.kind(doc_type, column, table) == "date"}
+            found += [_flag("bad_date", f"{table} {index}행 {first} {row_dates[first]}이 {last} {row_dates[last]}보다 늦다.",
+                            key=table, row=index, column=first)
+                      for first, last in DATE_ORDER if row_dates.get(first) and row_dates.get(last)
+                      and row_dates[first] > row_dates[last]]
+            found += [_flag("bad_date", f"{table} {index}행 {column} {value}이 발급일 {issued} 뒤다.",
+                            key=table, row=index, column=column)
+                      for column, value in row_dates.items() if value and issued and value > issued]
+    return found
+
+
+def _id_checks(doc_type, fields):
+    """성별·생년월일이 주민번호와 어긋나는지."""
+    kinds = {"성별": "enum", "생년월일": "date"}
+    return [_flag("id_mismatch", f"{key} '{fields[key]}'이 주민번호로 본 '{value}'와 다르다.", key=key)
+            for key, value in _from_idnum(doc_type, fields).items()
+            if fields.get(key) and not same(kinds[key], fields[key], value)]
+
+
 def check(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dict]) -> list[dict]:
-    """문서의 이상 징후 ``{"code", "key", "row"?, "message"}`` 목록. 진료비영수증 항목내역과 병명코드."""
-    found = _master_checks(ao_fields)
+    """문서의 이상 징후 ``{"code", "key", "row"?, "message"}`` 목록. 모든 유형의 날짜·주민번호·병명코드
+    검사에 진료비영수증 항목내역 검사를 더한다."""
+    found = _master_checks(ao_fields) + _date_checks(doc_type, ao_fields) + _id_checks(doc_type, ao_fields)
     rows = ao_fields.get(ITEM_TABLE) or []
     if doc_type != "진료비영수증" or not rows:
         return found
@@ -1060,7 +1121,8 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     out = {key: _value(doc_type, key, result.get(key)) for key in spec["fields"]}
     for table, columns in spec["tables"].items():
         rows = [row for row in (result.get(table) or []) if isinstance(row, dict)]
-        out[table] = [{column: _value(doc_type, column, row.get(column), table) for column in columns} for row in rows]
+        rows = [{column: _value(doc_type, column, row.get(column), table) for column in columns} for row in rows]
+        out[table] = [row for row in rows if not _hollow(doc_type, table, row)]
     _fill(doc_type, out, blocks or [])
     _notes(doc_type, out, blocks or [])
     _split_codes(out)

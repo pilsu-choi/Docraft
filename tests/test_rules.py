@@ -673,3 +673,44 @@ def test_receipt_table_restores_detailed_item_names_in_printed_order():
 
     assert [row["항목"] for row in out["항목내역"]] == ["진찰료", "주사료_행위료", "주사료_약품비", "검사료"]
     assert [row["본인부담금"] for row in out["항목내역"]] == ["3423", "442", "88", "0"]
+
+
+# --- 공통 형식 검사·표 구조 정리 --------------------------------------------
+
+@pytest.mark.parametrize("key, value, expected", [
+    ("환자정보-환자등록번호", "야간(공휴일)진료", None),  # 숫자 없는 값은 옆 라벨이 흘러든 것
+    ("환자정보-환자등록번호", "A-12345", "A-12345"),
+    ("차트번호", "진료카드", None),
+])
+def test_registration_number_needs_a_digit(key, value, expected):
+    doc_type = "진료비영수증" if key.startswith("환자정보") else "진단서"
+    assert rules.apply(doc_type, {key: value}, [])[key] == expected
+
+
+@pytest.mark.parametrize("fields, expected", [
+    ({"입원일자": "20230310", "퇴원일자": "20230305", "발급일": "20230320"}, [("입원일자", None)]),
+    ({"진단일": "20230325", "발급일": "20230320"}, [("진단일", None), ("진단일", None)]),  # 발급일 뒤 + 앞뒤 역전
+    ({"퇴원일자": "20230325", "발급일": "20230320"}, []),  # 퇴원 예정일은 발급일 뒤일 수 있다
+    ({"진단일": "18991231"}, [("진단일", None)]),
+    ({"항목내역": [{"시작일자": "20230305", "종료일자": "20230301"}]}, [("항목내역", 0)]),
+])
+def test_bad_dates_are_flagged(fields, expected):
+    doc_type = "세부내역서" if "항목내역" in fields else "진단서"
+    found = [flag for flag in rules.check(doc_type, fields, {}, []) if flag["code"] == "bad_date"]
+    assert [(flag["key"], flag.get("row")) for flag in found] == expected
+
+
+@pytest.mark.parametrize("fields, expected", [
+    ({"환자 주민번호": "900101-2******", "성별": "남", "생년월일": "19900101"}, ["성별"]),
+    ({"환자 주민번호": "900101-1******", "성별": "남", "생년월일": "19900102"}, ["생년월일"]),
+    ({"환자 주민번호": "030101-3******", "성별": "남", "생년월일": "20030101"}, []),
+])
+def test_sex_and_birthday_must_match_the_idnum(fields, expected):
+    assert [flag["key"] for flag in rules.check("소견서", fields, {}, []) if flag["code"] == "id_mismatch"] == expected
+
+
+def test_empty_and_header_rows_are_dropped_except_on_receipts():
+    rows = [{"항목": "항목", "EDI명칭": "명칭", "총액": "금액"}, {"총액": "0"}, {"항목": "검사료", "총액": "1000"}]
+    assert [row["항목"] for row in rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]] == ["검사료"]
+    kept = rules.apply("진료비영수증", {"항목내역": receipt(("기타", {}))}, [])["항목내역"]
+    assert [row["항목"] for row in kept] == ["기타"]  # 금액이 모두 0인 인쇄 행은 지키고
