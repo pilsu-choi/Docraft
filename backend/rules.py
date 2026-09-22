@@ -424,20 +424,24 @@ def _row_of(rows, name):
 
 
 def _headers(blocks):
-    """파싱 블록에서 항목 표 머리글 셀 모음. '항목' 셀이 있는 행부터 세 행을 머리글로 본다."""
+    """파싱 블록에서 항목 표 머리글 셀 모음. '항목'으로 끝나는 셀이 있는 행부터 세 행을 머리글로 본다.
+
+    병합된 셀 탓에 '항목'이 앞 칸 글자와 붙어 나오기도 해서 끝만 맞춰 찾는다. 항목 행이 없는 블록은
+    다른 표이므로 건너뛴다(엉뚱한 표의 제목이 섞이면 없는 열을 있다고 볼 수 있다)."""
     cells = set()
     for block in blocks or []:
         rows = block.get("rows") or []
-        start = next((index for index, row in enumerate(rows) if any(_key(cell) == "항목" for cell in row)), 0)
-        for row in rows[start:start + 3]:
+        start = next((index for index, row in enumerate(rows) if any(_key(cell).endswith("항목") for cell in row)), None)
+        for row in rows[start:start + 3] if start is not None else []:
             cells.update(_key(cell) for cell in row if str(cell or "").strip())
     return cells
 
 
-def _independent(cells, titles, subs):
-    """머리글에 하위 열 없이 그 제목만 있으면 독립된 금액 열이다."""
-    return (any(cell.startswith(title) for cell in cells for title in titles)
-            and not any(cell.startswith(sub) for cell in cells for sub in subs))
+def _grouped(cells, titles, subs):
+    """머리글로 보아 그 금액 열이 하위 열을 묶는 제목인지. 판단 근거가 없으면 None."""
+    title = any(cell.startswith(name) for cell in cells for name in titles)
+    sub = any(cell.startswith(name) for cell in cells for name in subs)
+    return None if not (title or sub) else sub or not title
 
 
 def check(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dict]) -> list[dict]:
@@ -455,7 +459,7 @@ def check(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dic
                                                        f"{row[column]}", row=index, column=column))
     cells = _headers(blocks)
     for column, (titles, subs, _) in GROUPED.items():
-        if not cells or _independent(cells, titles, subs):  # 머리글을 못 읽었으면 판단하지 않는다
+        if _grouped(cells, titles, subs) is not True:  # 묶음 제목이라고 확신할 때만 집어낸다
             continue
         for index, row in enumerate(rows):
             if _money(row.get(column)):

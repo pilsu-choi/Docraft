@@ -385,3 +385,23 @@ def test_apply_keeps_the_final_total_row_of_a_receipt_but_drops_a_subtotal():
 
     assert [row["항목"] for row in out["항목내역"]] == ["진찰료", "합계"]
     assert out["공단부담총액"] == "2000"  # 합계 행은 합계 필드도 채운다
+
+
+def test_check_does_not_guess_a_missing_column_without_header_evidence():
+    """머리글을 못 읽었거나 다른 표만 읽었으면 없는 열이라고 단정하지 않는다."""
+    rows = receipt(("처치및수술료", {"비급여": "800000"}))
+    other = [{"type": "table", "rows": [["환자등록번호", "환자성명"], ["861025", "홍길동"]]}]
+
+    assert rules.check("진료비영수증", {"항목내역": rows}, {}, []) == []
+    assert rules.check("진료비영수증", {"항목내역": rows}, {}, other) == []
+
+
+def test_headers_find_the_item_row_even_when_cells_are_merged():
+    blocks = [{"type": "table", "rows": [["환자등록번호", "환자성명"], ["이비인후과 항목", "급여", "비급여"],
+                                          ["본인부담금", "공단부담금", "전액본인부담"]]}]
+
+    cells = rules._headers(blocks)
+
+    assert {"급여", "비급여", "본인부담금"} <= cells
+    assert rules._grouped(cells, *rules.GROUPED["급여"][:2]) is True     # 급여는 묶음 제목
+    assert rules._grouped(cells, *rules.GROUPED["비급여"][:2]) is False  # 비급여는 독립 열
