@@ -2,8 +2,8 @@
 okf_version: "0.2"
 type: Analysis
 title: "key-value 추출 정확도 개선 지점 검토"
-description: "76건 rules 단계 오류 분포와 코드 검토를 대조해 정확도 개선 우선순위를 정리한다. 구현은 포함하지 않는다."
-tags: [verify, rules, extraction, accuracy, evaluation]
+description: "76건 rules 단계 오류 분포와 코드 검토를 대조해 정확도 개선 우선순위를 정리한다. 구현은 포함하지 않는다. harness-v2의 마스터·규칙·오류 사례 재사용 지점을 포함한다."
+tags: [verify, rules, extraction, accuracy, evaluation, harness-v2]
 status: draft
 ---
 
@@ -50,6 +50,36 @@ status: draft
 | 5 | 진료기간 시작/종료 첫 날짜 버그, 소계 행 보존, 청크 재시도 등 확정 결함 수정 | 국소 오답 |
 | 6 | 라벨 품질: 신규 40건 silver 중 판독 불가 문구·전화번호가 병명·명칭에 들어간 사례를 원문 검수. 라벨 관례(세분 항목명 유지 여부) 고정 | 측정 신뢰도 |
 
+## harness-v2 참고 자산
+
+형제 프로젝트 `harness-v2`(M-Life 후처리 검증 하네스, 규칙셋 2026.09.6, 33규칙)를 Sonnet 서브에이전트 둘로 조사했다. 저장소 전체에 Docraft 언급은 없어 두 프로젝트는 현재 독립적이며, 연동 인터페이스는 별도 설계가 필요하다.
+
+### 개선 우선순위와의 대응
+| 우선순위 | harness-v2 자산 | 활용 |
+|---|---|---|
+| 1 표 행 정렬 | `reread/align.py`: 세부내역서 `(EDI코드, 시작일자)`, 영수증 `(항목)` 키 열로 행 매칭 | 같은 키 정의를 `verify._rows_same`·`verify_eval.pair_rows`에 채택 |
+| 2 오탐 억제 | Arbitration 원칙 "잘못된 자동 교정이 미검출보다 나쁘다". `repaired` 판정은 21분기 중 3개뿐 | `rules.correct`·`_fill` 자동 채움을 같은 보수 기준으로 제한 |
+| 3 코드 사전 교정 | 마스터 4종(`docs/requirements/latest/`): KCD CSV 고유코드 21,299, 수가코드 xlsx 399,157행, 치료재료 48,099행, 약가 22,484행. `master/kcd_synonyms.yaml` 동의어 52쌍. 매칭 모듈 `master/kcd_name.py`(5단 판정), `master/kcd_fallback.py`(N4/N5·절단 폴백), `master/lookup.resolve_edi_code`(E1~E5), `master/similarity.py`(NameIdf, rapidfuzz) | 데이터는 그대로, 모듈은 Postgres 조회를 걷어내고 인메모리 적재로 이식. harness는 flag만 하므로 Docraft가 교정까지 할 때는 코드 정확 일치 + 명칭 유사도 조건을 둔다 |
+| 4 산식 검사 확장 | `rulesets/detail_0710.yaml` ROWSUM(3후보 병행)·UNITMUL(단가×횟수×일수)·PARTITION(열 소계), `ac029.yaml` 10규칙, 금액은 백원 절사 비교 | `rules.check`를 세부내역서로 확장해 투여량·단가 열 밀림(148건)을 산식 위반으로 검출. 단가는 파생 채움 대신 마스터 단가 대조(`MASTER_0710_11`) |
+| 영수증 급여/비급여 | `ac029.yaml` 머리글 주석과 `wiki/2026-09-18-영수증-급여-두-서식.md`: 급여·비급여가 값 칸인 서식과 하위 칸을 묶는 그룹 머리글인 서식 두 종류 | `rules._grouped`의 startswith 휴리스틱을 이 판별 규칙으로 정리 |
+
+### 고객 보고 오류 사례 3건 (`docs/requirements/[진료비영수증]*`, 2026-09-21, 미해결)
+| 사례 | 내용 | Docraft 관련 |
+|---|---|---|
+| 비급여_급여_오추출됨 | 급여 칸이 없는 서식에서 비급여 9,010,000이 급여로 들어감. 합계 행도 따라감 | 위 두 서식 판별과 직결 |
+| 파싱_에러 | 진찰료 셀에 두 행 금액이 병합, 주사료~영상진단료 5항목이 한 셀 | Docraft `multi_amount` 검출 대상. 파싱 결과로 회귀 확인 |
+| 항목명_누락 | 금액이 전부 빈 CT·PET·초음파·보철교정 항목명 누락 | 이번 영수증 빈 행 보존 룰의 검증 케이스 |
+이미지·AO 프롬프트·추출 JSON이 동봉되어 있어 `data/verify` 회귀 사례로 추가할 수 있다.
+
+### 스키마 정합 확인 사항
+- 진단서·소견서에 `사고발생일자`가 없다. harness 스키마B(`docs/requirements/진단서_4종_키_추가/latest/`)는 진단일·검사일·수술일 최솟값으로 파생한다(`R-CERT-ACCIDENT`).
+- `원내코드`: Docraft 설명은 EDI코드와 같으면 null, 고객 답변(질문사항_2차)은 수가코드를 원내코드에 넣어도 무해. 대조 필요.
+- 영수증 `급여` 필드는 고객이 존치 요청. 0과 null은 하네스가 동일 취급.
+- 수술확인서·입퇴원확인서·약제비영수증은 Docraft에 미정의.
+
+### 데이터 한계
+harness-v2 golden(`docs/golden/baseline.json`)의 사람 정답 `truth`는 7건 모두 비어 있고, AO 응답은 유형당 1건(총 7건)이다. 새 정답셋은 얻을 수 없으며, 오히려 Docraft의 76건 라벨이 더 큰 자산이다. 재판독·자가교정은 VLM 미선정(`RE_READ_ADAPTER=unavailable`)으로 실측 없이 설계만 있다. harness §15 tier 분포는 정확도 지표가 아니다.
+
 ## 판단 기준
 strict 정확도와 fp를 함께 보고한다. 점수를 올리려고 `same`을 느슨하게 바꾸지 않는다. 기존 36건은 개발용, 신규 40건은 검증용으로 유지한다.
 
@@ -57,3 +87,4 @@ strict 정확도와 fp를 함께 보고한다. 점수를 올리려고 `same`을 
 - [룰 검증 성능 개선 우선순위](2026-09-22-rule-performance-review.md)
 - [76건 평가 확장](2026-09-22-accuracy-eval-expansion.md)
 - [룰 1차 전환 계획](2026-09-22-verify-rule-first-plan.md)
+- harness-v2: `/home/pilsu/projects/mirae-assets/harness-v2` README §6·§7·§9, `src/mlife_harness/master/`, `src/mlife_harness/rulesets/`, `docs/requirements/`
