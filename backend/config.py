@@ -83,7 +83,9 @@ def ai_settings() -> dict:
     vision = _flag("AI_VISION", "true")
     # Correct OCR table cell text against the table image, keeping the OCR model's cell structure.
     table_refine = _flag("TABLE_REFINE", "false")
-    return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine}
+    # Some VLMs (e.g. qwen3.5) default reasoning mode on, turning a 10-30s call into 200-500s; off disables it.
+    reasoning = os.getenv("AI_REASONING", "off").strip().lower() == "on"
+    return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning}
 
 
 def ocr_settings() -> dict:

@@ -76,6 +76,26 @@ def test_provider_uses_configured_openai_compatible_contract(monkeypatch):
     assert request["json"]["model"] == "test/model"
 
 
+def test_reasoning_off_by_default_disables_provider_reasoning(monkeypatch):
+    configure(monkeypatch)
+    monkeypatch.delenv("AI_REASONING", raising=False)
+    install_response(monkeypatch, '{"type":"object","properties":{}}')
+
+    engine.generate_schema("hospital name")
+
+    assert FakeClient.requests[0][1]["json"]["reasoning"] == {"enabled": False}
+
+
+def test_reasoning_on_leaves_provider_default(monkeypatch):
+    configure(monkeypatch)
+    monkeypatch.setenv("AI_REASONING", "on")
+    install_response(monkeypatch, '{"type":"object","properties":{}}')
+
+    engine.generate_schema("hospital name")
+
+    assert "reasoning" not in FakeClient.requests[0][1]["json"]
+
+
 def test_vlm_model_alias_is_supported(monkeypatch):
     monkeypatch.setenv("AI_MODE", "provider")
     monkeypatch.setenv("AI_BASE_URL", "https://provider.invalid/v1")
