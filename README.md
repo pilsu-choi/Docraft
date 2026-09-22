@@ -99,6 +99,7 @@ QUEUE_BACKEND=celery docker compose --profile app --profile queue up -d --build 
 5. 결과의 근거와 검증 상태를 확인한 뒤 correction endpoint로 값을 수정합니다.
 6. `GET /api/documents/{document_id}/export?format=json|csv|xlsx` 또는 `GET /api/projects/{project_id}/export?format=json|csv|xlsx&schema_id=<선택>`으로 내려받습니다.
 7. `POST /api/documents/{document_id}/parse`에 `{pages, provider, table_format}`을 보내 옵션을 바꿔 다시 파싱하고, `DELETE /api/documents/{document_id}`로 문서를 삭제합니다.
+8. `POST /api/verify`에 `multipart/form-data`로 `image`(단일 페이지 이미지)와 `ao_result`(Agentic OCR 2.0 응답 JSON 원문), 선택 `doc_type`을 보내면 Docraft가 같은 문서를 독립 추출해 필드별로 비교하고, 어긋난 값만 LLM-as-Judge로 판정해 교정한 AO JSON(`ao_value`·`docraft_value`·`source`·`reason` 포함)을 돌려줍니다.
 
 정확한 요청/응답 모델은 실행 중인 `/docs`를 기준으로 하며, API 키가 필요한 배포에서는 `X-API-Key` 헤더를 사용합니다.
 
