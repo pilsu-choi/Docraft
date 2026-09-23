@@ -29,6 +29,8 @@ data:
   PADDLEOCR_MODEL: {{ .Values.paddleocrVl.model | quote }}
   PADDLEOCR_TIMEOUT: {{ .Values.paddleocrVl.timeout | quote }}
   PADDLEOCR_LINES_URL: {{ ternary (printf "http://%s-paddleocr-lines:8080" $fn) "" .Values.paddleocrLines.enabled | quote }}
+  # master.sourceImage가 있으면 initContainer가 그 이미지의 /opt/master를 여기로 복사한다(backend/master.py).
+  MASTER_SOURCE_DIR: {{ ternary "/master" "" (not (empty .Values.master.sourceImage.repository)) | quote }}
   {{- range $k, $v := .Values.backend.extraEnv }}
   {{ $k }}: {{ $v | quote }}
   {{- end }}
@@ -46,4 +48,6 @@ stringData:
   CELERY_BROKER_URL: {{ .Values.externalRedis.url | quote }}
   DOCRAFT_API_KEY: {{ .Values.auth.apiKey | quote }}
   AI_API_KEY: {{ .Values.auth.aiApiKey | quote }}
+  # harness-v2 Postgres 재사용(backend/master.py). 비어 있으면 docraft DB나 master.sourceImage 원본 적재로 넘어간다.
+  HARNESS_DATABASE_URL: {{ .Values.master.harnessDatabaseUrl | quote }}
 {{- end }}

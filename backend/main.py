@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import io
 import json
@@ -24,7 +25,7 @@ from pydantic import BaseModel, Field, field_validator
 from jsonschema.exceptions import SchemaError
 
 from .config import public_ai_settings
-from . import engine, jobs, verify
+from . import engine, jobs, master, verify
 from .db import FILES, audit, connect, decode, init_db, now
 from .parsers import ParseError, parse
 
@@ -42,6 +43,7 @@ ACTIVE = {"parsing": ("parsing",), "extracting": ("extracting", "validating")}
 @asynccontextmanager
 async def lifespan(_app):
     init_db()
+    await asyncio.to_thread(master.ready)  # 첫 요청 전에 마스터 사전 캐시를 미리 채운다(이벤트 루프 밖에서)
     recover()
     yield
 

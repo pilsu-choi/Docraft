@@ -34,9 +34,13 @@ app.kubernetes.io/component: {{ .component }}
 
 {{/* 이미지 ────────────────────────────────────────────────────────────
    registry 가 있으면 "<registry>/<repository>:<tag>". 비우면 노드에 import 한 이미지를
-   그대로 쓴다. dft.image (dict "ctx" $ "name" "backend") */}}
+   그대로 쓴다. dft.image (dict "ctx" $ "name" "backend") — 또는 .Values.images 조회 대신
+   {repository,tag} 를 바로 줄 때 dft.image (dict "ctx" $ "img" .Values.master.sourceImage) */}}
 {{- define "dft.image" -}}
-{{- $img := index .ctx.Values.images .name -}}
+{{- $img := .img -}}
+{{- if not $img -}}
+{{- $img = index .ctx.Values.images .name -}}
+{{- end -}}
 {{- if .ctx.Values.image.registry -}}
 {{- printf "%s/%s:%s" (trimSuffix "/" .ctx.Values.image.registry) $img.repository $img.tag -}}
 {{- else -}}
@@ -150,6 +154,8 @@ env:
     valueFrom: { secretKeyRef: { name: {{ include "dft.secretName" . }}, key: DOCRAFT_API_KEY, optional: true } }
   - name: AI_API_KEY
     valueFrom: { secretKeyRef: { name: {{ include "dft.secretName" . }}, key: AI_API_KEY, optional: true } }
+  - name: HARNESS_DATABASE_URL
+    valueFrom: { secretKeyRef: { name: {{ include "dft.secretName" . }}, key: HARNESS_DATABASE_URL, optional: true } }
   {{- if eq .Values.queue.backend "celery" }}
   - name: CELERY_BROKER_URL
     valueFrom: { secretKeyRef: { name: {{ include "dft.secretName" . }}, key: CELERY_BROKER_URL } }

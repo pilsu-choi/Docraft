@@ -1,25 +1,37 @@
-"""마스터 사전 조회·명칭 교정. 작은 fixture CSV만 쓰고 data/master에는 손대지 않는다."""
+"""마스터 사전 조회·명칭 교정·원본 파서. DB 없이 ``_rows``를 monkeypatch해 행을 주입한다."""
 
-from pathlib import Path
+import csv
+import gzip
+import io
+import tarfile
 
 import pytest
+from openpyxl import Workbook
 
 from backend import master, rules
 
-FIXTURE = Path(__file__).parent / "master_fixture"
+FIXTURE_ROWS = [
+    ("KCD", "M81.99", "상세불명의 골다공증, 상세불명 부분"),
+    ("KCD", "S92240", "발의 쐐기뼈의 골절, 폐쇄성"),
+    ("KCD", "J209", "상세불명의 급성 기관지염"),
+    ("EDI", "KK054", "수액제주입로를통한주사"),
+    ("EDI", "E6660", "정밀안저검사[편측]"),
+    ("EDI", "AL558", "입원환자 의약품관리료-8일분"),
+    ("EDI:약가", "642902710", "세타마돌정_(1정)"),
+]
 
 
 @pytest.fixture
 def loaded(monkeypatch):
-    monkeypatch.setenv("MASTER_DIR", str(FIXTURE))
+    monkeypatch.setattr(master, "_rows", lambda: FIXTURE_ROWS)
     master._tables.cache_clear()
     yield master
     master._tables.cache_clear()
 
 
 @pytest.fixture
-def missing(monkeypatch, tmp_path):
-    monkeypatch.setenv("MASTER_DIR", str(tmp_path / "nowhere"))
+def missing(monkeypatch):
+    monkeypatch.setattr(master, "_rows", lambda: [])
     master._tables.cache_clear()
     yield master
     master._tables.cache_clear()
@@ -88,3 +100,35 @@ def test_apply_corrects_code_matched_names(loaded):
     assert [row["병명"] for row in out["병명내역"]] == ["상세불명의 골다공증, 상세불명 부분",
                                                    "마스터에 없는 코드라 그대로 둔다"]
     assert [flag["code"] for flag in rules.check("진단서", out, {}, [])] == ["code_unknown"]
+
+
+# ── 원본 파서 ───────────────────────────────────────────────────────────────
+
+def test_parses_source_files(tmp_path):
+    (tmp_path / "KCD_CODE_20250930.csv").write_bytes(
+        "상병기호,한글명\r\nM8199,상세불명의 골다공증\r\n".encode("cp949"))
+
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["수가코드", "한글명"])
+    sheet.append(["KK054", "수액제주입로를통한주사"])
+    book.save(tmp_path / "수가코드_250101_전체판.xlsx")
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["code", "name", "상한금액"])
+    writer.writerow(["642902710", "세타마돌정_(1정)", "90"])
+    payload = gzip.compress(buf.getvalue().encode("utf-8-sig"))
+    with tarfile.open(tmp_path / "약가_250101.tar.gz", "w:gz") as tar:
+        info = tarfile.TarInfo("dim_drug.csv.gz")
+        info.size = len(payload)
+        tar.addfile(info, io.BytesIO(payload))
+
+    rows = master._parse_source(tmp_path)
+    assert ("KCD", "M8199", "상세불명의 골다공증") in rows
+    assert ("EDI", "KK054", "수액제주입로를통한주사") in rows
+    assert ("EDI:약가", "642902710", "세타마돌정_(1정)") in rows
+
+
+def test_parse_source_tolerates_missing_files(tmp_path):
+    assert master._parse_source(tmp_path) == []

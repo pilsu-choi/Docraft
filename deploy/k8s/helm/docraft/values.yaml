@@ -37,7 +37,7 @@ images:
 # ── 비밀값 ──────────────────────────────────────────────────────────────
 auth:
   # 이미 만든 Secret 을 쓰려면 이름을 준다. 키: DATABASE_URL, CELERY_BROKER_URL,
-  # DOCRAFT_API_KEY(없어도 뜬다 — 그때 API 인증 없음), AI_API_KEY
+  # DOCRAFT_API_KEY(없어도 뜬다 — 그때 API 인증 없음), AI_API_KEY, HARNESS_DATABASE_URL(없어도 뜬다)
   existingSecret: ""
   # Docraft API 인증(X-API-Key). 비우면 인증 없음(내부망 테스트 기본값).
   apiKey: ""
@@ -96,6 +96,19 @@ queue:
   concurrency: 2
   # 이 시간(초) 동안 heartbeat 이 없으면 죽은 작업으로 보고 다시 받는다.
   leaseSeconds: 600
+
+# ── KCD·EDI 마스터 (backend/master.py) ─────────────────────────────────
+# 조회는 프로세스당 한 번, 다음 순서로 해결된다: 1) harnessDatabaseUrl(있으면 재사용, 원본 재적재 불필요)
+# 2) docraft DB(master_code, 이미 적재돼 있으면) 3) sourceImage(원본을 docraft DB로 신규 적재).
+master:
+  # harness-v2 Postgres를 읽기전용 재사용. 예: postgresql://<user>:<pw>@mlife-harness-postgres:5432/mlife_harness
+  # (우산 차트가 채운다). 비어 있으면 다음 소스로 넘어간다.
+  harnessDatabaseUrl: ""
+  # 값이 있으면(harness master 이미지, 예: mlife-harness-master) backend·worker pod에 initContainer가 붙어
+  # 이 이미지의 /opt/master를 emptyDir(/master)로 복사하고 MASTER_SOURCE_DIR=/master를 채운다.
+  sourceImage:
+    repository: ""
+    tag: ""
 
 # ── 외부 DB·큐 (이 차트는 Postgres·Redis 를 띄우지 않는다) ───────────────
 externalDatabase:
