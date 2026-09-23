@@ -73,6 +73,13 @@ def init_db() -> None:
           project_id TEXT, action TEXT NOT NULL, resource_type TEXT NOT NULL,
           resource_id TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
         )""")
+        # KCD·EDI 마스터 사전(backend/master.py). HARNESS_DATABASE_URL이나 MASTER_SOURCE_DIR이
+        # 없으면 비어 있고, 그때는 master.ready()가 False라 조용히 비활성이다.
+        db.execute("""
+        CREATE TABLE IF NOT EXISTS master_code (
+          family TEXT NOT NULL, code TEXT NOT NULL, name TEXT NOT NULL
+        )""")
+        db.execute("CREATE INDEX IF NOT EXISTS master_code_family_code_idx ON master_code(family, code)")
     logger.info("db: schema initialized")
 
 

@@ -121,8 +121,3 @@ def public_ai_settings() -> dict:
             "ready": ocr["configured"],
         },
     }
-
-
-def master_dir() -> Path:
-    """KCD·EDI 마스터 조회 CSV 디렉터리(``scripts/build_master.py`` 산출물)."""
-    return Path(os.getenv("MASTER_DIR", str(Path(__file__).resolve().parents[1] / "data" / "master")))

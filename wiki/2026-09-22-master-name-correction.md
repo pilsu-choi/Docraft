@@ -11,6 +11,12 @@ status: active
 
 2026-09-22 · 브랜치 `feat/kv-master-correct` · 워크트리 `.worktrees/kv-master-correct`
 
+> **2026-09-23 갱신**: `scripts/build_master.py`가 만들던 `data/master/*.csv`(로컬 전용, `.dockerignore`
+> 대상이라 컨테이너·k8s에서는 비활성)를 원본 소스로 쓰는 구조는 걷어냈다. 지금은 `backend/master.py`가
+> harness DB 재사용 → docraft DB 재사용 → `MASTER_SOURCE_DIR` 원본 신규 적재 순으로 스스로 해석한다.
+> 교정 규칙(코드 일치 시 1글자 교정)과 그 근거는 이 문서 그대로 유효하다 — 원본 로딩 구조 변경은
+> [KCD·EDI 마스터 원본 소스를 harness DB·docraft DB로 재사용](2026-09-23-master-source-reuse.md) 참고.
+
 [key-value 추출 정확도 개선 지점 검토](2026-09-22-kv-accuracy-review.md)의 우선순위 3(코드 사전 교정)을 구현했다.
 
 ## 만든 것

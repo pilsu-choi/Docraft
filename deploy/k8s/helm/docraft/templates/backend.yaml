@@ -51,6 +51,21 @@ spec:
       {{- include "dft.podCommon" . | nindent 6 }}
       {{- include "dft.podSecurity" (dict "uid" 10001 "gid" 10001) | nindent 6 }}
       {{- include "dft.dataAffinity" . | nindent 6 }}
+      {{- if .Values.master.sourceImage.repository }}
+      # master.sourceImage(harness master 이미지)의 /opt/master를 emptyDir로 복사해 두면
+      # backend/master.py가 MASTER_SOURCE_DIR=/master에서 원본을 읽어 docraft DB에 적재한다.
+      initContainers:
+        - name: master-source
+          image: {{ include "dft.image" (dict "ctx" . "img" .Values.master.sourceImage) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c", "cp -r /opt/master/. /master/"]
+          {{- include "dft.containerSecurity" (dict "readOnly" false) | nindent 10 }}
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { memory: 512Mi }
+          volumeMounts:
+            - { name: master-source, mountPath: /master }
+      {{- end }}
       containers:
         - name: backend
           image: {{ include "dft.image" (dict "ctx" . "name" "backend") }}
@@ -76,10 +91,16 @@ spec:
           volumeMounts:
             - { name: data, mountPath: /data }
             - { name: tmp, mountPath: /tmp }
+            {{- if .Values.master.sourceImage.repository }}
+            - { name: master-source, mountPath: /master, readOnly: true }
+            {{- end }}
       volumes:
         - name: data
           persistentVolumeClaim: { claimName: {{ $fn }}-data }
         - { name: tmp, emptyDir: {} }
+        {{- if .Values.master.sourceImage.repository }}
+        - { name: master-source, emptyDir: {} }
+        {{- end }}
 {{- if .Values.worker.enabled }}
 ---
 # Celery 워커. 상태가 없어(브로커·백엔드 = externalRedis) replicas 를 늘리면 처리량이 늘어난다.
@@ -105,6 +126,19 @@ spec:
       {{- include "dft.dataAffinity" . | nindent 6 }}
       # 처리 중인 태스크를 마칠 시간을 준다(Celery warm shutdown).
       terminationGracePeriodSeconds: 120
+      {{- if .Values.master.sourceImage.repository }}
+      initContainers:
+        - name: master-source
+          image: {{ include "dft.image" (dict "ctx" . "img" .Values.master.sourceImage) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c", "cp -r /opt/master/. /master/"]
+          {{- include "dft.containerSecurity" (dict "readOnly" false) | nindent 10 }}
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { memory: 512Mi }
+          volumeMounts:
+            - { name: master-source, mountPath: /master }
+      {{- end }}
       containers:
         - name: worker
           image: {{ include "dft.image" (dict "ctx" . "name" "backend") }}
@@ -116,8 +150,14 @@ spec:
           volumeMounts:
             - { name: data, mountPath: /data }
             - { name: tmp, mountPath: /tmp }
+            {{- if .Values.master.sourceImage.repository }}
+            - { name: master-source, mountPath: /master, readOnly: true }
+            {{- end }}
       volumes:
         - name: data
           persistentVolumeClaim: { claimName: {{ $fn }}-data }
         - { name: tmp, emptyDir: {} }
+        {{- if .Values.master.sourceImage.repository }}
+        - { name: master-source, emptyDir: {} }
+        {{- end }}
 {{- end }}

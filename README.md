@@ -139,11 +139,17 @@ curl -X POST http://127.0.0.1:8000/api/verify \
 
 KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두면, 룰 단계에서 **코드가 마스터에 있는 행에 한해** 명칭의 1글자 OCR 오인식(`편축`→`편측`, `부문`→`부분`)을 되돌립니다. 명칭에서 코드를 역추론하지는 않고, 글자 수가 같고 한 글자만 어긋날 때만 그 글자를 바꿔 문서의 인쇄 표기(띄어쓰기·괄호)를 유지합니다. 파일이 없으면 이 교정은 조용히 꺼집니다.
 
-```bash
-.venv/bin/python scripts/build_master.py   # 원본 경로는 --source, 출력은 --out으로 바꿀 수 있습니다
-```
+`backend/master.py`가 프로세스당 한 번 원본을 찾아 적재하며, 다음 순서로 처음 되는 것을 씁니다.
 
-`data/master/{kcd,edi,drug,material}.csv`(code,name,unit_price)가 만들어지며 `data/`는 커밋하지 않습니다. 다른 경로에 두려면 `MASTER_DIR`를 지정합니다.
+1. `HARNESS_DATABASE_URL` — harness-v2 Postgres의 `code_entry`/`code_system`을 읽기전용으로 재사용(원본 재적재 불필요).
+2. Docraft 자체 DB의 `master_code` 테이블 — 이미 적재돼 있으면 그대로 씁니다.
+3. `MASTER_SOURCE_DIR` — harness 마스터 원본 디렉터리(`KCD_CODE_*.csv`, `수가코드_*.xlsx`, `약가_*.tar.gz`, `치료재료_전체_*.tar.gz`)를 파싱해 `master_code`에 COPY로 적재합니다(API·worker 동시 기동은 advisory lock으로 보호).
+
+셋 다 없으면 조용히 비활성입니다. 새 고시 원장이 오면 강제로 다시 적재합니다.
+
+```bash
+.venv/bin/python -m backend.master --source /path/to/harness-v2/docs/requirements/latest
+```
 
 ## 주요 API
 
@@ -171,7 +177,7 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `PARSE_PROVIDER`, `PADDLEOCR_BASE_URL` | `library`, 빈 URL | 기본 라이브러리 파싱 또는 원격 PaddleOCR |
 | `PADDLEOCR_LINES_URL` | 빈 값 | 선택적인 줄 단위 근거 좌표 |
 | `TABLE_REFINE` | `false` | OCR 표 셀 텍스트를 LLM으로 추가 교정 |
-| `MASTER_DIR` | `data/master` | KCD·EDI 마스터 조회 CSV 위치; 파일이 없으면 명칭 교정 비활성 |
+| `HARNESS_DATABASE_URL`, `MASTER_SOURCE_DIR` | 빈 값 | KCD·EDI 마스터 조회 소스(harness DB 재사용 → docraft DB → 원본 신규 적재); 셋 다 없으면 명칭 교정 비활성 |
 | `QUEUE_BACKEND`, `QUEUE_CONCURRENCY` | `inline`, `2` | 프로세스 스레드 풀 또는 Celery 작업 큐 |
 | `LOG_LEVEL`, `LOG_FILE` | `DEBUG`, 저장소 `docraft.log` | 로그 수준·파일 위치; 빈 `LOG_FILE`은 파일 기록 중단 |
 

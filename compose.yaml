@@ -38,8 +38,10 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       LOG_FILE: ""
       LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
-    volumes:
+    volumes: &master-volumes
       - ./data:/data
+      # MASTER_SOURCE_DIR(.env)이 가리키는 경로. 비어 있으면 backend/master.py가 조용히 건너뛴다.
+      - ${MASTER_SOURCE_HOST_DIR:-./data/master-source}:/master:ro
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     extra_hosts:
@@ -77,8 +79,7 @@ services:
     command: ["python", "-m", "backend.worker"]
     env_file: *backend-env-file
     environment: *backend-env
-    volumes:
-      - ./data:/data
+    volumes: *master-volumes
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
