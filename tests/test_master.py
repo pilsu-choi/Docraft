@@ -91,6 +91,31 @@ def test_threshold_boundary_is_max_edits(loaded, monkeypatch):
     assert loaded.correct_name("kcd", "S92240", two_off) == "발의 쐐기뼈의 골절, 폐쇄성"
 
 
+# ── 유사도 조회 ─────────────────────────────────────────────────────────────
+
+def test_similarity_exact_match_is_one(loaded):
+    assert loaded.similarity("kcd", "M81.99", "상세불명의 골다공증, 상세불명 부분") == 1.0
+
+
+def test_similarity_ignores_spacing_and_hyphens(loaded):
+    # _letters()로 정규화하므로 띄어쓰기·하이픈 표기 차이는 유사도를 깎지 않는다
+    assert loaded.similarity("edi", "AL558", "입원환자 의약품관리료 8일분") == 1.0
+
+
+def test_similarity_low_for_different_name(loaded):
+    assert loaded.similarity("kcd", "J209", "완전히 다른 소견") < 0.5
+
+
+def test_similarity_none_without_code_or_name(loaded):
+    assert loaded.similarity("kcd", "Z999", "있지도 않은 병명") is None  # 코드가 마스터에 없다
+    assert loaded.similarity("kcd", "M81.99", "") is None  # 명칭이 비었다
+    assert loaded.similarity("kcd", None, "상세불명의 골다공증, 상세불명 부문") is None
+
+
+def test_similarity_disabled_without_files(missing):
+    assert missing.similarity("kcd", "M8199", "상세불명의 골다공증, 상세불명 부문") is None
+
+
 # ── rules 통합 ──────────────────────────────────────────────────────────────
 
 def test_apply_corrects_code_matched_names(loaded):

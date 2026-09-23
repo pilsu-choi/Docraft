@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [마스터 명칭 유사도 검토 필요 플래그 — 임계값 스윕 결과와 보류 결정](2026-09-23-master-name-mismatch-flag.md) - 코드는 마스터에 있는데 인쇄 명칭이 후보 전부와 크게 다른 행을 `검토 필요`로 표시하는 안을 `master.similarity()`(difflib)로 구현·76건 스윕(임계값 0.05~0.90) 했으나 최고 정밀도가 병명 29%·EDI 21%로 목표(70%) 미달이라 검사는 비활성 유지, 조회 함수만 남긴 결정 기록
 * [KCD·EDI 마스터 원본 소스를 harness DB·docraft DB로 재사용](2026-09-23-master-source-reuse.md) - `data/master`(dockerignore 대상, 로컬 전용) 대신 harness-v2 Postgres 재사용 → docraft DB `master_code` 재사용 → `MASTER_SOURCE_DIR` 원본 신규 적재 순으로 소스를 해석하는 구현: advisory lock으로 감싼 COPY 적재, `python -m backend.master --source` 강제 재적재, compose/helm 배포 배선, 381 passed
 * [POST /api/verify에 hint_paths 필드 추가](2026-09-23-verify-hint-paths.md) - harness-v2 룰 엔진이 확정 못한 필드만 골라 Docraft 교차검증·Judge를 돌리는 선택 form 필드 `hint_paths` 구현: 추출 스키마 축소, 힌트 밖 필드는 판정 정보 없이 AO 값 그대로 반환, counts는 판정된 key만 집계
 * [Docraft Helm 차트(k8s, GPU 서빙 포함)](2026-09-23-k8s-helm-chart.md) - harness-installer 우산 차트의 서브차트로 쓸 `deploy/k8s/helm/docraft`를 harness-v2 mlife-harness 차트 관례로 구현. backend/worker/frontend, 외부 Postgres·Redis 연결(existingSecret 패턴), PaddleOCR-VL·PP-OCRv5·Qwen3-VL(vLLM) 세 GPU 컴포넌트의 deviceIds 기반 카드 지정과 L40S 2장 배치 기본값, helm lint/template 검증과 정수 quote 버그 수정 기록
