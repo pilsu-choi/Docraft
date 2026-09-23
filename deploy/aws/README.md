@@ -36,8 +36,8 @@ deploy/aws/down.sh            # 정지. GPU를 harness에 돌려줄 때도 이�
 | 스크립트 | 하는 일 |
 | --- | --- |
 | `provision.sh` | docker·compose(2.24 이상)·NVIDIA 런타임을 확인하고 `REMOTE_ROOT`를 만든다 |
-| `deploy.sh` | backend·frontend 이미지를 로컬에서 빌드해 tar로 반입한다. compose·설정을 전송하고 `--profile app --profile ocr`로 기동한다 |
-| `tunnel.sh` | 로컬 `TUNNEL_PORT`(13000)를 서버 frontend로 연결한다(`--bg`/`--stop`) |
+| `deploy.sh` | backend·frontend 이미지를 로컬에서 빌드해 tar로 반입한다. compose·설정을 전송하고 `--profile app --profile ocr`로 기동한다. 배포 내내 서버 `deploy.lock`을 잡아 동시 배포를 막고, 직전 기록(`DEPLOYED`)을 보여 주며, `/api/verify` 처리 중(health `verify_inflight`>0)이면 `DEPLOY_FORCE=1` 없이는 교체하지 않는다 |
+| `tunnel.sh` | 로컬 `TUNNEL_PORT`(13000)를 서버 frontend로 연결한다(`--bg`/`--stop`). 백그라운드 터널은 포트별 제어 소켓(`/tmp/docraft-tunnel-<포트>.sock`)으로만 닫는다 |
 | `smoke.sh` | `aws-smoke` 프로젝트에 샘플을 올려 파싱 결과를 확인한다 |
 | `collect.sh` | 실패·검토 필요·검증 이슈·사용자 수정 문서와 원본, DB 기록, backend 로그를 로컬 `data/aws-collect/`로 모으고 `summary.md`를 만든다(`--all`은 모든 원본) |
 | `logs.sh` / `down.sh` | 로그 / 정지(`--volumes`는 DB까지 삭제) |

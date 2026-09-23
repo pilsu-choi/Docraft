@@ -548,6 +548,7 @@ def test_verify_route_cancels_the_run_when_the_client_disconnects(monkeypatch, t
     monkeypatch.setattr(Request, "is_disconnected", gone)
 
     assert post(_image(tmp_path)).status_code == 499
+    assert client.get("/api/health").json()["verify_inflight"] == 0
 
 
 def test_verify_route_turns_a_provider_failure_into_a_gateway_error(monkeypatch, tmp_path):
