@@ -248,22 +248,37 @@ def _balance(doc_type, chosen, ao_flat, docraft):
 
 
 def _annotate(element, value, ao_value, docraft_value, source, reason):
-    """AO 원소에 최종값과 판정 정보를 덧붙인다."""
+    """AO 원소에 최종값과 판정 정보를 덧붙인다. ``predicted_value``도 최종값으로 맞춘다 — 빈 ``value``를
+    ``predicted_value``로 채워 읽는 쪽(``_value``)이 AO의 옛 값을 보지 않게 한다. AO 값은 ``ao_value``에 남는다."""
     element.update(value=value, ao_value=ao_value, docraft_value=docraft_value, source=source, reason=reason)
+    if "predicted_value" in element:
+        element["predicted_value"] = value
     return element
 
 
-def _table_rows(table, rows, docraft_rows, source, reason):
-    """판정된 행 목록을 AO 원소 형식으로 되돌린다. 같은 자리의 원래 셀이 있으면 confidence 등을 보존한다."""
+def _mates(doc_type, key, rows, others):
+    """rows 각 행과 짝이 되는 others의 행(``rules.pair_rows``, 남은 행은 순서대로). 짝이 없으면 None."""
+    return [mate for _, mate in rules.pair_rows(doc_type, key, rows, others)[:len(rows)]]
+
+
+def _table_rows(doc_type, key, table, rows, docraft_rows, source, reason):
+    """판정된 행 목록을 AO 원소 형식으로 되돌린다. 행마다 짝이 되는 원래 행의 셀에서 confidence 등을 보존한다.
+
+    자리 번호로 잇지 않는다 — 판정이 행을 끼우면 뒤쪽 행이 다른 행의 셀(예측값)을 물려받는다.
+    """
     originals = [dict(_cells(table, row)) for row in table.get("rows") or []]
     rows = [row for row in rows or [] if isinstance(row, dict)]
     columns = table.get("headers") or list(dict.fromkeys(column for row in rows for column in row))
     # 판정이 늘린 행에는 원래 셀이 없으므로 같은 열 셀의 형식만 빌리고 값은 모두 비운다.
     blanks = {column: {name: None for name in cell} for row in reversed(originals) for column, cell in row.items()}
+    flats = [{name: _value(cell) for name, cell in original.items()} for original in originals]
+    position = {id(flat): index for index, flat in enumerate(flats)}
+    mates = _mates(doc_type, key, rows, flats)
+    docraft_mates = _mates(doc_type, key, rows, docraft_rows)
     out = []
-    for index, row in enumerate(rows):
-        original = originals[index] if index < len(originals) else {}
-        docraft_row = docraft_rows[index] if index < len(docraft_rows) else {}
+    for row, mate, docraft_row in zip(rows, mates, docraft_mates):
+        original = originals[position[id(mate)]] if mate is not None else {}
+        docraft_row = docraft_row or {}
         cells = []
         for column in columns:
             cell = {**blanks.get(column, {}), **original.get(column, {})}
@@ -370,7 +385,7 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
             continue
         final[key], source, reason = chosen[key]
         counts[source] += 1
-        table.update(rows=_table_rows(table, final[key], docraft.get(key) or [], source, reason),
+        table.update(rows=_table_rows(doc_type, key, table, final[key], docraft.get(key) or [], source, reason),
                      source=source, reason=reason)
     counts = {**{name: counts[name] for name in SOURCES}, "added": added}
     target["verify"] = {"doc_type": doc_type, "docraft": docraft, "counts": counts, "checks": checks,

@@ -195,8 +195,8 @@ def test_run_rebuilds_table_rows_from_the_verdict_keeping_the_cell_format(monkey
     assert table["rows"][0][0]["ao_value"] == "R634"
     assert [cell["value"] for cell in table["rows"][1]] == ["M8199", "골다공증(속발)"]
     assert table["rows"][1][0]["ao_value"] is None
-    # 판정이 늘린 행은 열 셀의 형식만 빌리고 원래 값은 남기지 않는다.
-    assert all(table["rows"][1][0][name] is None for name in ("confidence", "predicted_value"))
+    # 판정이 늘린 행은 열 셀의 형식만 빌리고 원래 값은 남기지 않는다(예측값은 최종값으로 맞춘다).
+    assert table["rows"][1][0]["confidence"] is None and table["rows"][1][0]["predicted_value"] == "M8199"
     assert table["rows"][1][1]["docraft_value"] == "골다공증"
     assert table["rows"][1][1]["reason"] == "부상병 행이 빠졌다"
 
@@ -779,3 +779,24 @@ def test_run_keeps_the_printed_subtotal_rows_of_a_detail_table(monkeypatch):
     assert names == ["진찰료", "소계", "검사료", "소계", "합계"]
     assert [row[3]["value"] for row in table["rows"]] == ["18000", "18000", "990", "900", "18900"]
     assert not any(rules.is_total(row) for row in seen[0]["항목내역"]["ao"])  # 집계 행은 판정에 보내지 않는다
+
+
+def test_run_keeps_each_row_on_its_own_original_cells_when_a_row_is_inserted(monkeypatch):
+    """0922 재테스트: 판정 표가 중간에 행을 끼우면 뒤쪽 행이 자리 번호가 같은 원래 행(합계)의 셀·예측값을
+    물려받아 빈 행이 합계 값을 가진 것처럼 읽혔다. 행 짝짓기로 원래 셀을 찾는다."""
+    columns = ["항목", "본인부담금"]
+    rows = [["진찰료", "848"], ["예약진찰료", ""], ["합계", "2000"]]
+    ao = {"documents": [{"doc_type": "진료비영수증", "extracted_fields": [], "extracted_tables": [{
+        "key": "항목내역", "headers": columns, "rows": [[{"key": column, "value": value, "predicted_value": value, "confidence": 0.9}
+                                                    for column, value in zip(columns, row)] for row in rows]}]}]}
+    docraft = {"항목내역": [{"항목": "진찰료", "본인부담금": "848"}, {"항목": "선별급여", "본인부담금": None},
+                        {"항목": "예약진찰료", "본인부담금": None}, {"항목": "합계", "본인부담금": "2000"}]}
+    real_stub(monkeypatch, docraft, {"항목내역": {"source": "docraft", "reason": "이미지"}})
+
+    document = verify.run("scan.png", ao, doc_type="진료비영수증")["documents"][0]
+    table = document["extracted_tables"][0]
+
+    assert [[cell["value"] for cell in row] for row in table["rows"]] == [
+        ["진찰료", "848"], ["선별급여", None], ["예약진찰료", None], ["합계", "2000"]]
+    assert table["rows"][2][1]["ao_value"] == "" and table["rows"][3][1]["ao_value"] == "2000"
+    assert [row["본인부담금"] for row in verify.flatten(document)["항목내역"]] == ["848", None, None, "2000"]
