@@ -84,3 +84,13 @@ status: stable
 - 확인해 보니 backend 로그가 컨테이너 표준 출력에만 있어 `deploy.sh`로 재생성될 때마다 지워졌다. 오버레이에서 `LOG_FILE=/data/logs/docraft.log`를 지정해 서버 디스크에 남기도록 했다. 컨테이너 로그는 json-file 50MB × 3으로 제한했다.
 - 첫 수집(2026-09-22 09:16): 문서 11건 모두 `parsed`, 실패·수정·검증 이슈 0건. 사용자 테스트 문서 `2303000012.tif`는 ruled 29×15로 나왔다.
 
+
+## 재배포 (2026-09-23, 브랜치 `fix/aws-frontend-port`·`docs/aws-redeploy-0923`)
+
+- 영수증 룰 보강 3건([receipt-issue-cases](2026-09-23-receipt-issue-cases.md), [receipt-issues-0923](2026-09-23-receipt-issues-0923.md), [sum-guard-labels](2026-09-23-sum-guard-labels.md))을 서버에 반영했다. 이전 backend 이미지는 2026-09-22 빌드였다.
+- 첫 재배포(`e5563bd`) 뒤 서버 3000 포트가 응답하지 않았다. `721c900`에서 frontend를 비특권 nginx(8080)로 바꾸며 `compose.yaml`은 `:8080`으로 고쳤지만, AWS 오버레이는 `:80`에 연결하고 있었다. 오버레이를 `:8080`으로 고치고(`a2d8def`) `--no-build`로 다시 배포했다.
+- 확인 결과
+  - `smoke.sh` 5종 parsed. 진료비영수증 ruled 42×14, 세부내역서 ruled 24×15 등이다.
+  - 컨테이너 안 `backend/rules.py`에 새 함수(`_row_shifts`·`_absent_columns`·`sum_errors`·`_misread`)가 있고 `verify.py`에 `_balance`가 있다.
+  - `/api/verify`에 이슈 260923 현상 1 문서(공단부담금 열 전체가 `선택진료료외`로 간 AO)를 보냈다. `no_column`·`column_shift`가 떴고, 4행 모두 공단부담금으로 교정됐으며, 교정 후 남은 경고는 0이다.
+- 이미지 태그는 `7170ecc-dirty`다. main 작업 폴더의 다른 세션 미커밋 문서 때문이다. 이미지에는 `backend/`·`frontend/`만 복사되므로 내용에는 영향이 없다.
