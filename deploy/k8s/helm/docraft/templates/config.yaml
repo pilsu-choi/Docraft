@@ -16,10 +16,11 @@ data:
   QUEUE_CONCURRENCY: {{ .Values.queue.concurrency | quote }}
   JOB_LEASE_SECONDS: {{ .Values.queue.leaseSeconds | quote }}
   AI_MODE: provider
-  # vllmVlm 을 껐으면 빈 값 — backend/config.py 의 ai_settings() 가 "미설정"으로 보고
-  # 추출·스키마 생성 기능을 비활성화한다(호출하지 않는다, 대체 동작 없음).
-  AI_BASE_URL: {{ ternary (printf "http://%s-vllm-vlm:8000/v1" $fn) "" .Values.vllmVlm.enabled | quote }}
-  AI_VLM_MODEL: {{ ternary .Values.vllmVlm.servedModelName "" .Values.vllmVlm.enabled | quote }}
+  # vllmVlm(in-cluster) 이 이기고, 둘 다 껐으면 빈 값 — backend/config.py 의 ai_settings() 가 "미설정"으로
+  # 보고 추출·스키마 생성 기능을 비활성화한다(호출하지 않는다, 대체 동작 없음). 계산은 dft.aiBaseUrl/
+  # dft.aiVlmModel(templates/_helpers.tpl) 한 곳뿐 — values.yaml 의 ai.* 주석 참고.
+  AI_BASE_URL: {{ include "dft.aiBaseUrl" . | quote }}
+  AI_VLM_MODEL: {{ include "dft.aiVlmModel" . | quote }}
   AI_VISION: {{ .Values.backend.aiVision | quote }}
   AI_REASONING: {{ .Values.backend.aiReasoning | quote }}
   TABLE_REFINE: {{ .Values.backend.tableRefine | quote }}

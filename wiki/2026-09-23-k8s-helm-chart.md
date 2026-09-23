@@ -129,6 +129,46 @@ SETGID·NET_BIND_SERVICE 없이 크래시루프하는 것을 코드 리뷰로 �
 - `paddleocr-vlm-server` Service를 접두사 없이 고정한 결정 때문에 같은 네임스페이스에 이 차트를 두 번
   이상 설치할 수 없다 — 우산 차트는 항상 단일 설치이므로 문제 없다고 보지만, 확인이 필요하다.
 
+## 외부 VLM 값 추가 (2026-09-23, `feat/chart-external-vlm`)
+
+GPU 서빙(`vllmVlm`)을 보류한 동안에도 별도 호스팅 vLLM·OpenRouter 같은 외부 OpenAI 호환 VLM으로
+Docraft를 테스트할 수 있어야 했다. 기존 차트는 `AI_BASE_URL`/`AI_VLM_MODEL`을 `vllmVlm.enabled`일
+때만 in-cluster Service 주소로 채웠고, 꺼져 있으면 항상 빈 값이라 `backend.extraEnv`로 우회하면
+`templates/config.yaml`의 ConfigMap 키(`AI_BASE_URL`)와 중복 정의가 생겼다.
+
+`values.yaml`에 `ai.baseUrl`/`ai.model` 두 값을 추가했다(기본 빈 문자열). 계산은
+`templates/_helpers.tpl`의 새 헬퍼 `dft.aiBaseUrl`/`dft.aiVlmModel` 한 곳에서만 하고
+`templates/config.yaml`은 그 결과를 그대로 쓴다(중복 키 없음). 우선순위: `vllmVlm.enabled=true`면
+in-cluster vLLM Service 주소가 무조건 이긴다 — 이때 `ai.baseUrl`이나 `ai.model`을 함께 채우면 어느
+쪽이 실제로 쓰이는지 조용히 갈리는 대신 `fail`로 렌더링을 멈춘다(가장 덜 놀라운 선택으로, harness와
+같은 in-cluster 우선 원칙 + "값이 모순되면 조용히 무시하지 않고 멈춘다"는 `dft.requireGpuNode`
+관례를 그대로 따랐다). 키는 새 Secret 키를 만들지 않고 기존 `auth.aiApiKey`(Secret의
+`AI_API_KEY`)를 그대로 쓴다 — 이 값은 원래도 `vllmVlm.enabled`와 무관하게 항상 Secret에 담기므로
+(`templates/config.yaml`의 `AI_API_KEY: {{ .Values.auth.aiApiKey | quote }}`) 손댈 필요가 없었고,
+harness-installer 우산 차트(`charts/mlife-ocr/templates/secret.yaml`)의
+`AI_API_KEY: {{ .Values.docraft.auth.aiApiKey | quote }}` → 공유 Secret `mlife-ocr-secret` 계약도
+그대로 유지된다.
+
+`backend/config.py`의 `ai_settings()`가 실제로 읽는 환경변수는 `AI_BASE_URL`·`AI_VLM_MODEL`(또는
+`AI_MODEL`)·`AI_MODE`·`AI_API_KEY`·`AI_VISION`·`AI_REASONING`·`TABLE_REFINE`·`EXTRACT_CHUNK_CHARS`
+뿐이며, `AI_VISION`·`AI_REASONING`·`TABLE_REFINE`은 이미 `backend.aiVision`/`backend.aiReasoning`/
+`backend.tableRefine`으로 노출돼 있고 `AI_MODE`(기본 `provider`)·`EXTRACT_CHUNK_CHARS`는 쓸 일이
+없어(외부 VLM도 `provider` 모드로 충분) 새로 노출하지 않았다 — "이미 필요한 것만 늘린다"는 과제
+지침대로 최소로 유지했다.
+
+검증(`~/.local/bin/helm`, v3.21.0):
+
+- `helm lint --strict` — 통과(icon 권장 INFO 하나뿐, 기존과 동일).
+- `helm template`(기본값) — 통과.
+- `helm template --set ai.baseUrl=... --set ai.model=...`(vllmVlm 꺼짐) — `AI_BASE_URL`/`AI_VLM_MODEL`에
+  그대로 반영됨을 확인.
+- `helm template --set vllmVlm.enabled=true --set gpu.nodeSelector.pool=gpu` — in-cluster Service
+  주소가 이김을 확인.
+- `helm template --set vllmVlm.enabled=true --set gpu.nodeSelector.pool=gpu --set ai.baseUrl=...` —
+  `dft.aiBaseUrl`의 `fail`로 렌더링이 의도대로 멈춤을 확인.
+
+`deploy/k8s/README.md`에 "외부 VLM(GPU 보류 중 테스트)" 절을 추가했다.
+
 ## 관련 자료
 
 - [harness-v2 mlife-harness 차트](../../../harness-v2/deploy/k8s/helm/mlife-harness) (참고용, 이 저장소 밖)

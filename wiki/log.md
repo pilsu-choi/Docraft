@@ -1,5 +1,21 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-23 (11)
+* **Update**: [k8s-helm-chart](2026-09-23-k8s-helm-chart.md)에 "외부 VLM 값 추가" 절을 추가했다(브랜치
+  `feat/chart-external-vlm`, 워크트리 `.worktrees/chart-external-vlm`). GPU 서빙(`vllmVlm`)을 보류한
+  동안 별도 호스팅 vLLM·OpenRouter 같은 외부 OpenAI 호환 VLM을 가리킬 `ai.baseUrl`/`ai.model` 값을
+  `deploy/k8s/helm/docraft/values.yaml`에 추가했다. `AI_BASE_URL`/`AI_VLM_MODEL` 계산을
+  `templates/_helpers.tpl`의 새 헬퍼 `dft.aiBaseUrl`/`dft.aiVlmModel` 한 곳으로 모아
+  `templates/config.yaml`의 ConfigMap 키 중복을 막았다. 우선순위는 `vllmVlm.enabled=true`면
+  in-cluster vLLM 주소가 이기고, `ai.baseUrl`/`ai.model`을 함께 채우면 `fail`로 렌더링을 멈춘다(어느
+  쪽이 실제로 쓰이는지 조용히 갈리는 것을 막는다). 키는 새 Secret 키를 만들지 않고 기존
+  `auth.aiApiKey`(Secret의 `AI_API_KEY`)를 그대로 쓰며, harness-installer 우산 차트
+  (`charts/mlife-ocr`)의 `docraft.auth.aiApiKey` → 공유 Secret `mlife-ocr-secret` 계약은 그대로다.
+  `backend/config.py`의 `ai_settings()`가 읽지 않는 `AI_MODE`·`EXTRACT_CHUNK_CHARS`는 노출하지
+  않았다. `helm lint --strict`·`helm template`(기본값·외부 VLM 값·`vllmVlm.enabled`·둘 다 채워
+  `fail` 확인 4가지 조합) 검증 통과. `deploy/k8s/README.md`에 "외부 VLM(GPU 보류 중 테스트)" 절을
+  추가했다.
+
 ## 2026-09-23 (10)
 * **Creation**: `data/master/*.csv`(로컬 전용, `.dockerignore` 대상이라 컨테이너·k8s에서 명칭 교정이 조용히 비활성이던 문제)를 없애고, `backend/master.py`가 harness-v2 Postgres 재사용 → Docraft 자체 DB(`master_code`) 재사용 → `MASTER_SOURCE_DIR` 원본 신규 적재 순으로 소스를 해석하도록 다시 짠 작업을 [master-source-reuse](2026-09-23-master-source-reuse.md)에 기록했다(브랜치 `feat/master-source`, 워크트리 `.worktrees/master-source`). `scripts/build_master.py`의 파싱 로직(KCD cp949 CSV·수가코드 xlsx 다중 시트·약가/치료재료 tar.gz)을 `backend/master.py`로 옮기고 단가를 버렸다. 원본 적재는 `pg_advisory_xact_lock(hashtext('docraft.master_load'))`로 감싼 트랜잭션 안에서 비어 있음을 재확인한 뒤 `psycopg` `cursor.copy`로 `master_code`에 COPY한다(API·worker 동시 기동 보호). `backend/db.py::init_db()`에 `master_code(family,code,name)` + `(family,code)` 인덱스를 추가하고 `backend/config.py`의 `master_dir()`/`MASTER_DIR`은 삭제했다. 공개 API(`code`·`names`·`correct_name`·`ready`, `MAX_EDITS`·`EDI_MIN`·`DRUG_LEN`)는 그대로라 `backend/rules.py`는 변경 없다. 강제 재적재 CLI `python -m backend.master --source <dir>`을 추가했고, `backend/main.py` lifespan(`asyncio.to_thread(master.ready)`)·`backend/worker.py`(동기 `master.ready()`)에서 기동 시 캐시를 미리 채운다. `tests/test_master.py`는 `_rows()`를 monkeypatch해 DB 없이 조회·교정·경계 테스트를 돌리고(`tests/master_fixture/*.csv` 삭제) 원본 파서(csv cp949·xlsx·tar.gz) 단위 테스트를 추가했다 — `python -m pytest tests -q` 381 passed(실제 Postgres). `compose.yaml`에 `&master-volumes` 앵커로 `MASTER_SOURCE_HOST_DIR` 읽기전용 마운트를, `.env.example`·`deploy/aws/.env.aws.example`에 `HARNESS_DATABASE_URL`·`MASTER_SOURCE_DIR` 안내를 추가했다. `deploy/k8s/helm/docraft`에는 `master.harnessDatabaseUrl`(기존 Secret 패턴)·`master.sourceImage`(backend·worker에 `/opt/master`→`/master` emptyDir initContainer, restricted PSS 준수)를 추가하고 `dft.image` 헬퍼가 `img` 딕셔너리를 직접 받도록 넓혔다 — `helm lint`·`helm template`(기본값, master 값 켠 조합, GPU+worker+frontend 전부 켠 조합) 통과. `_load_source`→COPY 적재, docraft DB 재사용, harness DB 폴백, CLI 강제 재적재를 실제 Postgres(`127.0.0.1:5433`)에 대고 수동으로도 확인했다. `README.md` 마스터 절을 새 순서로 다시 썼다.
 * **Update**: [master-name-correction](2026-09-22-master-name-correction.md) 첫머리에 원본 로딩 구조가 `master-source-reuse` 문서로 바뀌었다는 안내를 추가했다(교정 규칙 자체는 그대로 유효). [index](index.md)에 새 문서를 연결했다.
