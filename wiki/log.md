@@ -199,3 +199,4 @@
 * **Update**: [rule-engine-design](2026-09-23-rule-engine-design.md)에 4단계 구현 위치를 적었다.
 * **Update**: [verify-test-0922](2026-09-23-verify-test-0922.md)에 후속 과제 처리(출력 셀 정렬·`predicted_value` 동기화, 같은 키 행 짝짓기, 프록시 900초, 합계 보조 강화 보류)와 59건 최종 재테스트(영수증 169/6, 세부 81/13, 원내코드 관례 차이)를 더했다.
 * **Update**: [verify-test-0922](2026-09-23-verify-test-0922.md)에 세부내역서 원내코드 관례를 AO처럼 두 칸 유지로 바꾼 결정과 머리글 코드 열 수 조건, 5건 재확인 결과를 더했다.
+* **Update**: README 교차검증 절에 세부내역서 집계 행 유지·같은 키 행 짝짓기·급여구분(`item_class`) 교정·`predicted_value` 동기화·동시 호출과 처리 시간, Docker 절에 프록시 900초를 반영했다.
