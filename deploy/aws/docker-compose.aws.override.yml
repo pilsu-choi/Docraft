@@ -37,7 +37,7 @@ services:
     build: !reset null
     image: docraft-frontend:${DOCRAFT_TAG:-latest}
     ports: !override
-      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-3000}:80"
+      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-3000}:8080"
     restart: always
     logging: *logging
 
