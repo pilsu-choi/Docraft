@@ -1087,3 +1087,15 @@ def test_correct_sets_the_benefit_class_from_the_amount_columns():
     assert [flag["row"] for flag in checks if flag["code"] == "item_class"] == [0, 1, 2, 3]
     assert [row["급여구분"] for row in fixed] == ["급여", "비급여", "급여", "열추출", "열추출", "급여"]
     assert "item_class" in reason and rows[0]["급여구분"] == "열추출"  # 입력은 건드리지 않는다
+
+
+def test_pair_rows_matches_rows_with_the_same_key_by_their_other_cells():
+    """0922 재테스트: 같은 날 이름이 같은 이학요법료 행이 여럿이면 순서가 달라도 명칭·금액이 같은 행끼리 잇는다."""
+    left = [{"항목": "이학요법료", "EDI명칭": "표층열치료", "총액": "954.5"},
+            {"항목": "이학요법료", "EDI명칭": "간섭파전류치료", "총액": "4232"}]
+    right = [{"항목": "이학요법료", "EDI명칭": "간섭파전류치료", "총액": "4232"},
+             {"항목": "이학요법료", "EDI명칭": "표층열치료", "총액": "954.5"}]
+
+    pairs = rules.pair_rows("세부내역서", "항목내역", left, right)
+
+    assert [(a["EDI명칭"], b["EDI명칭"]) for a, b in pairs] == [("표층열치료", "표층열치료"), ("간섭파전류치료", "간섭파전류치료")]

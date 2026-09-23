@@ -21,8 +21,8 @@ data:
 
         location /api/ {
             proxy_pass http://{{ $fn }}-backend:{{ .Values.backend.port }}/api/;
-            proxy_read_timeout 300s;
-            proxy_send_timeout 300s;
+            proxy_read_timeout 900s;
+            proxy_send_timeout 900s;
             proxy_connect_timeout 30s;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
