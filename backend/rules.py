@@ -18,6 +18,7 @@
   근거 없는 합계·마스터에 없는 병명코드를, 세부내역서에 행 산술·문서 품질을, 진료비영수증 항목내역에
   금액 겹침·없는 열·합계 베끼기·합계 불일치·열 바뀜·행 밀림·행 누락을 본다.
 - ``correct(doc_type, checks, ao, docraft)``: 그중 확실한 이상을 Judge 없이 바로 교정한다.
+- ``sum_errors(doc_type, fields)``: 합계식 불일치 수. Judge 판정이 합계식을 더 어기면 되돌리는 데 쓴다.
 
 룰은 데이터 테이블(``LABELS``·``FIELD_RULES``·``TOTALS``·doctypes.ENUMS)과 공통 엔진으로 나눠 둔다.
 """
@@ -1340,6 +1341,15 @@ def _sum_checks(fields, rows):
     found += [_flag("column_shift", f"항목 행의 '{a}'·'{b}' 열을 통째로 맞바꾸면 두 열의 합이 합계 행과 맞는다.",
                     column=a, target=b) for a, b in _swaps(rows)]
     return found
+
+
+def sum_errors(doc_type: str, fields: dict) -> int:
+    """합계식 불일치 수. 합계 필드끼리의 식(``FIELD_SUMS``)과, 진료비영수증이면 합계 행·열별 합·합계 필드 식을 센다.
+    두 읽기 중 합계식에 더 맞는 쪽을 고르는 데 쓴다(``verify``)."""
+    found = _field_sums(fields)
+    if doc_type == "진료비영수증" and _rows(fields, ITEM_TABLE):
+        found += [flag for flag in _sum_checks(fields, _rows(fields, ITEM_TABLE)) if flag["code"] == "sum_mismatch"]
+    return len(found)
 
 
 def _relations(fields, key=None):

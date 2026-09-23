@@ -110,7 +110,7 @@ flowchart TD
 
 추출 프롬프트에는 표 **근거 제약**을 함께 보냅니다. 문서에 인쇄된 행만 인쇄 순서대로 내고, 인쇄되지 않은 표준 항목 행을 덧붙이지 않으며, 인쇄된 이름이 표준 목록에 없어도 비슷한 표준 이름으로 바꾸지 않습니다(`doctypes.GROUND_HINT`는 영수증·세부내역서 표 설명에, `engine.TABLE_NOTE`는 표가 있는 스키마의 system 지침에 붙습니다). 전후 수치는 [근거 제약 기록](wiki/2026-09-22-extract-grounding.md)에 있습니다.
 
-Judge에는 남은 불일치와 이상만 전달합니다. 결과는 입력 AO 구조를 유지하며 값별 `ao_value`, `docraft_value`, `source`, `reason`을 붙이고, `verify`에 유형·건수·검사 결과를 담습니다. AO에 없던 필드는 `added: true`로 추가될 수 있습니다. `ao_result`는 JSON **문자열** form 필드입니다.
+Judge에는 남은 불일치와 이상만 전달합니다. Judge 판정이 합계식(`rules.sum_errors`)을 더 어기면 key를 하나씩 AO·Docraft 값으로 바꿔 보고 불일치가 줄어드는 값을 택합니다(흐린 숫자 오독 대비, 빈 값으로는 바꾸지 않음). 결과는 입력 AO 구조를 유지하며 값별 `ao_value`, `docraft_value`, `source`, `reason`을 붙이고, `verify`에 유형·건수·검사 결과를 담습니다. AO에 없던 필드는 `added: true`로 추가될 수 있습니다. `ao_result`는 JSON **문자열** form 필드입니다.
 
 선택 필드 `hint_paths`(JSON 배열 문자열, 예: `["병원명", "항목내역"]`)를 주면 그 필드·표 key만 비교·Judge 대상으로 삼아 비용을 줄입니다(룰 엔진이 이미 확정한 필드는 다시 보내지 않는 용도). 힌트에 없는 필드는 AO 값 그대로 돌아가며 `source` 등 판정 정보가 붙지 않습니다 — 그 유무로 판정 여부를 가릴 수 있습니다. 추출 스키마도 힌트 key로 좁혀 VLM 호출 비용을 함께 줄입니다. 정의에 없는 key는 무시하고 경고 로그만 남깁니다. 비우거나 생략하면 기존과 동일하게 전체 필드를 비교합니다.
 
