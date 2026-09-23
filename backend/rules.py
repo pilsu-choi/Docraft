@@ -340,11 +340,16 @@ def _prefix_same(kind, a, b):
     return len(short) >= 2 and long.startswith(short)
 
 
+def _likeness(row, other):
+    """두 행에서 값이 있고 표기까지 같은 칸 수."""
+    return sum(1 for column, value in row.items() if value not in (None, "", "0") and str(value) == str(other.get(column)))
+
+
 def pair_rows(doc_type: str, table: str, left: list, right: list, columns=None,
               fallback: bool = True) -> list[tuple[dict | None, dict | None]]:
     """두 표의 행을 ``ROW_KEYS``의 키 열로 짝짓는다.
 
-    값이 같은 행부터 짝짓고, 남은 행은 키 열의 접두가 같은 행에 붙이고(``주사료`` ⊂ ``주사료_행위료``),
+    값이 같은 행부터 짝짓고(키가 같은 후보가 여럿이면 나머지 칸이 더 많이 같은 행), 남은 행은 키 열의 접두가 같은 행에 붙이고(``주사료`` ⊂ ``주사료_행위료``),
     ``fallback``이면 그래도 남은 행끼리 순서대로 잇는다. 끝내 짝이 없는 행은 상대가 ``None``인
     쌍(누락·과잉)으로 남는다. 왼쪽 행 순서는 그대로 지킨다.
     """
@@ -356,8 +361,10 @@ def pair_rows(doc_type: str, table: str, left: list, right: list, columns=None,
         for index, row in enumerate(left):
             if matched[index] is not None or not any(row.get(column) not in (None, "") for column in keys):
                 continue
-            hit = next((other for other, mate in enumerate(right) if other not in taken
-                        and all(match(kinds[column], row.get(column), mate.get(column)) for column in keys)), None)
+            hits = [other for other, mate in enumerate(right) if other not in taken
+                    and all(match(kinds[column], row.get(column), mate.get(column)) for column in keys)]
+            # 키가 같은 행이 여럿이면(같은 날 이학요법료 셋 등) 나머지 칸이 더 많이 같은 행과 잇는다. 동점이면 순서대로.
+            hit = max(hits, key=lambda other: _likeness(row, right[other]), default=None)
             if hit is not None:
                 taken.add(hit)
                 matched[index] = hit
