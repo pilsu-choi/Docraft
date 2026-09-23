@@ -208,6 +208,30 @@ def _decide(doc_type, key, verdict, ao_value, docraft_value, field="value"):
     return normalized, "corrected", reason
 
 
+def _balance(doc_type, chosen, ao_flat, docraft):
+    """판정 결과가 합계식을 어기면 key를 하나씩(표 먼저) AO·Docraft 값으로 바꿔 보고, 불일치가 줄면 그 값을 택한다.
+
+    흐린 숫자를 두 읽기가 다르게 읽었을 때 Judge가 합계식에 안 맞는 쪽을 고르는 경우를 되돌린다. 불일치가
+    줄 때만 바꾸므로 합계식과 무관한 key나 이미 맞는 판정은 그대로다. 빈 값으로는 바꾸지 않는다(검사할 식이
+    사라져 불일치가 준 것처럼 보인다). ``chosen``은 key → ``(값, source, reason)``.
+    """
+    def errors(**changed):
+        return rules.sum_errors(doc_type, {**ao_flat, **{key: value for key, (value, _, _) in chosen.items()}, **changed})
+
+    count = errors()
+    for key in sorted(chosen, key=lambda key: not isinstance(chosen[key][0], list)):
+        if not count:
+            break
+        value, source, _ = chosen[key]
+        for side, other in (("ao", ao_flat.get(key)), ("docraft", docraft.get(key))):
+            if side == source or other in (None, "", []) or other == value or (trial := errors(**{key: other})) >= count:
+                continue
+            chosen[key] = (other, side, f"합계식: 판정 값은 불일치 {count}건, {side} 값은 {trial}건이라 {side} 값을 택했다")
+            count = trial
+            break
+    return chosen
+
+
 def _annotate(element, value, ao_value, docraft_value, source, reason):
     """AO 원소에 최종값과 판정 정보를 덧붙인다."""
     element.update(value=value, ao_value=ao_value, docraft_value=docraft_value, source=source, reason=reason)
@@ -301,6 +325,8 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
             return chosen[0], "corrected", " / ".join(filter(None, (fixes[key][1], chosen[2])))
         return chosen
 
+    chosen = _balance(doc_type, {key: resolve(key, value, "rows" if isinstance(value, list) else "value")
+                                 for key, value in ao_flat.items() if only is None or key in only}, ao_flat, docraft)
     counts, final = Counter(), {}
     for key, field in _scalars(target):
         if not key:
@@ -309,7 +335,7 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
             continue
         if only is not None and key not in only:  # 힌트 밖 필드는 AO 값 그대로, 판정 정보 없이 둔다
             continue
-        final[key], source, reason = resolve(key, ao_flat[key])
+        final[key], source, reason = chosen[key]
         counts[source] += 1
         _annotate(field, final[key], field.get("value"), docraft.get(key), source, reason)
     for key, table in _tables(target):
@@ -319,7 +345,7 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
             continue
         if only is not None and key not in only:
             continue
-        final[key], source, reason = resolve(key, ao_flat[key], "rows")
+        final[key], source, reason = chosen[key]
         counts[source] += 1
         table.update(rows=_table_rows(table, final[key], docraft.get(key) or [], source, reason),
                      source=source, reason=reason)

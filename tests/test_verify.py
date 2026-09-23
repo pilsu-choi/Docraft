@@ -727,3 +727,31 @@ def test_row_diff_reports_a_row_only_one_side_read_as_a_whole_row():
     diff = verify._row_diff("세부내역서", "항목내역", ao, mine)
 
     assert diff == [{"row": 1, "ao": ao[1], "docraft": None}]
+
+
+HANBANG_AO = [{"항목": "진찰료", "본인부담금": "2726", "공단부담금": "10904"},
+              {"항목": "시술및처치료", "본인부담금": "71608", "공단부담금": "286032"},
+              {"항목": "합계", "본인부담금": "74334", "공단부담금": "296936"}]
+HANBANG_DOCRAFT = [{"항목": "진찰료", "본인부담금": "2720", "공단부담금": "10904"},  # 흐린 팩스 오독
+                   {"항목": "시술및처치료", "본인부담금": "71808", "공단부담금": "288032"},
+                   {"항목": "합계", "본인부담금": "74334", "공단부담금": "298936"}]
+
+
+def test_balance_reverts_a_judged_table_that_breaks_the_totals():
+    """이슈 정리 260923 현상 3 문서: Judge가 합계식에 안 맞는 Docraft 표를 골랐으면 합계식에 맞는 AO 표로 되돌린다."""
+    ao = {"항목내역": HANBANG_AO, "진료비총액": "371270", "환자부담총액": "74334"}
+    chosen = {"항목내역": (HANBANG_DOCRAFT, "docraft", "Judge"), "진료비총액": ("371270", "agree", None),
+              "환자부담총액": ("74334", "agree", None)}
+
+    value, source, reason = verify._balance("진료비영수증", chosen, ao, {"항목내역": HANBANG_DOCRAFT})["항목내역"]
+
+    assert (value, source) == (HANBANG_AO, "ao") and "합계식" in reason
+
+
+def test_balance_keeps_a_judgement_when_the_other_reading_is_empty_or_no_better():
+    ao = {"항목내역": [], "진료비총액": "371270"}
+    chosen = {"항목내역": (HANBANG_DOCRAFT, "docraft", "Judge"), "진료비총액": ("371270", "agree", None)}
+
+    assert verify._balance("진료비영수증", dict(chosen), ao, {"항목내역": HANBANG_DOCRAFT}) == chosen  # 빈 표로 바꾸지 않는다
+    assert rules.sum_errors("진료비영수증", {"항목내역": HANBANG_AO, "진료비총액": "371270"}) == 0
+    assert rules.sum_errors("진료비영수증", {"항목내역": HANBANG_DOCRAFT, "진료비총액": "371270"}) > 0
