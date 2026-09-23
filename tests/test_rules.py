@@ -1099,3 +1099,20 @@ def test_run_repeats_until_a_round_fixes_nothing_and_traces_each_rule():
     assert [(entry["round"], entry["result"], entry["flags"], entry["fixed"]) for entry in swap] == [
         (1, "fail", 1, 0), (2, "fail", 1, 1), (3, "pass", 0, None)]
     assert {entry["action"] for entry in swap} == {"CORRECT"} and swap[0]["category"] == "STRUCT"
+
+
+def test_a_rule_disabled_for_a_doc_type_is_not_checked(monkeypatch):
+    rows = [{"항목": "진찰료", "급여구분": "열추출", "본인부담": "5000"}]
+    assert [flag["code"] for flag in rules.check("세부내역서", {"항목내역": rows}, {}, [])] == ["item_class"]
+    monkeypatch.setattr(rules, "DISABLE", rules._disabled({"세부내역서": ["DETAIL.ITEM_CLASS"]}))
+    assert rules.check("세부내역서", {"항목내역": rows}, {}, []) == []
+    assert rules.run("세부내역서", {"항목내역": rows}, {}, [])[0] == {}
+
+
+def test_rulesets_reject_an_unknown_table_or_rule_id(tmp_path):
+    path = tmp_path / "rules.yaml"
+    path.write_text("disable: {}\nlabelz: {}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="labelz"):
+        rules._load(path)
+    with pytest.raises(ValueError, match="NO.SUCH"):
+        rules._disabled({"세부내역서": ["NO.SUCH"]})
