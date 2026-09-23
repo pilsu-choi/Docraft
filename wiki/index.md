@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [룰 엔진 선언형 전환 설계안](2026-09-23-rule-engine-design.md) - rules.py 검사·교정 16종을 룰 레지스트리(탐지기+교정기, CORRECT/RE_EXTRACT/ESCALATE)와 반복 실행기·`verify.trace`로 옮기는 5단계 설계, harness-v2 선언형 룰 DSL과의 역할 분담과 결정 필요 사항
 * [0922 테스트 산출물 59건 AWS 교차검증 재테스트](2026-09-23-verify-test-0922.md) - AO 대비 변경 797곳을 원본 이미지로 감사: 영수증 교정 163 맞음/15 악화, 세부내역서는 집계 행 삭제 등으로 84 맞음/303 악화, `/api/verify` 이벤트 루프 차단 버그 수정, 후속 과제 5개
 * [합계식 Judge 판정 보조와 선별급여 라벨 통일](2026-09-23-sum-guard-labels.md) - Judge 판정이 합계식을 더 어기면 불일치가 줄어드는 AO·Docraft 값으로 되돌리는 `verify._balance`(`rules.sum_errors`)와 한방 흐린 팩스 문서 결과, 정답셋 선별급여 행 이름 7건 conform과 76건 새 기준점
 * [진료비영수증 이슈 정리 260923 룰 해결](2026-09-23-receipt-issues-0923.md) - 열 전체가 서식에 없는 열로 간 매핑 오류(파서 머리글 기준 `no_column`, 교정은 `column_shift`로 통합), 선별급여 유의어·한방 항목·한 글자 오독 항목명 교정(`item_name`), 한방 소계 열 오매핑 비우기와 퇴행·라벨 관례 충돌 측정
