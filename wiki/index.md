@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [룰 레지스트리·반복 교정·rulesets YAML 구현](2026-09-23-rule-registry.md) - 설계안 1~3단계: 검사·교정 18개를 `rules.RULES`로, `rules.run` 최대 3회 반복·`verify.trace`·ESCALATE `review` 표시, 룰 데이터 표 23개를 `backend/rulesets/rules.yaml`로 옮기고 `disable` 추가. 1·3단계 동작 변화 0 대조, 범위 룰은 걸릴 일이 없어 뺌
 * [룰 엔진 선언형 전환 설계안](2026-09-23-rule-engine-design.md) - rules.py 검사·교정 16종을 룰 레지스트리(탐지기+교정기, CORRECT/RE_EXTRACT/ESCALATE)와 반복 실행기·`verify.trace`로 옮기는 5단계 설계, harness-v2 선언형 룰 DSL과의 역할 분담과 결정 필요 사항
 * [0922 테스트 산출물 59건 AWS 교차검증 재테스트](2026-09-23-verify-test-0922.md) - AO 대비 변경 797곳을 원본 이미지로 감사: 영수증 교정 163 맞음/15 악화, 세부내역서는 집계 행 삭제 등으로 84 맞음/303 악화, `/api/verify` 이벤트 루프 차단 버그 수정, 후속 과제 5개
 * [합계식 Judge 판정 보조와 선별급여 라벨 통일](2026-09-23-sum-guard-labels.md) - Judge 판정이 합계식을 더 어기면 불일치가 줄어드는 AO·Docraft 값으로 되돌리는 `verify._balance`(`rules.sum_errors`)와 한방 흐린 팩스 문서 결과, 정답셋 선별급여 행 이름 7건 conform과 76건 새 기준점

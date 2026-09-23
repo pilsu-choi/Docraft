@@ -98,6 +98,7 @@ flowchart TD
     LLM --> Rules[룰 정규화·누락 보충]
     Rules --> Check[AO 값과 비교·이상 검사]
     Check --> Fix[확실한 오류 룰 교정]
+    Fix -- 교정 있음, 최대 3회 --> Check
     Fix --> Diff{불일치·이상 남음?}
     Diff -- 예 --> Judge[LLM Judge 1회 판정]
     Diff -- 아니오 --> Output[AO 형식의 교정 결과]
@@ -106,7 +107,7 @@ flowchart TD
 
 표는 행 순서·개수가 아니라 행 식별 열(세부내역서 `항목`+`EDI코드`+`시작일자`, 진료비영수증 `항목`, 진단서류 `병명코드`·`수술일자` 등)로 행을 대응시켜 비교합니다. 대응된 행은 어긋난 셀만, 대응되지 않은 행만 행 단위로 Judge에 알립니다. 이 키 정의(`rules.ROW_KEYS`)와 짝짓기(`rules.pair_rows`)는 교차검증과 정확도 채점이 함께 씁니다.
 
-룰 검사(`rules.check`)는 표 금액 셀의 겹침·서식에 없는 열(묶음 제목, 파서 머리글에 없는 열)·항목명 규칙과 한 글자 오독(`item_name`)·합계 베끼기·행 누락과 과다·합계식 불일치(`sum_mismatch`)·이웃 열 밀림(`column_shift`)·세로 행 밀림(`row_shift`)·행 산술(`row_arith`)·날짜 선후(`bad_date`)·주민번호 불일치(`id_mismatch`)·인쇄되지 않은 합계(`ungrounded`)·저품질 문서(`low_quality`)·마스터에 없는 병명코드를 찾습니다. 그중 확실한 것(항목명 표준화, 금액 0인 누락 행, Docraft가 읽은 열로 옮기는 열 밀림(없는 열 포함), 파서 표로 확인된 행 밀림, 통째로 맞바뀐 열, 인쇄되지 않은 세부내역서 급여 합계)만 `rules.correct`가 교정하고 나머지는 Judge 힌트로 넘깁니다. 유형별 엣지케이스와 효과는 [룰 엣지케이스 기록](wiki/2026-09-23-rules-edge-cases.md)에 있습니다.
+룰 검사(`rules.check`)는 표 금액 셀의 겹침·서식에 없는 열(묶음 제목, 파서 머리글에 없는 열)·항목명 규칙과 한 글자 오독(`item_name`)·합계 베끼기·행 누락과 과다·합계식 불일치(`sum_mismatch`)·이웃 열 밀림(`column_shift`)·세로 행 밀림(`row_shift`)·행 산술(`row_arith`)·날짜 선후(`bad_date`)·주민번호 불일치(`id_mismatch`)·인쇄되지 않은 합계(`ungrounded`)·저품질 문서(`low_quality`)·마스터에 없는 병명코드를 찾습니다. 그중 확실한 것(항목명 표준화, 금액 0인 누락 행, Docraft가 읽은 열로 옮기는 열 밀림(없는 열 포함), 파서 표로 확인된 행 밀림, 통째로 맞바뀐 열, 인쇄되지 않은 세부내역서 급여 합계)만 룰로 교정하고 나머지는 Judge 힌트로 넘깁니다. 검사와 교정은 `rules.run`이 교정할 것이 없어질 때까지 최대 3회 반복합니다. 각 검사는 `rules.RULES`에 룰 id(`RECEIPT.ROW_SHIFT` 등)·category·실패 시 조치(`CORRECT`·`RE_EXTRACT`·`ESCALATE`)·교정 순서와 함께 등록되어 있습니다. 라운드별 룰 결과는 `verify.trace`에 남고, 끝까지 풀리지 않은 `ESCALATE` 룰 이상이 걸린 값에는 `review: true`가 붙습니다. 라벨 동의어·합계식·날짜 선후·항목명 별칭 같은 룰 데이터 표는 [`backend/rulesets/rules.yaml`](backend/rulesets/rules.yaml)에 있고, `disable`에 유형별로 끌 룰 id를 적을 수 있습니다(모르는 키나 룰 id가 있으면 서버가 뜨지 않습니다). 설계는 [룰 엔진 설계안](wiki/2026-09-23-rule-engine-design.md)에 있습니다. 유형별 엣지케이스와 효과는 [룰 엣지케이스 기록](wiki/2026-09-23-rules-edge-cases.md)에 있습니다.
 
 추출 프롬프트에는 표 **근거 제약**을 함께 보냅니다. 문서에 인쇄된 행만 인쇄 순서대로 내고, 인쇄되지 않은 표준 항목 행을 덧붙이지 않으며, 인쇄된 이름이 표준 목록에 없어도 비슷한 표준 이름으로 바꾸지 않습니다(`doctypes.GROUND_HINT`는 영수증·세부내역서 표 설명에, `engine.TABLE_NOTE`는 표가 있는 스키마의 system 지침에 붙습니다). 전후 수치는 [근거 제약 기록](wiki/2026-09-22-extract-grounding.md)에 있습니다.
 

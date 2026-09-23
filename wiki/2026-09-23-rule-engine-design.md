@@ -13,7 +13,7 @@ status: draft
 - 브랜치: `docs/rule-engine-design`
 - 워크트리: `.worktrees/rule-engine-design`
 
-"OCR → KIE → Rule Engine(검증·정규화·누락·오탐·필드 간 검증) → 교정 → 재검증 → 최종 KV" 구조와 지금 코드를 비교하고, 빠진 부분을 채우는 설계다. 구현은 아직 하지 않았다.
+"OCR → KIE → Rule Engine(검증·정규화·누락·오탐·필드 간 검증) → 교정 → 재검증 → 최종 KV" 구조와 지금 코드를 비교하고, 빠진 부분을 채우는 설계다. 1~3단계는 [rule-registry](2026-09-23-rule-registry.md)에서 구현했다. 범위 룰 `RANGE.NON_NEGATIVE`는 걸릴 일이 없어 넣지 않았다.
 
 ## 1. 현재 상태
 
