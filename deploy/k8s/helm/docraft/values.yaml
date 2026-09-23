@@ -195,6 +195,16 @@ paddleocrLines:
     requests: { cpu: "1", memory: 2Gi }
     limits:   { memory: 4Gi }
 
+# ── AI(VLM) 엔드포인트 ──────────────────────────────────────────────────
+# vllmVlm(아래, in-cluster vLLM)을 켜지 않고 외부 OpenAI 호환 VLM(별도 호스팅 vLLM, OpenRouter 등)을
+# 가리킬 때만 채운다. AI_BASE_URL/AI_VLM_MODEL 은 이 값과 vllmVlm 중 한 곳에서만 정해진다(계산은
+# templates/_helpers.tpl 의 dft.aiBaseUrl/dft.aiVlmModel 한 곳뿐) — vllmVlm.enabled=true 면 이 값 대신
+# in-cluster 주소를 쓰고, 둘 다 채우면 어느 쪽인지 헷갈리는 대신 렌더링이 멈춘다. 키는 auth.aiApiKey
+# (AI_API_KEY)를 그대로 쓴다 — 우산 차트의 docraft.auth.aiApiKey → 공유 Secret 계약과 같다.
+ai:
+  baseUrl: ""
+  model: ""
+
 # ── vLLM VLM — Qwen3-VL-32B-Instruct (GPU) ─────────────────────────────
 vllmVlm:
   enabled: false

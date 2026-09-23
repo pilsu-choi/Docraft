@@ -80,6 +80,28 @@ runtimeClassName: {{ . }}
 {{- end }}
 {{- end -}}
 
+{{/* AI_BASE_URL/AI_VLM_MODEL 을 정하는 단 한 곳 — templates/config.yaml 이 이 둘만 쓴다.
+   vllmVlm.enabled 면 in-cluster vLLM Service 가 이기고, ai.baseUrl/ai.model(외부 OpenAI 호환 VLM)을
+   함께 채우면 둘 중 무엇이 실제로 쓰이는지 헷갈리는 대신 렌더링을 멈춘다. */}}
+{{- define "dft.aiBaseUrl" -}}
+{{- if .Values.vllmVlm.enabled -}}
+{{- if or .Values.ai.baseUrl .Values.ai.model -}}
+{{- fail "vllmVlm.enabled=true 와 ai.baseUrl/ai.model 을 함께 채울 수 없다 — in-cluster vLLM 을 쓰려면 ai.baseUrl/ai.model 을 비우고, 외부 VLM 을 쓰려면 vllmVlm.enabled=false 로 둔다." -}}
+{{- end -}}
+{{- printf "http://%s-vllm-vlm:8000/v1" (include "dft.fullname" .) -}}
+{{- else -}}
+{{- .Values.ai.baseUrl -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "dft.aiVlmModel" -}}
+{{- if .Values.vllmVlm.enabled -}}
+{{- .Values.vllmVlm.servedModelName -}}
+{{- else -}}
+{{- .Values.ai.model -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "dft.requireGpuNode" -}}
 {{- if not (or .Values.gpu.nodeSelector .Values.nodeSelector) -}}
 {{- fail "GPU 컴포넌트(paddleocrVl·paddleocrLines·vllmVlm)를 켜면 gpu.nodeSelector 로 노드를 지정해야 한다 — deviceIds 는 device plugin 을 우회해 nvidia.com/gpu 를 요청하지 않으므로 스케줄러가 GPU 노드를 알아서 고르지 못한다." -}}

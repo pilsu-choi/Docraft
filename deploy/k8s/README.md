@@ -32,6 +32,30 @@ helm template docraft deploy/k8s/helm/docraft \
   --set gpu.nodeSelector.kubernetes\.io/hostname=<GPU노드>
 ```
 
+## 외부 VLM(GPU 보류 중 테스트)
+
+`vllmVlm.enabled=false`(기본)인 동안에도 `ai.baseUrl`/`ai.model`로 외부 OpenAI 호환 VLM(별도 호스팅
+vLLM, OpenRouter 등)을 가리킬 수 있다. 키는 기존 `auth.aiApiKey`(Secret의 `AI_API_KEY`)를 그대로 쓴다 —
+새 Secret 키를 만들지 않는다.
+
+```bash
+helm template docraft deploy/k8s/helm/docraft \
+  --set externalDatabase.url=postgresql://docraft:<pw>@<host>:5432/docraft \
+  --set ai.baseUrl=https://openrouter.ai/api/v1 \
+  --set ai.model=qwen/qwen3-vl-32b-instruct \
+  --set auth.aiApiKey=<key>
+```
+
+`AI_BASE_URL`/`AI_VLM_MODEL`은 `templates/_helpers.tpl`의 `dft.aiBaseUrl`/`dft.aiVlmModel` 한 곳에서만
+정해진다(ConfigMap 키 중복 없음). 우선순위: `vllmVlm.enabled=true`면 in-cluster vLLM 주소가 무조건
+이기고, 이때 `ai.baseUrl`이나 `ai.model`을 같이 채우면(둘 중 뭐가 실제로 쓰이는지 헷갈리는 대신)
+렌더링이 멈춘다 — 외부 VLM을 쓰려면 `vllmVlm.enabled=false`로 두고, in-cluster로 돌아가려면
+`ai.baseUrl`/`ai.model`을 비운다.
+
+harness-installer 우산 차트(`charts/mlife-ocr`)의 `docraft.auth.aiApiKey`가 공유 Secret
+`mlife-ocr-secret`의 `AI_API_KEY`를 채우는 계약은 그대로 유지된다 — 이 변경은 `auth.aiApiKey`가
+아니라 `AI_BASE_URL`/`AI_VLM_MODEL`의 출처만 건드린다.
+
 ## GPU 배치 (기본값: L40S 2장)
 
 deviceIds로 device plugin을 우회한다(harness-v2 `deploy/k8s/INSTALL.md` §11과 같은 방식) — 노드의
