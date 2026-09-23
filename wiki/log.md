@@ -190,3 +190,4 @@
 * **Creation**: Judge 판정을 합계식으로 보조하는 `verify._balance`·`rules.sum_errors`와 정답셋 선별급여 라벨 7건 통일(백업 후 conform)을 [sum-guard-labels](2026-09-23-sum-guard-labels.md)에 기록했다(418 passed, 한방 문서 표가 AO 값으로 복원, gold final에서 보조 개입 0건, 영수증 rules 4261/4479). README Judge 설명에 합계 보조를 더했다.
 * **Update**: [aws-deploy](2026-09-22-aws-deploy.md)에 2026-09-23 재배포(영수증 룰 보강 반영), AWS 오버레이 frontend 포트 80→8080 수정, smoke·`/api/verify` 확인 결과를 추가했다.
 * **Creation**: 0922 테스트 산출물 59건을 AWS `/api/verify`로 재테스트하고 변경 797곳을 이미지로 감사한 결과와 `/api/verify` 비차단 수정(`36da217`)을 [verify-test-0922](2026-09-23-verify-test-0922.md)에 기록했다(영수증 개선, 세부내역서 집계 행 삭제로 악화).
+* **Update**: [verify-test-0922](2026-09-23-verify-test-0922.md)의 진료비영수증 감사 수치를 최종 판정 파일 기준 163/15/10/2로 고치고 금액산정 빈 칸 채우기 사례를 더했다.
