@@ -143,3 +143,4 @@
 * **Creation**: `rules.apply`·`check`·`correct`의 흐름을 진단서·진료비영수증 예시 실행 결과로 풀어 쓴 [rules-flow-example](2026-09-23-rules-flow-example.md)을 추가하고, 그 과정에서 찾은 `_name`의 도장 표시(`홍길동 (인)` → `홍길동인`) 버그 수정을 기록했다.
 * **Creation**: 남은 오류 873건·오탐 330건을 근거로 룰 엣지케이스 목록을 정의하고 구현한 기록을 [rules-edge-cases](2026-09-23-rules-edge-cases.md)에 추가했다(368 passed, 캐시 평가 세부내역서 fp 273→43·영수증 fp 27→11·correct +12, 진단서 fp 16→9). main의 급여 열 총액 채우기는 라벨 근거가 없어 뺐다.
 * **Update**: [rules-edge-cases](2026-09-23-rules-edge-cases.md)에 세부내역서 급여 프롬프트 재추출 평가를 더했다(이전 프롬프트 대조군과 비교: raw 급여 오탐 240→93, 룰 적용 후는 둘 다 0, rules 단계 차이는 재추출 흔들림 폭 안).
+* **Creation**: 수술확인서·입퇴원확인서·약제비영수증을 AO 교차검증에 추가하고 57건 평가셋을 라벨·검수·평가한 기록을 [doctypes-3more](2026-09-23-doctypes-3more.md)에 추가했다(388 passed, rules 정확도 수술 268/291·입퇴원 300/312·약제비 217/229, gold final 오탐 0, 기존 4종 회귀 없음). README 지원 유형을 7종으로 고쳤다.
