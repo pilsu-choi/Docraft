@@ -4,7 +4,7 @@
   비교 가능한 정규형이 없으면 None을 돌려준다.
 - ``apply(doc_type, result, blocks)``: ``engine.extract`` 결과(정규 표현, doctypes 참고)에
   파싱 블록(``parsers.parse``의 blocks)을 근거로 룰을 적용해 새 정규 표현을 돌려준다.
-  값 정규화, 값 자리에 들어온 서식 라벨·표 마크업과 빈 행·머리글 행 제거, 빠진 필드의 라벨 동의어 기반 보충,
+  값 정규화, 값 자리에 들어온 서식 라벨·표 마크업과 빈 행·머리글 행 제거, 연번호를 차트번호로 옮기기, 빠진 필드의 라벨 동의어 기반 보충,
   소견 문장에서 치료·검사 내역 행 만들기, 병명코드·수술일자 분리, 인쇄되지 않은 급여 합계 비우기, 합계행 정리,
   머리글에 없는·묶음 제목인 금액 열 비우기, 통째로 맞바뀐 금액 열 되돌리기, ``derive``의 관례 채우기를 차례로 한다.
 - ``derive(doc_type, fields)``: 읽은 값에서 채울 수 있는 자리를 AO 관례대로 채운다(성별·생년월일,
@@ -50,8 +50,8 @@ LABELS = {  # 필드 → 라벨 동의어. 블록에서 빠진 값을 찾을 때
     "병원연락처": ["전화및FAX", "대표전화", "전화번호", "TEL", "Tel", "전화"],
     "면허번호": ["면허번호", "의사면허번호", "의사번호", "의사면허", "주치의면허번호"],
     "의사명": ["의사성명", "의사명", "담당의사", "주치의", "전문의", "한의사성명", "치과의사성명", "성명", "의사"],
-    "환자 등록번호": ["환자등록번호", "등록번호", "환자번호", "병록번호", "병록번호", "고객번호", "환자ID"],
-    "차트번호": ["차트번호", "챠트번호", "진료카드번호"],
+    "환자 등록번호": ["환자등록번호", "병원등록번호", "등록번호", "환자번호", "병록번호", "병록번호", "고객번호", "환자ID"],
+    "차트번호": ["차트번호", "챠트번호", "진료카드번호", "연번호", "발행번호", "일련번호", "문서번호"],
     "이름": ["환자의성명", "환자성명", "환자명", "수진자성명", "수진자명", "성명", "이름"],
     "환자 주민번호": ["주민등록번호", "환자의주민등록번호", "주민번호", "환자의주민번호", "주민등록번호(수진자)"],
     "성별": ["성별", "나이/성별"],
@@ -181,7 +181,7 @@ _DATE = re.compile(
 _CODE = re.compile(r"[A-Za-z01][0-9]{2,5}(?:\.[0-9]{1,2})?")
 _CODE_IN_TEXT = re.compile(r"[(\[{]?\s*[A-Za-z]\d{2,5}(?:\.\d{1,2})?\s*[)\]}]?")
 _LICENSE = re.compile(r"\(?\s*(제)?\s*\d{4,6}\s*(호)?\s*\)?")
-_NAME_WORDS = re.compile(r"의사|성명|이름|환자|면허|직인|서명|담당|주치의|전문의|연령|나이|또는")
+_NAME_WORDS = re.compile(r"의사|성명|이름|환자|면허|직인|서명|담당|주치의|전문의|연령|나이|또는|만\s*\d+\s*세")
 _SEAL = re.compile(r"[(\[]\s*(?:인|印)\s*[)\]]|\s+(?:인|印)\s*$")  # 이름 뒤 날인 표시: (인)·[인]·(印)·공백+인
 _PHONE_IN_TEXT = re.compile(r"\(?\d{2,4}\)?\s*-\s*\d{3,4}\s*-\s*\d{4}\)?")
 _TOTAL_ROW = re.compile(r"^(합계|총계|소계|계|total|합계금액|끝수처리조정금액?)$", re.I)
@@ -250,12 +250,15 @@ def _trim(number):
 
 def _idnum(text):
     match = re.match(r"(\d{6})([\d*]{0,7})", re.sub(r"[^\d*]", "", text))
-    return match[1] + ("-" + match[2] if match[2] else "") if match else None
+    return match[1] + ("-" + match[2].ljust(7, "*") if match[2] else "") if match else None  # 가린 뒷자리는 *로 채운다
 
 
 def _phone(text):
     text = re.sub(r"[-/()]{0,2}\s*(fax|팩스).*", "", text, flags=re.I | re.S)
     digits = re.sub(r"-{2,}", "-", re.sub(r"[^\d-]+", "-", text)).strip("-")
+    digits = re.sub(r"^(02|0[1-9]\d)(\d{3,4})(\d{4})$|^(1[5-9]\d\d)()(\d{4})$",
+                    lambda m: "-".join(filter(None, m.groups())), digits)  # 붙여 쓴 번호에 국번 구분을 넣는다
+    digits = re.sub(r"^(0\d{1,2}-\d{3,4}-\d{4})-0\d{1,2}-\d{3,4}-\d{4}$", r"\1", digits)  # 이어 붙은 팩스는 뺀다
     return digits if len(re.sub(r"\D", "", digits)) >= 7 else None
 
 
@@ -385,9 +388,11 @@ def _address(text):
 
 def _serial(text, strict=True):
     """등록·차트번호. 숫자가 없으면 옆 라벨('야간(공휴일)진료')이 흘러든 것이다. 등록번호(``strict``)는 한글이 섞이거나
-    ('602-82-00286 상호 …') 날짜로 시작하면('20191024-M188', 접수·영수증번호) 버린다 — 차트번호는 둘 다 흔하다."""
-    if not re.search(r"\d", text) or strict and (re.search(r"[가-힣]", text)
-                                                 or re.match(r"\d{8}\D", text) and _dates_in(text[:8])):
+    ('602-82-00286 상호 …') 날짜로 시작하면('20191024-M188', 접수·영수증번호) 버린다 — 차트번호는 둘 다 흔하다.
+    연도만 인쇄된 빈 칸('2018 -')도 버리고, 뒤 칸 라벨('… 주민등록번호 :')이 흘러들면 잘라 낸다."""
+    text = re.split(r"\s+[가-힣]{2,}번호", text)[0]
+    if not re.search(r"\d", text) or re.fullmatch(r"(19|20)\d\d\s*-?", text) or strict and (
+            re.search(r"[가-힣]", text) or re.match(r"\d{8}\D", text) and _dates_in(text[:8])):
         return None
     return text
 
@@ -417,7 +422,7 @@ _LABEL_WORDS = frozenset(  # 값 자리에 들어온 서식 라벨을 가려낼 
 def _junk(value) -> bool:
     """값이 아니라 서식의 라벨 글자나 표 마크업이 흘러든 것인지('성별', '4 환자구분', '</td><td>')."""
     rest = re.sub(r"^\d{1,2}(?=\D)", "", _key(value))  # 서식의 항목 번호('4 환자구분')는 라벨의 일부다
-    if _HTML.search(str(value)) or len(_OPTIONS.findall(str(value))) > 1:
+    if _HTML.search(str(value)) or len(_OPTIONS.findall(re.sub(r"●{2,}", "", str(value)))) > 1:  # ●● 연속은 가림 표시
         return True
     while rest:
         word = max((word for word in _LABEL_WORDS if word and rest.startswith(word)), key=len, default=None)
@@ -526,6 +531,16 @@ def _picked(doc_type, key, candidate):
     if any(mark in key for mark in LAST_DATE):
         return next(reversed(_dates_in(str(candidate))), None)
     return _value(doc_type, key, candidate)
+
+
+def _serials(doc_type, out, blocks):
+    """환자 등록번호에 든 값이 연번호·발행번호 칸의 값이면(등록번호 칸의 값이 아니면) 차트번호로 옮긴다."""
+    value = out.get("환자 등록번호")
+    if not value or out.get("차트번호"):
+        return
+    near = lambda key: {_picked(doc_type, key, c) for _, _, c in _candidates(LABELS[key], blocks) if c is not None}
+    if value in near("차트번호") - near("환자 등록번호"):
+        out["차트번호"], out["환자 등록번호"] = value, None
 
 
 def _fill(doc_type, out, blocks):
@@ -1331,6 +1346,7 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
         rows = [row for row in (result.get(table) or []) if isinstance(row, dict)]
         rows = [{column: _value(doc_type, column, row.get(column), table) for column in columns} for row in rows]
         out[table] = [row for row in rows if not _hollow(doc_type, table, row)]
+    _serials(doc_type, out, blocks or [])
     _fill(doc_type, out, blocks or [])
     _notes(doc_type, out, blocks or [])
     _split_cells(out)
