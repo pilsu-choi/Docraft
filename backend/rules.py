@@ -17,7 +17,8 @@
 - ``check(doc_type, ao, docraft, blocks)``: 룰 레지스트리(``RULES``)의 검사를 차례로 돌린 이상 징후 목록. 모든 유형에
   날짜 앞뒤·주민번호 일치·합계식·근거 없는 합계·마스터에 없는 병명코드를, 세부내역서에 행 산술·문서 품질·급여구분 값을,
   진료비영수증 항목내역에 금액 겹침·없는 열·합계 베끼기·합계 불일치·열 바뀜·행 밀림·행 누락을 본다.
-- ``correct(doc_type, checks, ao, docraft)``: 그중 확실한 이상을 룰의 교정(``Rule.fix``)으로 Judge 없이 바로 고친다.
+- ``run(doc_type, ao, docraft, blocks)``: 검사하고 확실한 이상을 룰의 교정(``Rule.fix``)으로 Judge 없이 고치기를
+  고칠 것이 없을 때까지 되풀이하고, 룰별 실행 기록(trace)을 남긴다.
 - ``sum_errors(doc_type, fields)``: 합계식 불일치 수. Judge 판정이 합계식을 더 어기면 되돌리는 데 쓴다.
 
 룰은 데이터 테이블(``LABELS``·``FIELD_RULES``·``TOTALS``·doctypes.ENUMS)과 공통 엔진으로 나눠 둔다.
@@ -1473,14 +1474,14 @@ def _fix_row_shift(fix, flags):
         rows[flag["row"]][flag["column"]] = "0"
     for (index, column), value in moved.items():
         rows[index][column] = value
-    fix.reasons += [f"row_shift: {rows[flag['row']].get('항목')} 행의 {flag['column']}를 "
+    fix.reasons += [f"[{flag['rule']}] {rows[flag['row']].get('항목')} 행의 {flag['column']}를 "
                     f"{rows[flag['target_row']].get('항목')} 행으로 옮겼다" for flag in flags]
 
 
 def _fix_swap(fix, flags):
     for flag in flags:
         fix.rows = _swap(fix.rows, [(flag["column"], flag["target"])])
-        fix.reasons.append(f"column_shift: 항목 행의 {flag['column']}·{flag['target']} 열을 맞바꿨다")
+        fix.reasons.append(f"[{flag['rule']}] 항목 행의 {flag['column']}·{flag['target']} 열을 맞바꿨다")
 
 
 def _fix_column_shift(fix, flags):
@@ -1489,14 +1490,14 @@ def _fix_column_shift(fix, flags):
         source = row is not None and _row_of(fix.mine, row.get("항목"))
         if source and _money(source.get(target)) == _money(row.get(column)) and not _money(row.get(target)):
             row[target], row[column] = row[column], "0"
-            fix.reasons.append(f"column_shift: {row.get('항목')} 행의 {column}를 {target}로 옮겼다")
+            fix.reasons.append(f"[{flag['rule']}] {row.get('항목')} 행의 {column}를 {target}로 옮겼다")
 
 
 def _fix_item_class(fix, flags):
     for flag in flags:
         row = fix.row(flag)
         if row is not None and flag["value"]:
-            fix.reasons.append(f"item_class: {row.get('항목')} 행의 급여구분 {row.get('급여구분')}를 {flag['value']}로 고쳤다")
+            fix.reasons.append(f"[{flag['rule']}] {row.get('항목')} 행의 급여구분 {row.get('급여구분')}를 {flag['value']}로 고쳤다")
             row["급여구분"] = flag["value"]
 
 
@@ -1504,7 +1505,7 @@ def _fix_item_name(fix, flags):
     for flag in flags:
         row = fix.row(flag)
         if row is not None:
-            fix.reasons.append(f"item_name: {row.get('항목')}를 {flag['name']}로 고쳤다")
+            fix.reasons.append(f"[{flag['rule']}] {row.get('항목')}를 {flag['name']}로 고쳤다")
             row["항목"] = flag["name"]
 
 
@@ -1514,12 +1515,12 @@ def _fix_row_missing(fix, flags):
         source = _row_of(fix.mine, name)
         if source and not any(_amounts(source)):
             fix.rows.insert(_insert_at(fix.rows, fix.mine, name), {**source, "항목": name})
-            fix.reasons.append(f"row_missing: 금액이 모두 0인 '{name}' 행을 Docraft에서 채웠다")
+            fix.reasons.append(f"[{flag['rule']}] 금액이 모두 0인 '{name}' 행을 Docraft에서 채웠다")
 
 
 def _fix_total(fix, flags):
     """인쇄되지 않았거나(ungrounded) 합계식이 어긋나는(sum_mismatch, 합계 쪽) 급여 합계를 비운다."""
-    fix.fields.update({flag["key"]: (None, f"{flag['code']}: 인쇄되지 않았거나 구성 금액의 합과 다른 급여 합계라 비웠다")
+    fix.fields.update({flag["key"]: (None, f"[{flag['rule']}] 인쇄되지 않았거나 구성 금액의 합과 다른 급여 합계라 비웠다")
                        for flag in flags if flag["key"] in UNPRINTED_NULL
                        and (flag["code"] == "ungrounded" or flag["key"] in FIELD_SUMS)})
 
@@ -1567,12 +1568,48 @@ def check(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dic
     return [{**flag, "rule": rule.id} for rule in RULES if doc.sees(rule) for flag in rule.detect(doc)]
 
 
-def correct(doc_type: str, checks: list[dict], ao_fields: dict, docraft_fields: dict) -> dict:
+def _correct(checks, ao_fields, docraft_fields):
     """확실한 이상만 Judge 없이 룰로 교정한다. ``{key: (교정값, 사유)}``."""
     fix = _Fix([dict(row) for row in ao_fields.get(ITEM_TABLE) or []], docraft_fields.get(ITEM_TABLE) or [])
     for rule in sorted((rule for rule in RULES if rule.fix), key=lambda rule: rule.priority):
         rule.fix(fix, [flag for flag in checks if flag["rule"] == rule.id])
     return {**fix.fields, **({ITEM_TABLE: (fix.rows, " / ".join(fix.reasons))} if fix.reasons else {})}
+
+
+def run(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dict], rounds: int = 3):
+    """검사(``check``)와 교정을 고칠 것이 없거나 같은 상태가 되풀이되거나 ``rounds``번이 될 때까지 되풀이한다.
+
+    ``(교정, 회차별 이상 징후, 실행 기록)``을 돌려준다. 교정은 ``{key: (교정값, 사유)}``로 회차를 거듭한 최종값과
+    사유 합집합이고, 이상 징후 목록의 마지막은 마지막 교정 뒤의 검사다(``rounds=0``이면 검사만 한다).
+    실행 기록은 회차 × 적용되는 룰마다 ``{rule, category, round, result, action, flags, fixed}``이고,
+    ``fixed``는 다음 회차 검사에서 사라진 이상 징후 수다(다음 회차가 없으면 None).
+    """
+    fields, fixes, history, seen, trace = dict(ao_fields), {}, [], [], []
+    for number in range(1, rounds + 2):
+        doc = _Doc(doc_type, fields, docraft_fields, blocks)
+        flags = check(doc_type, fields, docraft_fields, blocks)
+        history.append(flags)
+        counts = {rule.id: sum(flag["rule"] == rule.id for flag in flags) for rule in RULES if doc.sees(rule)}
+        trace += [{"rule": rule.id, "category": rule.category, "round": number, "result": "fail" if counts[rule.id] else "pass",
+                   "action": rule.on_fail, "flags": counts[rule.id], "fixed": None} for rule in RULES if rule.id in counts]
+        changed = _correct(flags, fields, docraft_fields) if number <= rounds else {}
+        seen.append(fields)
+        fields = {**fields, **{key: value for key, (value, _) in changed.items()}}
+        if fields in seen:  # 고칠 것이 없거나 앞선 상태로 되돌아가면(진동) 멈춘다
+            break
+        for key, (value, reason) in changed.items():
+            reasons = [*(fixes[key][1].split(" / ") if key in fixes else ()), *reason.split(" / ")]
+            fixes[key] = (value, " / ".join(dict.fromkeys(reasons)))
+    for entry in trace:
+        if entry["round"] < len(history):
+            after = {_where(flag) for flag in history[entry["round"]] if flag["rule"] == entry["rule"]}
+            entry["fixed"] = sum(_where(flag) not in after for flag in history[entry["round"] - 1] if flag["rule"] == entry["rule"])
+    return fixes, history, trace
+
+
+def _where(flag):
+    """회차를 넘어 같은 이상 징후인지 가릴 자리(사유 문장은 값이 바뀌면 달라지므로 뺀다)."""
+    return tuple(flag.get(name) for name in ("key", "row", "column", "item", "target"))
 
 
 def sum_errors(doc_type: str, fields: dict) -> int:
