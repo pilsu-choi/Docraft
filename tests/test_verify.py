@@ -2,12 +2,14 @@
 
 import glob
 import json
+import threading
 from copy import deepcopy
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
+from starlette.requests import Request
 
 from backend import doctypes, engine, rules, verify
 from backend.main import app
@@ -138,6 +140,16 @@ def test_run_only_sends_mismatched_fields_to_the_judge(monkeypatch):
     assert set(disputes) == {"진단명", "병원명", "환자명", "병명내역"}  # 일치하는 진단일·면허번호는 빠진다
     assert disputes["병원명"] == {"ao": "고려대병원", "docraft": "고려대학교 구로병원"}
     assert disputes["병명내역"]["docraft"] == DOCRAFT["병명내역"]
+
+
+def test_run_stops_before_the_judge_once_cancelled(monkeypatch):
+    calls, cancel = stub(monkeypatch), threading.Event()
+    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None: (cancel.set(), ({}, {}))[1])  # 추출 도중 끊김
+
+    with pytest.raises(verify.Cancelled):
+        verify.run("scan.png", AO, cancel=cancel)
+
+    assert calls == []
 
 
 def test_run_skips_the_judge_when_every_field_agrees(monkeypatch):
@@ -319,7 +331,7 @@ def test_run_with_empty_hint_paths_behaves_as_before(monkeypatch):
 
 def test_verify_route_forwards_parsed_hint_paths(monkeypatch, tmp_path):
     seen = []
-    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None: seen.append(hint_paths) or {
+    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None, cancel=None: seen.append(hint_paths) or {
         "documents": [{"verify": {"counts": {}}}]})
 
     response = post(_image(tmp_path), hint_paths=json.dumps(["병원명"]))
@@ -490,7 +502,7 @@ def post(path, ao_result=None, **data):
 
 def test_verify_route_returns_the_corrected_result(monkeypatch, tmp_path):
     seen = []
-    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None: seen.append((image, doc_type)) or {
+    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None, cancel=None: seen.append((image, doc_type)) or {
         "documents": [{"verify": {"counts": {"agree": 1, "ao": 0, "docraft": 0, "corrected": 0}}}]})
 
     response = post(_image(tmp_path), doc_type="진단서")
@@ -524,6 +536,18 @@ def test_verify_route_reports_an_unsupported_document_type(monkeypatch, tmp_path
     response = post(_image(tmp_path))
 
     assert response.status_code == 422 and "지원하지 않는 문서 유형" in response.json()["detail"]
+
+
+def test_verify_route_cancels_the_run_when_the_client_disconnects(monkeypatch, tmp_path):
+    def run(image, ao, doc_type=None, hint_paths=None, cancel=None):
+        assert cancel.wait(5)
+        raise verify.Cancelled
+
+    async def gone(self): return True
+    monkeypatch.setattr(verify, "run", run)
+    monkeypatch.setattr(Request, "is_disconnected", gone)
+
+    assert post(_image(tmp_path)).status_code == 499
 
 
 def test_verify_route_turns_a_provider_failure_into_a_gateway_error(monkeypatch, tmp_path):
@@ -720,7 +744,7 @@ def test_run_computes_checks_after_over_every_field_even_with_hint_paths(monkeyp
 
 
 def test_verify_route_accepts_the_ui_result_format(monkeypatch, tmp_path):
-    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None: {"result": {"verify": {"counts": {}}}})
+    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None, cancel=None: {"result": {"verify": {"counts": {}}}})
 
     response = post(_image(tmp_path), ao_result=json.dumps(UI), doc_type="진료비영수증")
 
