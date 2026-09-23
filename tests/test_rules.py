@@ -369,6 +369,9 @@ def case(folder, name):
     ("필투약및조제료_행위료", "투약및조제료_행위료"), ("필주사료_약품비", "주사료_약품비"),  # 서식 분류 칸 글자
     ("선택항목_CT진단료", "CT진단료"), ("선택항목_기타", "기타"),
     ("선별급여", "선별급여"), ("선택진료료", "선택진료료"), ("필름대", "필름대"),  # 뗀 나머지가 표준 항목이 아니면 둔다
+    ("「국민건강보험법 제41조의4에 따른 요양급여」", "선별급여"), ("시행령 별표2 제4호의 요양급여", "선별급여"),
+    ("시행및처치료", "시술및처치료"), ("치료제료대", "치료재료대"),  # 한 글자 OCR 오독(이슈 정리 260923)
+    ("영상진단및방사선", "영상진단및방사선"), ("검사로", "검사로"),  # 표준 이름이 아니어도 가까운 이름이 없거나 짧으면 둔다
 ])
 def test_item_name_follows_the_ao_prompt_rules(name, expected):
     assert rules.item(name) == expected
@@ -442,7 +445,7 @@ def test_correct_moves_a_nonexistent_column_to_the_column_docraft_read():
     fixed, reason = rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": mine})["항목내역"]
 
     assert (fixed[0]["급여"], fixed[0]["비급여"]) == ("0", "9010000")
-    assert "no_column" in reason and rows[0]["급여"] == "9010000"  # 입력은 건드리지 않는다
+    assert "column_shift" in reason and rows[0]["급여"] == "9010000"  # 입력은 건드리지 않는다
 
 
 def test_correct_leaves_a_move_docraft_does_not_confirm_to_the_judge():
@@ -587,6 +590,54 @@ def test_check_leaves_a_row_shift_the_parser_table_does_not_confirm():
 
     assert not [flag for flag in rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [])
                 if flag["code"] == "row_shift"]
+
+
+FORM_BLOCKS = [{"type": "table", "rows": [["항목", "본인부담금", "공단부담금", "전액본인부담", "비급여"],
+                                          ["진찰료", "2,268", "3,402", "", ""], ["검사료", "28,132", "42,198", "", "3,000"]]}]
+
+
+def test_check_finds_a_whole_column_moved_to_a_column_the_form_does_not_have():
+    """이슈 정리 260923 현상 1: 공단부담금 열 전체가 서식에 없는 선택진료료외로 갔다. 열 합은 맞아 합계 검사로는 못 잡는다."""
+    rows = receipt(("진찰료", {"본인부담금": "2268", "선택진료료외": "3402"}),
+                   ("검사료", {"본인부담금": "28132", "선택진료료외": "42198", "비급여": "3000"}))
+
+    found = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": []}, FORM_BLOCKS)
+
+    assert [(flag["row"], flag["column"]) for flag in found if flag["code"] == "no_column"] == [
+        (0, "선택진료료외"), (1, "선택진료료외")]
+
+
+def test_check_trusts_docraft_over_a_header_the_parser_misread():
+    """파서 머리글에 없어도 Docraft 표가 그 열에 값을 읽었으면 서식에 없는 열로 몰지 않는다."""
+    rows = receipt(("진찰료", {"선택진료료외": "3402"}))
+    mine = receipt(("검사료", {"선택진료료외": "42198"}))
+
+    assert not [flag for flag in rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, FORM_BLOCKS)
+                if flag["code"] == "no_column"]
+
+
+def test_correct_renames_an_item_to_the_standard_name():
+    """이슈 정리 260923 현상 2·3: 선별급여 유의어와 '시행및처치료' 오독을 표준 이름으로 고친다."""
+    rows = receipt(("국민건강보험법 제41조의4에 따른 요양급여", {}), ("시행및처치료", {"본인부담금": "71608"}),
+                   ("보철·교정료", {}))  # 기호만 다른 이름은 그대로 둔다
+    checks = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": rows}, [])
+
+    fixed, reason = rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": rows})["항목내역"]
+
+    assert [row["항목"] for row in fixed] == ["선별급여", "시술및처치료", "보철·교정료"]
+    assert "item_name" in reason
+
+
+def test_apply_clears_a_subtotal_column_read_as_full_self_pay():
+    """한방 서식의 일부 본인부담 '소계' 열(본인+공단)을 전액본인부담으로 읽었으면 비운다(오독 행이 섞여도 과반이면)."""
+    rows = [["항목", "본인부담금", "공단부담금", "소계", "선택 진료료"]]
+    read = {"항목내역": [{"항목": "진찰료", "본인부담금": "2726", "공단부담금": "10904", "전액본인부담": "13630"},
+                     {"항목": "식대", "본인부담금": "35910", "공단부담금": "35910", "전액본인부담": "71820"},
+                     {"항목": "시술및처치료", "본인부담금": "71808", "공단부담금": "288032", "전액본인부담": "357640"}]}
+
+    out = rules.apply("진료비영수증", read, [block(rows=rows, kind="table")])
+
+    assert [row["전액본인부담"] for row in out["항목내역"]] == [None, None, None]
 
 
 def test_headers_find_the_item_row_even_when_cells_are_merged():

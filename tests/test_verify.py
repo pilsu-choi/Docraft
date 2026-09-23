@@ -660,7 +660,7 @@ def test_run_reports_the_checks_and_hands_the_judge_a_hint(monkeypatch):
     assert "0이어야" not in calls[0]["항목내역"].get("hint", "")  # 룰이 고친 no_column은 Judge 힌트에서 빠진다
     table = result["tables"][0]
     assert (table["rows"][27][7]["value"], table["rows"][27][4]["value"]) == ("0", "9010000")  # 급여 → 비급여
-    assert table["source"] == "corrected" and "no_column" in table["reason"]
+    assert table["source"] == "corrected" and "column_shift" in table["reason"]
     assert not [flag for flag in result["verify"]["checks_after"] if flag["code"] == "no_column"]
 
 
