@@ -623,8 +623,8 @@ def test_run_adds_defined_fields_and_tables_the_ao_result_left_out(monkeypatch):
     assert len(added) == len(spec["fields"]) - 1  # 발행일만 이미 있었다
     assert added["진료비총액"]["ao_value"] is None
     assert (added["진료비총액"]["value"], added["진료비총액"]["source"]) == ("216470", "docraft")
-    assert added["환자부담총액"]["value"] is None  # Docraft도 못 읽은 필드는 값 없이 agree
-    assert added["환자부담총액"]["source"] == "agree"
+    assert added["상환액초과금"]["value"] is None  # Docraft도 못 읽은 필드는 값 없이 agree
+    assert added["상환액초과금"]["source"] == "agree"
     table = result["tables"][0]
     assert table["added"] and table["key"] == "항목내역" and table["headers"] == list(spec["tables"]["항목내역"])
     assert [cell["value"] for cell in table["rows"][0][:2]] == ["진찰료", "1000"]
@@ -677,6 +677,25 @@ def test_run_traces_every_round_and_marks_an_escalated_table_for_review(monkeypa
     assert {entry["round"] for entry in trace} >= {1, "final"}
     assert all(entry["result"] == ("fail" if entry["flags"] else "pass") for entry in trace)
     assert result["tables"][0]["review"] is True and "review" not in result["fields"][0]
+
+
+def test_run_sends_a_still_missing_required_field_to_judge_and_marks_it_for_review(monkeypatch):
+    """두 읽기 모두 빈 필수 필드·행은 힌트와 함께 Judge에 가고, 판정 뒤에도 비면 review로 표시한다. 힌트 밖 key는 표시하지 않는다."""
+    monkeypatch.setattr(rules, "REQUIRED", rules._required({"수술확인서": ["발급일", "병원명", {"수술내역": {"수술일자": "수술명"}}]}))
+    ao = {"result": {"doc_type": "수술확인서", "groups": [],
+                     "fields": [{"key": "발급일", "value": None}, {"key": "병원명", "value": None}],
+                     "tables": [{"key": "수술내역", "headers": ["수술일자", "수술명"],
+                                 "rows": [[{"key": "수술일자", "value": None}, {"key": "수술명", "value": "봉합술"}]]}]}}
+    real_stub(monkeypatch, {"수술내역": [{"수술일자": None, "수술명": "봉합술"}]}, {})
+    calls = []
+    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes: calls.append(disputes) or {})
+
+    result = verify.run("scan.png", ao, hint_paths=["발급일", "수술내역"])["result"]
+
+    assert "필수 필드 발급일" in calls[0]["발급일"]["hint"] and "수술일자" in calls[0]["수술내역"]["hint"]
+    fields = {field["key"]: field for field in result["fields"]}
+    assert fields["발급일"]["review"] is True and "review" not in fields["병원명"]
+    assert result["tables"][0]["review"] is True
 
 
 def test_run_computes_checks_after_over_every_field_even_with_hint_paths(monkeypatch):

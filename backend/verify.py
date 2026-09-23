@@ -392,7 +392,7 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
     _, (checks_after,), last = rules.run(doc_type, {**ao_flat, **final}, docraft, blocks, rounds=0)
     trace += [{**entry, "round": "final"} for entry in last]
     escalate = {entry["rule"] for entry in last if entry["action"] == "ESCALATE"}
-    review = {flag["key"] for flag in checks_after if flag["rule"] in escalate}
+    review = {flag["key"] for flag in checks_after if flag["rule"] in escalate and (only is None or flag["key"] in only)}
     for key, element in (*_scalars(target), *_tables(target)):  # 최종값에도 남은 ESCALATE 이상은 사람이 본다
         if key in review:
             element["review"] = True
