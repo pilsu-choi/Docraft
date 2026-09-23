@@ -398,13 +398,22 @@ def test_check_finds_a_column_the_form_does_not_have():
     assert all(flag["column"] == "급여" for flag in flags)  # 비급여④는 독립 열이라 걸리지 않는다
 
 
-def test_check_finds_a_total_row_copied_from_an_item_row_and_a_broken_sum():
+def test_check_finds_a_total_row_copied_from_an_item_row():
+    rows = receipt(("진찰료", {"본인부담금": "1000"}), ("검사료", {"본인부담금": "2000"}), ("합계", {"본인부담금": "2000"}))
+
+    found = rules.check("진료비영수증", {"항목내역": rows}, {}, RECEIPT_BLOCKS)
+
+    assert [flag["row"] for flag in found if flag["code"] == "row_copy"] == [2]
+
+
+def test_check_allows_a_total_equal_to_a_lump_sum_row_and_finds_a_broken_sum():
+    """비급여_급여_오추출됨 원본: 합계 행이 정액수가(요양병원) 행과 실제로 같다(포괄수가 행이 위쪽 행을 다시 담는다)."""
     rows = case("[진료비영수증]비급여_급여_오추출됨", "07-extract-bbox.json")["항목내역"]
     fields = {"항목내역": rows, "환자부담총액": "9385610", "진료비총액": "11387230", "공단부담총액": "2001620"}
 
     found = rules.check("진료비영수증", fields, {}, RECEIPT_BLOCKS)
 
-    assert [flag["row"] for flag in found if flag["code"] == "row_copy"] == [30]
+    assert not [flag for flag in found if flag["code"] == "row_copy"]
     sums = [flag for flag in found if flag["code"] == "sum_mismatch"]
     assert [flag["key"] for flag in sums] == ["환자부담총액"]  # 진료비총액·공단부담총액은 맞는다
 
@@ -531,6 +540,53 @@ def test_apply_realigns_a_value_shifted_to_the_neighboring_column():
 
     assert (out["항목내역"][0]["본인부담금"], out["항목내역"][0]["공단부담금"]) == ("3423", "7987")
     assert (out["항목내역"][1]["본인부담금"], out["항목내역"][1]["공단부담금"]) == ("1030", "442")
+
+
+def test_receipt_column_tolerates_a_misread_character_in_other_than():
+    """항목명_누락 원본: 파서가 '선택진료료 이외'를 '선택진료료 미외'로 읽었다."""
+    assert rules._receipt_column(["비급 여", "선택진료료 미외"]) == "선택진료료외"
+    assert rules._receipt_column(["비급 여", "선택 진료료"]) == "선택진료료"
+
+
+def test_apply_moves_a_whole_column_the_parser_table_confirms_on_two_rows():
+    """두 행에서 선택진료료 → 선택진료료외로 되돌렸으면 파서 표에 없는 행(기타·합계)도 같이 되돌린다."""
+    rows = [["항목", "선택진료료", "선택진료료 미외"], ["검사료", "", "40,000"], ["MRI진단료", "", "420,000"]]
+    read = {"항목내역": [{"항목": "검사료", "선택진료료": "40000"}, {"항목": "MRI진단료", "선택진료료": "420000"},
+                     {"항목": "기타", "선택진료료": "10000"}, {"항목": "합계", "선택진료료": "470000"}]}
+
+    out = rules.apply("진료비영수증", read, [block(rows=rows, kind="table")])
+
+    assert [(row["선택진료료"], row["선택진료료외"]) for row in out["항목내역"]] == [
+        ("0", "40000"), ("0", "420000"), ("0", "10000"), ("0", "470000")]
+
+
+SHIFT_BLOCKS = [{"type": "table", "rows": [["항목", "본인부담금", "공단부담금", "비급여"], ["마취료", "9,000", "36,000", ""],
+                                           ["처치및수술료", "", "", "1,500,000"], ["검사료", "", "", "500,000"],
+                                           ["영상진단료", "", "", ""]]}]
+
+
+def test_check_and_correct_a_column_shifted_down_by_rows():
+    """파싱_에러 원본: AO가 비급여 값을 한 행씩 아래로 밀어 적었다. 열 합은 같아 합계 검사로는 못 잡는다."""
+    rows = receipt(("마취료", {"본인부담금": "9000", "공단부담금": "36000", "비급여": "0"}),
+                   ("처치및수술료", {"비급여": "0"}), ("검사료", {"비급여": "1500000"}), ("영상진단료", {"비급여": "500000"}))
+    mine = receipt(("마취료", {"본인부담금": "9000", "공단부담금": "36000"}),
+                   ("처치및수술료", {"비급여": "1500000"}), ("검사료", {"비급여": "500000"}), ("영상진단료", {}))
+
+    checks = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, SHIFT_BLOCKS)
+    fixed, reason = rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": mine})["항목내역"]
+
+    assert [(flag["row"], flag["target_row"]) for flag in checks if flag["code"] == "row_shift"] == [(2, 1), (3, 2)]
+    assert [row["비급여"] for row in fixed] == ["0", "1500000", "500000", "0"]
+    assert "row_shift" in reason
+
+
+def test_check_leaves_a_row_shift_the_parser_table_does_not_confirm():
+    """Docraft만 다른 행에서 읽었고 파서 표 근거가 없으면 AO를 밀렸다고 보지 않는다."""
+    rows = receipt(("처치및수술료", {}), ("검사료", {"비급여": "1500000"}))
+    mine = receipt(("처치및수술료", {"비급여": "1500000"}), ("검사료", {}))
+
+    assert not [flag for flag in rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [])
+                if flag["code"] == "row_shift"]
 
 
 def test_headers_find_the_item_row_even_when_cells_are_merged():

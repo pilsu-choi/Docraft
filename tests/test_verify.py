@@ -656,8 +656,8 @@ def test_run_reports_the_checks_and_hands_the_judge_a_hint(monkeypatch):
     result = verify.run("scan.png", ao, doc_type="진료비영수증")["result"]
 
     codes = {flag["code"] for flag in result["verify"]["checks"]}
-    assert {"no_column", "row_copy", "sum_mismatch"} <= codes
-    assert "베낀" in calls[0]["항목내역"]["hint"]  # 룰이 고친 no_column은 빠지고 남은 이상만 간다
+    assert {"no_column", "sum_mismatch"} <= codes
+    assert "0이어야" not in calls[0]["항목내역"].get("hint", "")  # 룰이 고친 no_column은 Judge 힌트에서 빠진다
     table = result["tables"][0]
     assert (table["rows"][27][7]["value"], table["rows"][27][4]["value"]) == ("0", "9010000")  # 급여 → 비급여
     assert table["source"] == "corrected" and "no_column" in table["reason"]

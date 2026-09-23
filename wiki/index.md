@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [진료비영수증 고객 이슈 3건 룰 해결](2026-09-23-receipt-issue-cases.md) - harness-v2 요구사항의 비급여→급여·파싱 에러·항목명 누락 이슈를 AWS 파서+OpenRouter로 끝까지 돌려 원본과 대조하고, 세로 행 밀림 `row_shift`·`선택진료료 이외` 머리글 오독·파서 행 부족 시 열 되돌림·포괄수가 합계 `row_copy` 헛경고를 보강해 3건 모두 원본과 일치시킨 기록
 * [마스터 명칭 유사도 검토 필요 플래그 — 임계값 스윕 결과와 보류 결정](2026-09-23-master-name-mismatch-flag.md) - 코드는 마스터에 있는데 인쇄 명칭이 후보 전부와 크게 다른 행을 `검토 필요`로 표시하는 안을 difflib로, 이어서 harness-v2 BAAI/bge-m3 임베딩 코사인 유사도로 76건 재평가(임계값 0.05~0.95 스윕, 결합 규칙 포함)했으나 최고 정밀도가 병명 40%·EDI 21%로 목표(70%) 미달이라 검사는 추가하지 않고 두 조회 함수(difflib `similarity()`, 임베딩) 모두 제거한 결정 기록
 * [KCD·EDI 마스터 원본 소스를 harness DB·docraft DB로 재사용](2026-09-23-master-source-reuse.md) - `data/master`(dockerignore 대상, 로컬 전용) 대신 harness-v2 Postgres 재사용 → docraft DB `master_code` 재사용 → `MASTER_SOURCE_DIR` 원본 신규 적재 순으로 소스를 해석하는 구현: advisory lock으로 감싼 COPY 적재, `python -m backend.master --source` 강제 재적재, compose/helm 배포 배선, 381 passed
 * [POST /api/verify에 hint_paths 필드 추가](2026-09-23-verify-hint-paths.md) - harness-v2 룰 엔진이 확정 못한 필드만 골라 Docraft 교차검증·Judge를 돌리는 선택 form 필드 `hint_paths` 구현: 추출 스키마 축소, 힌트 밖 필드는 판정 정보 없이 AO 값 그대로 반환, counts는 판정된 key만 집계

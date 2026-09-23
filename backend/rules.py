@@ -16,7 +16,7 @@
   (``verify._row_diff``)과 채점(``scripts/verify_eval``)이 같은 규칙을 쓰도록 여기 한 곳에 둔다.
 - ``check(doc_type, ao, docraft, blocks)``: 이상 징후 목록. 모든 유형에 날짜 앞뒤·주민번호 일치·합계식·
   근거 없는 합계·마스터에 없는 병명코드를, 세부내역서에 행 산술·문서 품질을, 진료비영수증 항목내역에
-  금액 겹침·없는 열·합계 베끼기·합계 불일치·열 바뀜·행 누락을 본다.
+  금액 겹침·없는 열·합계 베끼기·합계 불일치·열 바뀜·행 밀림·행 누락을 본다.
 - ``correct(doc_type, checks, ao, docraft)``: 그중 확실한 이상을 Judge 없이 바로 교정한다.
 
 룰은 데이터 테이블(``LABELS``·``FIELD_RULES``·``TOTALS``·doctypes.ENUMS)과 공통 엔진으로 나눠 둔다.
@@ -24,6 +24,7 @@
 
 import logging
 import re
+from collections import Counter
 from datetime import date as _calendar_date
 
 from . import doctypes, master
@@ -742,7 +743,7 @@ def _header_columns(doc_type, out, blocks):
 def _receipt_column(cells):
     """반복·병합된 영수증 머리글 셀을 AO 항목내역 열 이름으로 바꾼다."""
     text = _key(" ".join(str(cell or "") for cell in cells))
-    if "선택진료료이외" in text or "선택진료료외" in text:
+    if _OTHER_THAN.search(text):
         return "선택진료료외"
     if "선택진료료" in text:
         return "선택진료료"
@@ -834,20 +835,30 @@ def _shift_target(reference, candidate, column):
     return hits[0] if len(hits) == 1 else None
 
 
-def _realign(base, mine):
-    """모델이 금액을 이웃 열에 잘못 배정했으면(비급여 값이 선택진료료 칸에 등) 파서 표 열 정체성으로 되돌린다.
+def _moves(base, mine):
+    """모델이 이웃 열에 잘못 배정한 금액(비급여 값이 선택진료료 칸에 등) ``{열: 파서 표가 말하는 열}``.
 
-    파서 행이 아는 열(``leaves``)이 둘 미만이면 단서가 부족하므로 건드리지 않는다.
+    파서 행이 아는 열(``leaves``)이 둘 미만이면 단서가 부족하므로 비워 둔다.
     """
-    if sum(1 for column in ITEM_COLUMNS if column in base) < 2:
-        return mine
+    if not base or sum(1 for column in ITEM_COLUMNS if column in base) < 2:
+        return {}
+    return {column: target for column in ITEM_COLUMNS if (target := _shift_target(base, mine, column))}
+
+
+def _realign(base, mine, moves):
+    """mine의 금액을 moves대로 옮기고 떠난 칸은 파서 표 값(없으면 0)으로 둔다."""
     fixed = dict(mine)
-    for column in ITEM_COLUMNS:
-        target = _shift_target(base, mine, column)
-        if target:
-            fixed[target] = mine.get(column)
-            fixed[column] = base.get(column) or "0"
+    for column, target in moves.items():
+        fixed[target] = mine.get(column)
+        fixed[column] = (base or {}).get(column) or "0"
     return fixed
+
+
+def _column_moves(found):
+    """행마다 찾은 열 옮김 중 두 행 이상에서 같은 방향으로만 나온 것. 파서 표에 없는 행(합계·기타 등)에도 적용한다."""
+    seen = Counter(pair for moves in found for pair in moves.items())
+    sources = Counter(column for column, _ in seen)
+    return {column: target for (column, target), count in seen.items() if count >= 2 and sources[column] == 1}
 
 
 def _receipt_table(doc_type, out, blocks):
@@ -857,19 +868,30 @@ def _receipt_table(doc_type, out, blocks):
     항목명이 겹치지 않게 넉넉히 복원됐을 때만 그 목록을 뼈대로 삼아 모델 행을 제자리에 맞추고
     (값은 모델 쪽을 쓰되 이웃 열로 밀린 값은 파서 표 기준으로 되돌리며, 빈 칸만 파서 표로 메운다),
     뼈대에 없는 모델 행은 뒤에 남긴다. 복원이 부실하면 예전처럼 빠진 항목만 인쇄 순서 자리에 보충한다.
+    어느 쪽이든 파서 행과 짝지어진 모델 행의 열 밀림은 되돌리고, 여러 행에서 같은 방향으로 밀렸으면
+    파서 표에 없는 행(합계 등)도 같이 되돌린다.
     """
     if doc_type != "진료비영수증":
         return
     rows, rebuilt = out.get(ITEM_TABLE) or [], _receipt_rows(blocks)
     names = [row["항목"] for row in rebuilt]
-    if len(rebuilt) >= max(2, len(rows)) and len(set(names)) == len(names):
-        merged = []
-        for base, mine in pair_rows(doc_type, ITEM_TABLE, rebuilt, rows, fallback=False):
-            merged.append(mine if base is None else {
-                **base, **{column: value for column, value in _realign(base, mine or {}).items()
-                           if value is not None and column != "항목"}})
+    rich = len(rebuilt) >= max(2, len(rows)) and len(set(names)) == len(names)
+    pairs = (pair_rows(doc_type, ITEM_TABLE, rebuilt, rows, fallback=False) if rich
+             else [(_row_of(rebuilt, row.get("항목")), row) for row in rows])
+    found = [_moves(base, mine or {}) for base, mine in pairs]
+    column = _column_moves(found)
+    merged = []
+    for (base, mine), moves in zip(pairs, found):
+        if mine is not None and base is None:
+            moves = {source: target for source, target in column.items()
+                     if _money(mine.get(source)) and not _money(mine.get(target))}
+        fixed = _realign(base, mine, moves) if mine is not None else None
+        merged.append(fixed if not rich or base is None else {
+            **base, **{key: value for key, value in (fixed or {}).items() if value is not None and key != "항목"}})
+    if rich:
         out[ITEM_TABLE] = merged
         return
+    rows = merged
     present = {item(row.get("항목")) for row in rows}
     for row in rebuilt:
         if row["항목"] not in present:
@@ -936,6 +958,7 @@ def _earliest(out):
 ITEM_TABLE = "항목내역"
 ITEM_COLUMNS = ("본인부담금", "공단부담금", "전액본인부담", "비급여", "선택진료료", "선택진료료외", "급여")
 TOLERANCE = 100  # 십의 자리 절사 허용 오차(요건 1절)
+SHIFT_REACH = 3  # 세로로 밀린 금액을 찾아볼 위아래 행 수
 # 합계 필드 → 합계 행에서 더할 열(요건 1절 합계식). 비급여와 선택진료료·선택진료료외는 한쪽만 값을 갖는
 # 묶음 제목·하위 열 관계라 함께 더해도 겹치지 않는다.
 TOTAL_FIELDS = {
@@ -982,6 +1005,7 @@ RECEIPT_ITEM_NAMES = frozenset((
 _ITEM_GROUP = re.compile(r"^(필수항목|선택항목|필수|선택|필)")  # 항목명 앞에 붙어 오는 서식의 분류 칸 글자
 LUMP_ITEMS = ("정액수가", "65세이상등정액", "질병군포괄수가")  # 항목 행을 묶어 담는 포괄수가 행
 _MULTI_AMOUNT = re.compile(r"\d[\d,]*\s+\d")
+_OTHER_THAN = re.compile(r"선택진료[료비]?.?외")  # '이외'를 '미외'로 읽는 등 한 글자 OCR 오독을 허용한다
 _RECEIPT_ITEM_TEXT = re.compile(r"^[0-9A-Z가-힣_-]{1,24}$")
 
 
@@ -1140,6 +1164,7 @@ def check(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dic
                                                 f"'{row.get('항목')}'의 {column}는 0이어야 한다.", row=index, column=column))
     found += _row_checks(rows, mine)
     found += _shift_checks(rows, mine)
+    found += _row_shifts(rows, mine, _receipt_rows(blocks))
     found += _sum_checks(ao_fields, rows)
     return found
 
@@ -1155,8 +1180,10 @@ def _row_checks(rows, mine):
     body = [row for row in rows if not is_total(row)]
     total = next((index for index, name in enumerate(names) if name == "합계"), len(rows) - 1)
     if len(rows) > 1 and sum(any(_amounts(row)) for row in body) > 1:
+        # 포괄수가 행은 위쪽 항목 행을 다시 담으므로 합계와 같은 것이 정상이다
         copied = next((index for index in range(total) if _amounts(rows[index]) == _amounts(rows[total])
-                       and any(_amounts(rows[total]))), None)
+                       and any(_amounts(rows[total])) and not (item(rows[index].get("항목")) or "").startswith(LUMP_ITEMS)),
+                      None)
         if copied is not None:
             found.append(_flag("row_copy", f"합계 행({total}행)의 금액이 {copied}행 "
                                            f"'{rows[copied].get('항목')}'과 전부 같다. 합계를 베낀 것으로 보인다.", row=total))
@@ -1187,6 +1214,38 @@ def _shift_checks(rows, mine):
                 found.append(_flag("column_shift", f"AO 표 {index}행 '{row.get('항목')}'의 '{column}' 값이 "
                                                     f"Docraft가 읽은 '{target}' 열의 값과 같다. 자리가 바뀐 것으로 보인다.",
                                     row=index, column=column, target=target))
+    return found
+
+
+def _row_shifts(rows, mine, rebuilt):
+    """AO 행의 금액이 같은 열의 다른 행에 있어야 하면(세로 밀림) 그 자리를 알린다. 열 합은 그대로라 합계 검사로는 못 잡는다.
+
+    Docraft가 위아래 ``SHIFT_REACH``행 안에서 그 값을 가진 행이 하나이고, AO는 그 행에 그 값을 갖지 않으며,
+    파서 표도 원래 자리가 아닌 그 행에 값을 둘 때만 본다 — Docraft 혼자 밀려 읽은 경우를 AO 오류로 몰지 않는다.
+    부호만 다른 값은 같게 본다.
+    """
+    def amount(row, column):
+        return abs(_money((row or {}).get(column)) or 0)
+
+    body = [index for index, row in enumerate(rows) if not is_total(row)]
+    theirs = {index: _row_of(mine, rows[index].get("항목")) for index in body}
+    base = {index: _row_of(rebuilt, rows[index].get("항목")) for index in body}
+    found = []
+    for column in ITEM_COLUMNS:
+        for index in body:
+            value = amount(rows[index], column)
+            if not value or amount(theirs[index], column) == value:
+                continue
+            hits = [other for other in body if other != index and abs(other - index) <= SHIFT_REACH
+                    and amount(theirs[other], column) == value != amount(rows[other], column)]
+            if len(hits) != 1:
+                continue
+            target = hits[0]
+            if base[index] is None or not (amount(base[target], column) == value != amount(base[index], column)):
+                continue
+            found.append(_flag("row_shift", f"AO 표 {index}행 '{rows[index].get('항목')}'의 '{column}' {value:,}은 "
+                                            f"{target}행 '{rows[target].get('항목')}' 자리 값이다(Docraft·파서 표가 그 행에서 읽었다).",
+                               row=index, column=column, target_row=target))
     return found
 
 
@@ -1310,6 +1369,14 @@ def correct(doc_type: str, checks: list[dict], ao_fields: dict, docraft_fields: 
     """확실한 이상만 Judge 없이 룰로 교정한다. ``{key: (교정값, 사유)}``."""
     rows, mine = [dict(row) for row in ao_fields.get(ITEM_TABLE) or []], docraft_fields.get(ITEM_TABLE) or []
     reasons = []
+    shifts = [flag for flag in checks if flag["code"] == "row_shift"]
+    moved = {(flag["target_row"], flag["column"]): rows[flag["row"]].get(flag["column"]) for flag in shifts}
+    for flag in shifts:  # 모두 떼어 낸 뒤 제자리에 놓아야 연쇄 밀림에서 옮긴 값을 다시 지우지 않는다
+        rows[flag["row"]][flag["column"]] = "0"
+    for (index, column), value in moved.items():
+        rows[index][column] = value
+    reasons += [f"row_shift: {rows[flag['row']].get('항목')} 행의 {flag['column']}를 "
+                f"{rows[flag['target_row']].get('항목')} 행으로 옮겼다" for flag in shifts]
     order = {"no_column": 0, "column_shift": 1, "row_missing": 2}  # 열 통째 바뀜, 칸, 행 끼우기 순으로 고친다
     for flag in sorted(checks, key=lambda flag: -1 if "target" in flag and "row" not in flag
                        else order.get(flag["code"], 0)):
