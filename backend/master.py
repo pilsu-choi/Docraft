@@ -15,7 +15,6 @@
 """
 
 import csv
-import difflib
 import functools
 import gzip
 import logging
@@ -263,21 +262,6 @@ def correct_name(system: str, value, name) -> str | None:
             chars[positions[index]] = candidate[other_positions[index]]
         return "".join(chars)
     return None
-
-
-def similarity(system: str, value, name) -> float | None:
-    """코드가 마스터에 있는 후보 명칭들과 ``name``의 최대 유사도(0~1). 코드가 없거나 명칭이 비면 None.
-
-    ``difflib.SequenceMatcher``로 ``_letters()`` 정규화 문자열을 비교한다. 76건 평가 결과
-    임계값을 걸어도 정밀도 70%를 못 넘어(``rules.py`` ``_master_checks`` 참고) 검사에는 안 쓰고,
-    조회 전용으로 남긴다.
-    """
-    text = str(name or "").strip()
-    given, _ = _letters(text)
-    candidates = names(system, value)
-    if not given or not candidates:
-        return None
-    return max(difflib.SequenceMatcher(None, given, _letters(candidate)[0]).ratio() for candidate in candidates)
 
 
 def ready() -> bool:
