@@ -158,7 +158,7 @@ def schema_row(row): return decode(row, ("json_schema",))
 
 
 @app.get("/api/health")
-def health(): return {"status": "ok", "ai": public_ai_settings()}
+def health(): return {"status": "ok", "ai": public_ai_settings(), "verify_inflight": VERIFY_INFLIGHT}
 
 
 @app.get("/api/ai/status", dependencies=[Depends(auth)])
@@ -649,8 +649,11 @@ def frames(path):
     except Exception: return 1
 
 
+VERIFY_INFLIGHT = 0  # 처리 중인 /api/verify 수. 배포 스크립트가 health로 보고 교체를 미룬다
+
+
 @app.post("/api/verify", dependencies=[Depends(auth)])
-async def verify_result(image: UploadFile = File(...), ao_result: str = Form(...), doc_type: str | None = Form(None),
+async def verify_result(request: Request, image: UploadFile = File(...), ao_result: str = Form(...), doc_type: str | None = Form(None),
                         hint_paths: str | None = Form(None)):
     """AO 결과 JSON(API·UI 형식)과 원본 이미지를 받아 필드별로 교차검증·교정한 JSON을 돌려준다.
 
@@ -681,13 +684,25 @@ async def verify_result(image: UploadFile = File(...), ao_result: str = Form(...
         target = Path(folder) / f"{uid()}{suffix}"
         await save_upload(image, target)
         if frames(target) > 1: raise HTTPException(422, "다중 페이지 문서는 아직 지원하지 않습니다.")
+        global VERIFY_INFLIGHT
+        VERIFY_INFLIGHT += 1
+        cancel = threading.Event()
         try:
             # 파싱·추출·Judge로 수 분 걸리므로 이벤트 루프 밖에서 돌린다 — 안 그러면 health까지 막혀 동시 요청이 줄을 선다
-            result = await asyncio.to_thread(verify.run, str(target), ao, doc_type, hints)
+            task = asyncio.ensure_future(asyncio.to_thread(verify.run, str(target), ao, doc_type, hints, cancel=cancel))
+            while not task.done():  # 클라이언트가 끊기면 다음 단계의 LLM 호출 전에 멈추게 한다
+                if await request.is_disconnected(): cancel.set()
+                await asyncio.wait({task}, timeout=1)
+            result = task.result()
+        except verify.Cancelled:
+            logger.info("verify: cancelled (client disconnected) doc_type=%s elapsed=%.2fs", doc_type, time.monotonic() - started)
+            return Response(status_code=499)
         except ValueError as exc:  # ParseError 포함
             raise HTTPException(422, str(exc)) from exc
         except Exception as exc:
             logger.exception("verify failed: filename=%s elapsed=%.2fs", filename, time.monotonic() - started)
             raise HTTPException(502, f"교차검증에 실패했습니다: {exc}") from exc
+        finally:
+            VERIFY_INFLIGHT -= 1
     logger.info("verify finished: filename=%s counts=%s elapsed=%.2fs", filename, verify.document(result)["verify"]["counts"], time.monotonic() - started)
     return result

@@ -297,13 +297,24 @@ def _restrict(schema, only):
             "required": [key for key in schema["required"] if key in only]}
 
 
-def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str] | None = None) -> dict:
+class Cancelled(Exception):
+    """호출자가 ``cancel``을 세워 교차검증을 중단했다(예: 클라이언트 연결 끊김)."""
+
+
+def _check(cancel):
+    """``cancel``이 세워졌으면 다음 단계(추출·Judge LLM 호출)로 넘어가지 않고 멈춘다."""
+    if cancel is not None and cancel.is_set(): raise Cancelled
+
+
+def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str] | None = None, cancel=None) -> dict:
     """이미지와 AO 응답(API·UI 형식)을 받아 교정된 AO JSON을 돌려준다. 유형을 모르면 ValueError.
 
     ``hint_paths``를 주면(비어 있지 않은 목록) 그 key(필드·표 key)만 비교·Judge 대상으로 삼고, 추출
     스키마도 그만큼 좁힌다. 나머지 필드·표는 AO 입력 그대로 돌아가며 ``source``·``reason`` 등 판정
     정보가 붙지 않는다 — 그 유무로 호출자가 판정 여부를 가릴 수 있다. 정의에 없는 key는 무시하고
     한 번 경고 로그를 남긴다. 유효한 key가 하나도 없으면(모두 정의 밖) 파싱·추출 전에 ValueError.
+
+    ``cancel``(``threading.Event``)이 세워지면 추출·Judge 직전에 ``Cancelled``로 멈춘다 — 진행 중인 호출은 끝까지 간다.
     """
     given = document(ao)
     doc_type = doc_type or given.get("doc_type") or given.get("predicted_doc_type")
@@ -321,6 +332,7 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
             raise ValueError(f"hint_paths에 {doc_type}에 정의된 key가 없습니다: {sorted(hint_paths)}")
     started = time.monotonic()
     _, blocks = parse(image, Path(image).name, "", {"provider": "paddle"})
+    _check(cancel)
     result, _ = engine.extract(_restrict(doctypes.schema(doc_type), only), blocks, source=image)
     docraft = rules.apply(doc_type, result, blocks)
 
@@ -351,6 +363,7 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
             disputes[key] = {"ao": value, "docraft": (mine or []) if rows else mine,
                              **({"diff": diff} if diff else {}),
                              **({"hint": " ".join(hints[key])} if key in hints else {})}
+    _check(cancel)
     verdicts = judge(image, doc_type, disputes) if disputes else {}
 
     def resolve(key, value, field="value"):
