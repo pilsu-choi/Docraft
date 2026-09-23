@@ -725,14 +725,21 @@ def _header_columns(doc_type, out, blocks):
 
     - 머리글이 '묶음 제목'이라고 말하는 열은 하위 열의 합일 뿐이다(진료비영수증 급여·비급여).
     - 세부내역서 급여 열은 머리글에 독립 열로 보일 때만 남긴다 — 모델이 총액−비급여를 계산해 채우곤 한다.
+    - 진료비영수증 머리글에 소계 열이 있고 전액본인부담 값의 과반이 본인부담금+공단부담금이면 소계를 옮긴 것이다.
     - 세부내역서 머리글이 일수 칸까지 읽혔는데 단가·투여량 낱말(``HEADER_COLUMNS``)이 없으면 이웃 열 값을 옮긴 것이다.
     """
     cells, columns = _headers(blocks), []
-    for column, (titles, subs, _) in GROUPED.items():
+    for column, (titles, subs) in GROUPED.items():
         grouped = _grouped(cells, titles, subs)
         if (grouped is True if doc_type == "진료비영수증"
                 else doc_type == "세부내역서" and column == "급여" and grouped is not False):
             columns.append(column)
+    if doc_type == "진료비영수증" and any("소계" in cell for cell in cells):  # 일부 본인부담의 소계 열(한방 서식)
+        rows = [row for row in out.get(ITEM_TABLE) or [] if _money(row.get("전액본인부담"))]
+        added = sum(_near(_money(row["전액본인부담"]), sum(_money(row.get(column)) or 0 for column in ("본인부담금", "공단부담금")))
+                    for row in rows)
+        if added * 2 > len(rows):  # 과반이 본인+공단이면 소계를 옮겨 적은 것이다(오독 행이 섞여도)
+            columns.append("전액본인부담")
     if doc_type == "세부내역서" and any("일수" in cell for cell in cells):
         columns += [column for column, words in HEADER_COLUMNS.items()
                     if not any(word in cell for cell in cells for word in words)]
@@ -756,7 +763,7 @@ def _receipt_column(cells):
     # 하위 열이 없는 독립된 비급여·급여 칸만 leaf로 본다(GROUPED의 묶음 제목·하위 열 판단을 그대로 쓴다).
     # '비급여'가 '급여'를 부분 문자열로 포함하므로 비급여를 먼저 본다.
     for column in ("비급여", "급여"):
-        titles, subs, _ = GROUPED[column]
+        titles, subs = GROUPED[column]
         if not any(title in text for title in titles):
             continue
         return None if any(sub in text for sub in subs) else column
@@ -976,9 +983,9 @@ FIELD_SUMS = {  # 합계 필드 → 구성 필드. 구성 필드가 둘 이상 �
 SWAPS = (("본인부담금", "공단부담금"), ("선택진료료", "선택진료료외"), ("선택진료료", "비급여"),
          ("선택진료료외", "비급여"))  # 모델이 통째로 맞바꿔 읽기 쉬운 이웃 금액 열
 HEADER_COLUMNS = {"단가": ("단가", "금액"), "투여량": ("투여량", "두여량", "투약량", "용량")}  # 세부내역서 열 → 머리글 낱말
-GROUPED = {  # 열 → (묶음 제목 후보, 하위 열이 있으면 그 열은 독립 열이 아니다, 값을 옮길 열)
-    "급여": (("급여", "요양급여"), ("본인부담", "공단부담", "전액본인"), "비급여"),
-    "비급여": (("비급여",), ("선택진료",), "급여"),
+GROUPED = {  # 열 → (묶음 제목 후보, 하위 열이 있으면 그 열은 독립 열이 아니다)
+    "급여": (("급여", "요양급여"), ("본인부담", "공단부담", "전액본인")),
+    "비급여": (("비급여",), ("선택진료",)),
 }
 ITEM_ALIASES = (  # AO 프롬프트의 항목명 정규화 규칙
     (re.compile(r"^입원료.*1인"), "입원료_1인실"),
@@ -991,6 +998,7 @@ ITEM_ALIASES = (  # AO 프롬프트의 항목명 정규화 규칙
     (re.compile(r"^주사.*약품"), "주사료_약품비"),
     (re.compile(r"^식대?$"), "식대"),
     (re.compile(r"^(계|합계|총계|합계금액)$"), "합계"),
+    (re.compile(r"^(시행령별표2제4호|국민건강보험법제41조의4)"), "선별급여"),
 )
 # 건강보험 진료비 계산서·영수증의 표준 항목. 파서 표에서 새 행을 만들 때만 이 목록을 적용한다.
 # 모델이 낸 비정형 항목은 버리지 않고 그대로 보존한다.
@@ -1000,7 +1008,8 @@ RECEIPT_ITEM_NAMES = frozenset((
     "처치및수술", "처치및수술료", "검사료", "영상진단료", "방사선치료료", "마취료", "정신요법료",
     "재활및물리치료료", "치료재료대", "전혈및혈액성분제제료", "CT진단료", "MRI진단료", "PET진단료",
     "초음파진단료", "보철교정료", "제증명료", "정액수가", "정액수가요양병원", "포괄수가진료비",
-    "65세이상등정액", "시행령별표2제4호의요양급여", "기타", "합계",
+    "65세이상등정액", "선별급여", "기타", "합계",
+    "시술및처치료", "한방물리요법료", "한약첩약", "상급병실료",  # 한방진료비 계산서
 ))
 _ITEM_GROUP = re.compile(r"^(필수항목|선택항목|필수|선택|필)")  # 항목명 앞에 붙어 오는 서식의 분류 칸 글자
 LUMP_ITEMS = ("정액수가", "65세이상등정액", "질병군포괄수가")  # 항목 행을 묶어 담는 포괄수가 행
@@ -1020,7 +1029,16 @@ def item(name) -> str | None:
     """
     text = re.sub(r"[^0-9A-Za-z가-힣]", "", str(name or ""))
     bare = _alias(_ITEM_GROUP.sub("", text, count=1))
-    return bare if bare in RECEIPT_ITEM_NAMES else _alias(text)
+    name = bare if bare in RECEIPT_ITEM_NAMES else _alias(text)
+    return name if name in RECEIPT_ITEM_NAMES or name is None or len(name) < 5 else _misread(name)
+
+
+def _misread(name):
+    """표준 항목명과 같은 길이에 한 글자만 다르고 그런 이름이 하나뿐이면 OCR 오독으로 보고 표준 이름을 돌려준다
+    ('시행및처치료' → '시술및처치료'). 짧은 이름은 다른 항목과 헷갈리기 쉬워 다섯 글자 이상만 본다."""
+    hits = [known for known in RECEIPT_ITEM_NAMES
+            if len(known) == len(name) and sum(a != b for a, b in zip(known, name)) == 1]
+    return hits[0] if len(hits) == 1 else name
 
 
 def _money(value) -> int | None:
@@ -1154,18 +1172,40 @@ def check(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dic
                 if _MULTI_AMOUNT.search(str(row.get(column) or "")):
                     found.append(_flag("multi_amount", f"{side} 표 {index}행 '{column}' 셀에 금액이 둘 이상 들어 있다: "
                                                        f"{row[column]}", row=index, column=column))
-    cells = _headers(blocks)
-    for column, (titles, subs, _) in GROUPED.items():
-        if _grouped(cells, titles, subs) is not True:  # 묶음 제목이라고 확신할 때만 집어낸다
-            continue
+    rebuilt = _receipt_rows(blocks)
+    for column in _absent_columns(blocks, rebuilt, mine):
         for index, row in enumerate(rows):
             if _money(row.get(column)):
                 found.append(_flag("no_column", f"이 표에는 독립된 '{column}' 열이 없으므로 {index}행 "
                                                 f"'{row.get('항목')}'의 {column}는 0이어야 한다.", row=index, column=column))
     found += _row_checks(rows, mine)
     found += _shift_checks(rows, mine)
-    found += _row_shifts(rows, mine, _receipt_rows(blocks))
+    found += _item_names(rows)
+    found += _row_shifts(rows, mine, rebuilt)
     found += _sum_checks(ao_fields, rows)
+    return found
+
+
+def _absent_columns(blocks, rebuilt, mine):
+    """서식에 없는 항목내역 금액 열. 머리글이 묶음 제목이라고 확신하는 급여·비급여와, 파서 표 머리글이
+    세 열 이상 읽혔는데 거기 없고 Docraft 표도 비워 둔 열이다(머리글 일부를 못 읽은 파서만 믿지 않는다).
+    열 전체가 없는 열로 옮겨 가면 열 합이 맞아 합계 검사로는 못 잡는다."""
+    cells = _headers(blocks)
+    absent = {column for column, (titles, subs) in GROUPED.items() if _grouped(cells, titles, subs) is True}
+    form = {column for row in rebuilt for column in row} - {"항목"}
+    if len(form) >= 3:
+        absent |= {column for column in set(ITEM_COLUMNS) - form if not any(_money(row.get(column)) for row in mine)}
+    return sorted(absent)
+
+
+def _item_names(rows):
+    """AO 항목명이 프롬프트 규칙(선별급여 등 이름 변경)이나 한 글자 오독 교정으로 다른 표준 이름이 되는 행."""
+    found = []
+    for index, row in enumerate(rows):
+        name = item(row.get("항목"))
+        if name and name != re.sub(r"[^0-9A-Za-z가-힣_-]", "", str(row.get("항목"))):
+            found.append(_flag("item_name", f"AO 표 {index}행 항목명 '{row.get('항목')}'은 '{name}'로 적는다.",
+                               row=index, name=name))
     return found
 
 
@@ -1377,19 +1417,16 @@ def correct(doc_type: str, checks: list[dict], ao_fields: dict, docraft_fields: 
         rows[index][column] = value
     reasons += [f"row_shift: {rows[flag['row']].get('항목')} 행의 {flag['column']}를 "
                 f"{rows[flag['target_row']].get('항목')} 행으로 옮겼다" for flag in shifts]
-    order = {"no_column": 0, "column_shift": 1, "row_missing": 2}  # 열 통째 바뀜, 칸, 행 끼우기 순으로 고친다
+    order = {"column_shift": 0, "item_name": 1, "row_missing": 2}  # 열 통째 바뀜, 칸, 이름, 행 끼우기 순으로 고친다
     for flag in sorted(checks, key=lambda flag: -1 if "target" in flag and "row" not in flag
                        else order.get(flag["code"], 0)):
         row = rows[flag["row"]] if flag.get("row") is not None and flag["row"] < len(rows) else None
         if flag["code"] == "column_shift" and "row" not in flag:
             rows = _swap(rows, [(flag["column"], flag["target"])])
             reasons.append(f"column_shift: 항목 행의 {flag['column']}·{flag['target']} 열을 맞바꿨다")
-        elif flag["code"] == "no_column" and row is not None:
-            target = GROUPED[flag["column"]][2]
-            source = _row_of(mine, row.get("항목"))
-            if source and _money(source.get(target)) == _money(row[flag["column"]]) and not _money(row.get(target)):
-                row[target], row[flag["column"]] = row[flag["column"]], "0"
-                reasons.append(f"no_column: {row.get('항목')} 행의 {flag['column']}를 {target}로 옮겼다")
+        elif flag["code"] == "item_name" and row is not None:
+            reasons.append(f"item_name: {row.get('항목')}를 {flag['name']}로 고쳤다")
+            row["항목"] = flag["name"]
         elif flag["code"] == "column_shift" and row is not None:
             column, target = flag["column"], flag["target"]
             source = _row_of(mine, row.get("항목"))
