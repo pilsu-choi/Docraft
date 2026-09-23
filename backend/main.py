@@ -682,7 +682,8 @@ async def verify_result(image: UploadFile = File(...), ao_result: str = Form(...
         await save_upload(image, target)
         if frames(target) > 1: raise HTTPException(422, "다중 페이지 문서는 아직 지원하지 않습니다.")
         try:
-            result = verify.run(str(target), ao, doc_type, hints)
+            # 파싱·추출·Judge로 수 분 걸리므로 이벤트 루프 밖에서 돌린다 — 안 그러면 health까지 막혀 동시 요청이 줄을 선다
+            result = await asyncio.to_thread(verify.run, str(target), ao, doc_type, hints)
         except ValueError as exc:  # ParseError 포함
             raise HTTPException(422, str(exc)) from exc
         except Exception as exc:
