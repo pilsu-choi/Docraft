@@ -89,7 +89,7 @@ flowchart TD
 
 ## AO 결과 교차검증
 
-`POST /api/verify`는 단일 페이지 이미지(PNG·JPG·JPEG·TIF·TIFF·WebP)와 AO 응답 JSON을 받습니다. 지원 문서 유형은 진단서·소견서·진료비영수증·세부내역서입니다. 일반 프로젝트 스키마와 달리 이 경로의 필드 키·자료형·설명은 [`backend/doctypes.py`](backend/doctypes.py)에 정의되어 있습니다. [`backend/rules.py`](backend/rules.py)의 라벨 동의어·정규화·파생값·표 검사는 twin reader 규칙을 코드로 이식한 것이며, 실행 중 twin reader 확장을 읽지는 않습니다.
+`POST /api/verify`는 단일 페이지 이미지(PNG·JPG·JPEG·TIF·TIFF·WebP)와 AO 응답 JSON을 받습니다. 지원 문서 유형은 진단서·소견서·수술확인서·입퇴원확인서·진료비영수증·세부내역서·약제비영수증 7종입니다(AO가 내는 `입원확인서`·`약제영수증`도 받습니다). 일반 프로젝트 스키마와 달리 이 경로의 필드 키·자료형·설명은 [`backend/doctypes.py`](backend/doctypes.py)에 정의되어 있습니다. [`backend/rules.py`](backend/rules.py)의 라벨 동의어·정규화·파생값·표 검사는 twin reader 규칙을 코드로 이식한 것이며, 실행 중 twin reader 확장을 읽지는 않습니다.
 
 ```mermaid
 flowchart TD
@@ -123,7 +123,7 @@ curl -X POST http://127.0.0.1:8000/api/verify \
 
 `DOCRAFT_API_KEY`를 설정한 경우 `-H "X-API-Key: $DOCRAFT_API_KEY"`를 추가합니다. API/UI 형식 AO 응답을 지원합니다. 검증 설계와 평가 기록은 [AO 교차검증 문서](wiki/2026-09-22-ocr-verify.md)를 참고하세요.
 
-정확도 평가는 기존 36건과 추가 40건을 고정 매니페스트로 구분합니다. 추가 40건은 2026-09-23 이미지 대조 검수를 거쳤으나 사람 검수 gold는 아닙니다. `rules`는 **모델 추출 후 룰 적용** 결과이고, `final`은 실제 AO JSON이 연결된 문서만 평가합니다. 라벨 관례는 [정답셋 문서](wiki/2026-09-22-ocr-verify-labels.md)에 확정되어 있습니다.
+정확도 평가는 기존 36건과 추가 40건을 고정 매니페스트로 구분합니다. 수술확인서·입퇴원확인서·약제비영수증 57건은 별도 매니페스트(`data/verify/accuracy-20260923-newtypes/manifest.json`)로 평가합니다([기록](wiki/2026-09-23-doctypes-3more.md)). 추가 40건은 2026-09-23 이미지 대조 검수를 거쳤으나 사람 검수 gold는 아닙니다. `rules`는 **모델 추출 후 룰 적용** 결과이고, `final`은 실제 AO JSON이 연결된 문서만 평가합니다. 라벨 관례는 [정답셋 문서](wiki/2026-09-22-ocr-verify-labels.md)에 확정되어 있습니다.
 
 ```bash
 .venv/bin/python scripts/verify_label.py --write-manifest data/verify/accuracy-20260922/manifest.json

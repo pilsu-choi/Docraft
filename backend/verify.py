@@ -253,6 +253,7 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
     """
     given = document(ao)
     doc_type = doc_type or given.get("doc_type") or given.get("predicted_doc_type")
+    doc_type = doctypes.ALIASES.get(doc_type, doc_type)
     if doc_type not in doctypes.DOC_TYPES:
         raise ValueError(f"지원하지 않는 문서 유형입니다: {doc_type}")
     only = None
