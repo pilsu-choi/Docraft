@@ -198,3 +198,4 @@
 * **Creation**: 설계안 4단계로 필수 필드 누락 룰 `MISSING.REQUIRED`와 `rules.yaml` `required`를 구현한 기록을 [required-fields](2026-09-23-required-fields.md)에 추가했다(434 passed, 룰 단계 평가 변화 없음, 라벨 93건 중 2건에서 걸림). README에 필수 필드 설명을 더했다.
 * **Update**: [rule-engine-design](2026-09-23-rule-engine-design.md)에 4단계 구현 위치를 적었다.
 * **Update**: [verify-test-0922](2026-09-23-verify-test-0922.md)에 후속 과제 처리(출력 셀 정렬·`predicted_value` 동기화, 같은 키 행 짝짓기, 프록시 900초, 합계 보조 강화 보류)와 59건 최종 재테스트(영수증 169/6, 세부 81/13, 원내코드 관례 차이)를 더했다.
+* **Update**: [verify-test-0922](2026-09-23-verify-test-0922.md)에 세부내역서 원내코드 관례를 AO처럼 두 칸 유지로 바꾼 결정과 머리글 코드 열 수 조건, 5건 재확인 결과를 더했다.
