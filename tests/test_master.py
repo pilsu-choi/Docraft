@@ -99,7 +99,7 @@ def test_apply_corrects_code_matched_names(loaded):
     out = rules.apply("진단서", result, [])
     assert [row["병명"] for row in out["병명내역"]] == ["상세불명의 골다공증, 상세불명 부분",
                                                    "마스터에 없는 코드라 그대로 둔다"]
-    assert [flag["code"] for flag in rules.check("진단서", out, {}, [])] == ["code_unknown"]
+    assert [flag["code"] for flag in rules.check("진단서", out, {}, []) if flag["code"] != "missing"] == ["code_unknown"]
 
 
 # ── 원본 파서 ───────────────────────────────────────────────────────────────

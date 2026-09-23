@@ -15,7 +15,7 @@
   달라도 같은 행끼리 맞물리게 하며, ``is_total(row)``은 그중 합계·소계 행을 가린다. 교차검증
   (``verify._row_diff``)과 채점(``scripts/verify_eval``)이 같은 규칙을 쓰도록 여기 한 곳에 둔다.
 - ``check(doc_type, ao, docraft, blocks)``: 룰 레지스트리(``RULES``)의 검사를 차례로 돌린 이상 징후 목록. 모든 유형에
-  날짜 앞뒤·주민번호 일치·합계식·근거 없는 합계·마스터에 없는 병명코드를, 세부내역서에 행 산술·문서 품질·급여구분 값을,
+  날짜 앞뒤·주민번호 일치·합계식·근거 없는 합계·마스터에 없는 병명코드·필수 필드 누락(``REQUIRED``)을, 세부내역서에 행 산술·문서 품질·급여구분 값을,
   진료비영수증 항목내역에 금액 겹침·없는 열·합계 베끼기·합계 불일치·열 바뀜·행 밀림·행 누락을 본다.
 - ``run(doc_type, ao, docraft, blocks)``: 검사하고 확실한 이상을 룰의 교정(``Rule.fix``)으로 Judge 없이 고치기를
   고칠 것이 없을 때까지 되풀이하고, 룰별 실행 기록(trace)을 남긴다.
@@ -52,10 +52,26 @@ def _load(path):
     unknown = set(tables) - {"disable", "labels", "master_names", "exclusive", "sections", "field_section", "explicit",
                              "last_date", "totals", "unprinted_null", "keep_totals", "row_keys", "notes", "marks",
                              "total_fields", "field_sums", "swaps", "header_columns", "grouped", "item_aliases",
-                             "receipt_item_names", "date_order", "issued", "later_ok"}
+                             "receipt_item_names", "date_order", "issued", "later_ok", "required"}
     if unknown:
         raise ValueError(f"{path.name}: 알 수 없는 표 {sorted(unknown)}")
     return tables
+
+
+def _required(required):
+    """유형 → 필수 항목 ``(key, 열, 조건 열)`` 튜플. 필드·표 자체는 열이 None이다. 모르는 유형·key·열이면 ValueError."""
+    out = {}
+    for doc_type, entries in required.items():
+        spec = doctypes.spec(doc_type)
+        items = [(key, column, when) for entry in entries
+                 for key, columns in (entry.items() if isinstance(entry, dict) else [(entry, {None: None})])
+                 for column, when in columns.items()]
+        bad = [(key, column) for key, column, when in items
+               if not ({column, when} <= set(spec["tables"].get(key, ())) if column else key in {**spec["fields"], **spec["tables"]})]
+        if doc_type not in doctypes.DOC_TYPES or bad:
+            raise ValueError(f"rules.yaml required: {doc_type}에 알 수 없는 항목 {bad}")
+        out[doc_type] = tuple(items)
+    return out
 
 
 # 데이터 표는 rulesets/rules.yaml에 둔다(설명도 거기 있다). 코드가 기대하는 튜플·집합으로 바꿔 모듈 속성에 싣는다.
@@ -83,6 +99,7 @@ RECEIPT_ITEM_NAMES = frozenset(_TABLES["receipt_item_names"])
 DATE_ORDER = tuple(map(tuple, _TABLES["date_order"]))
 ISSUED = tuple(_TABLES["issued"])
 LATER_OK = tuple(_TABLES["later_ok"])
+REQUIRED = _required(_TABLES["required"])
 
 _ACCIDENT_DATES = ("진단일", "조제일자")  # 사고발생일자 후보(스칼라). 약제비영수증은 조제일자다
 _ACCIDENT_COLUMNS = ("수술일자", "검사일", "치료일", "행위일")  # 사고발생일자 후보(표 열)
@@ -1330,6 +1347,24 @@ def _class_checks(doc):
     return found
 
 
+def _blank(value):
+    return normalize("text", value) is None
+
+
+def _missing(doc):
+    """필수 필드(``REQUIRED``)가 AO에 비어 있다. 표는 값 있는 행이 없거나, 조건 열이 찬 행에서 그 열이 비었다."""
+    found = []
+    for key, column, when in REQUIRED.get(doc.doc_type, ()):
+        rows = _rows(doc.ao, key)
+        if column:
+            found += [_flag("missing", f"{key} {index}행 {column}이 비어 있다({when} '{row[when]}'). 이미지에서 다시 읽는다.",
+                            key=key, row=index, column=column)
+                      for index, row in enumerate(rows) if not _blank(row.get(when)) and _blank(row.get(column))]
+        elif all(map(_blank, [value for row in rows for value in row.values()] or [doc.ao.get(key)])):  # 표는 모든 칸, 필드는 그 값
+            found.append(_flag("missing", f"필수 필드 {key}가 비어 있다. 이미지에서 다시 읽는다.", key=key))
+    return found
+
+
 class _Fix:
     """교정 중인 AO 항목내역 행(``rows``)과 교정 사유, 비울 필드. 룰의 ``fix``가 차례로 고친다."""
 
@@ -1432,6 +1467,7 @@ RULES = (  # 검사 순서가 곧 check()가 내는 이상 징후 순서다
     Rule("RECEIPT.ROW_SHIFT", "row_shift", "STRUCT", RECEIPT, _row_shifts, _fix_row_shift, "CORRECT", -2),
     Rule("SUM.TABLE", "sum_mismatch", "CALC", RECEIPT, _sum_checks, None, "RE_EXTRACT"),
     Rule("RECEIPT.COLUMN_SWAP", "column_shift", "STRUCT", RECEIPT, _swap_checks, _fix_swap, "CORRECT", -1),
+    Rule("MISSING.REQUIRED", "missing", "STRUCT", (), _missing, None, "ESCALATE"),
 )
 
 

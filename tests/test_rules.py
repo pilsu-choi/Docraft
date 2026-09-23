@@ -11,6 +11,12 @@ from backend import doctypes, rules, verify
 AO_SAMPLES = Path("/home/pilsu/projects/mirae-assets/harness-v2/docs/agentic-ocr-2.0.1-results")
 
 
+@pytest.fixture(autouse=True)
+def no_required(monkeypatch):
+    """다른 룰 테스트의 작은 문서가 필수 필드 누락으로 걸리지 않게 한다. 누락 룰 테스트는 ``REQUIRED``를 직접 둔다."""
+    monkeypatch.setattr(rules, "REQUIRED", {})
+
+
 def block(text="", rows=None, kind="text", lines=None):
     return {"type": kind, "page": 1, "bbox": None, "text": text, "rows": rows, "lines": lines}
 
@@ -1128,3 +1134,23 @@ def test_rulesets_reject_an_unknown_table_or_rule_id(tmp_path):
         rules._load(path)
     with pytest.raises(ValueError, match="NO.SUCH"):
         rules._disabled({"세부내역서": ["NO.SUCH"]})
+
+
+def test_a_required_field_or_table_left_empty_is_flagged(monkeypatch):
+    monkeypatch.setattr(rules, "REQUIRED", rules._required({"진료비영수증": ["발행일", "진료비총액", "항목내역"]}))
+    flags = rules.check("진료비영수증", {"발행일": " ", "진료비총액": "0", "항목내역": [{"항목": None}]}, {}, [])
+    assert [(flag["code"], flag["key"], flag["rule"]) for flag in flags] == [
+        ("missing", "발행일", "MISSING.REQUIRED"), ("missing", "항목내역", "MISSING.REQUIRED")]
+
+
+def test_a_required_column_is_flagged_only_on_rows_that_have_its_condition(monkeypatch):
+    monkeypatch.setattr(rules, "REQUIRED", rules._required({"수술확인서": [{"수술내역": {"수술일자": "수술명"}}]}))
+    rows = [{"수술일자": None, "수술명": "충수절제술"}, {"수술일자": None, "수술명": None}, {"수술일자": "20240101", "수술명": "봉합"}]
+    assert [(flag["key"], flag["row"], flag["column"]) for flag in rules.check("수술확인서", {"수술내역": rows}, {}, [])] == [
+        ("수술내역", 0, "수술일자")]
+
+
+def test_required_rejects_a_key_or_column_the_doc_type_does_not_define():
+    for required in ({"진단서": ["진단명"]}, {"진단서": [{"병명내역": {"수술명": "병명코드"}}]}, {"없는유형": []}):
+        with pytest.raises(ValueError, match="required"):
+            rules._required(required)
