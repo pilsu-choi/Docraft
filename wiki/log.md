@@ -193,3 +193,5 @@
 * **Update**: [verify-test-0922](2026-09-23-verify-test-0922.md)의 진료비영수증 감사 수치를 최종 판정 파일 기준 163/15/10/2로 고치고 금액산정 빈 칸 채우기 사례를 더했다.
 * **Creation**: 목표 룰 엔진 구조(VALIDATE→CORRECT→RE-EXTRACT→ESCALATE)와 현재 `rules.py`·`verify.py`·harness-v2 룰 엔진을 비교하고, 룰 레지스트리·반복 실행기·실행 기록·데이터 표 YAML로 옮기는 설계를 [rule-engine-design](2026-09-23-rule-engine-design.md)에 기록했다(구현 전, status: draft).
 * **Update**: [verify-test-0922](2026-09-23-verify-test-0922.md)에 세부내역서 집계 행 유지·금액 소수점 보존·급여구분 교정 후 재테스트를 더했다(세부내역서 교정 악화 303→9곳, 집계 행 100/100 유지, 급여구분 190행 일치).
+* **Creation**: 룰 엔진 설계안 1~3단계(룰 레지스트리, `rules.run` 반복 교정·`verify.trace`·`review`, `backend/rulesets/rules.yaml`·`disable`)를 구현한 기록을 [rule-registry](2026-09-23-rule-registry.md)에 추가했다(428 passed, 룰 단계 평가와 스냅숏 대조 모두 변화 없음, 0922 59건 중 1건에서 2라운드 교정이 결과를 좋게 함). README의 룰 검사 설명과 흐름도를 고쳤다.
+* **Update**: [rule-engine-design](2026-09-23-rule-engine-design.md)에 1~3단계를 구현했고 범위 룰은 뺐다는 사실을 적었다.

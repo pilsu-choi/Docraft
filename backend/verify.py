@@ -1,7 +1,7 @@
 """AO(Agentic OCR 2.0) 결과를 Docraft 추출 결과와 이미지 기준으로 교차검증·교정한다.
 
-두 결과가 같은 필드는 LLM에 보내지 않고 그대로 확정하고(비용 절감), 어긋나는 필드와 ``rules.check``가
-집어낸 이상 징후만 모아 이미지 1장과 함께 한 번의 LLM 호출(`judge`)로 판정한다. 응답은 입력 AO JSON과
+두 결과가 같은 필드는 LLM에 보내지 않고 그대로 확정하고(비용 절감), 어긋나는 필드와 ``rules.run``의
+검사·교정 반복 뒤에도 남은 이상 징후만 모아 이미지 1장과 함께 한 번의 LLM 호출(`judge`)로 판정한다. 응답은 입력 AO JSON과
 같은 구조에 최종 `value`와 판정 정보(`ao_value`, `docraft_value`, `source`, `reason`)를 덧붙인 것이다.
 
 표는 행 순서·개수가 아니라 키 열(``rules.ROW_KEYS``)로 행을 대응시켜 비교한다 — 대응된 행은 어긋난
@@ -333,11 +333,12 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
         for key, value in ao_flat.items():
             if isinstance(value, list) and any(isinstance(row, dict) and rules.is_total(row) for row in value):
                 totals[key], ao_flat[key] = value, [row for row in value if not (isinstance(row, dict) and rules.is_total(row))]
-    checks = rules.check(doc_type, ao_flat, docraft, blocks)
-    fixes = rules.correct(doc_type, checks, ao_flat, docraft)  # 확실한 이상은 Judge 없이 룰로 교정한다
+    # 확실한 이상은 Judge 없이 룰로 교정하기를 되풀이하고, 그 뒤에도 남은 이상만 Judge에 알린다
+    fixes, history, trace = rules.run(doc_type, ao_flat, docraft, blocks)
+    checks = history[0]
     ao_flat.update({key: value for key, (value, _) in fixes.items()})
     hints = {}
-    for flag in rules.check(doc_type, ao_flat, docraft, blocks):  # 룰 교정 뒤에도 남은 이상만 Judge에 알린다
+    for flag in history[-1]:
         hints.setdefault(flag["key"], []).append(flag["message"])
 
     disputes = {}
@@ -388,8 +389,15 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
         table.update(rows=_table_rows(doc_type, key, table, final[key], docraft.get(key) or [], source, reason),
                      source=source, reason=reason)
     counts = {**{name: counts[name] for name in SOURCES}, "added": added}
+    _, (checks_after,), last = rules.run(doc_type, {**ao_flat, **final}, docraft, blocks, rounds=0)
+    trace += [{**entry, "round": "final"} for entry in last]
+    escalate = {entry["rule"] for entry in last if entry["action"] == "ESCALATE"}
+    review = {flag["key"] for flag in checks_after if flag["rule"] in escalate}
+    for key, element in (*_scalars(target), *_tables(target)):  # 최종값에도 남은 ESCALATE 이상은 사람이 본다
+        if key in review:
+            element["review"] = True
     target["verify"] = {"doc_type": doc_type, "docraft": docraft, "counts": counts, "checks": checks,
-                        "checks_after": rules.check(doc_type, {**ao_flat, **final}, docraft, blocks)}
+                        "checks_after": checks_after, "trace": trace}
     logger.info("verify: doc_type=%s fields=%d disputes=%d checks=%d counts=%s elapsed=%.2fs",
                 doc_type, len(ao_flat), len(disputes), len(checks), counts, time.monotonic() - started)
     return output

@@ -14,19 +14,26 @@
 - ``pair_rows(doc_type, table, left, right)``: 두 표의 행을 키 열(``ROW_KEYS``)로 대응시킨다. 행 순서·개수가
   달라도 같은 행끼리 맞물리게 하며, ``is_total(row)``은 그중 합계·소계 행을 가린다. 교차검증
   (``verify._row_diff``)과 채점(``scripts/verify_eval``)이 같은 규칙을 쓰도록 여기 한 곳에 둔다.
-- ``check(doc_type, ao, docraft, blocks)``: 이상 징후 목록. 모든 유형에 날짜 앞뒤·주민번호 일치·합계식·
-  근거 없는 합계·마스터에 없는 병명코드를, 세부내역서에 행 산술·문서 품질·급여구분 값을, 진료비영수증 항목내역에
-  금액 겹침·없는 열·합계 베끼기·합계 불일치·열 바뀜·행 밀림·행 누락을 본다.
-- ``correct(doc_type, checks, ao, docraft)``: 그중 확실한 이상을 Judge 없이 바로 교정한다.
+- ``check(doc_type, ao, docraft, blocks)``: 룰 레지스트리(``RULES``)의 검사를 차례로 돌린 이상 징후 목록. 모든 유형에
+  날짜 앞뒤·주민번호 일치·합계식·근거 없는 합계·마스터에 없는 병명코드를, 세부내역서에 행 산술·문서 품질·급여구분 값을,
+  진료비영수증 항목내역에 금액 겹침·없는 열·합계 베끼기·합계 불일치·열 바뀜·행 밀림·행 누락을 본다.
+- ``run(doc_type, ao, docraft, blocks)``: 검사하고 확실한 이상을 룰의 교정(``Rule.fix``)으로 Judge 없이 고치기를
+  고칠 것이 없을 때까지 되풀이하고, 룰별 실행 기록(trace)을 남긴다.
 - ``sum_errors(doc_type, fields)``: 합계식 불일치 수. Judge 판정이 합계식을 더 어기면 되돌리는 데 쓴다.
 
-룰은 데이터 테이블(``LABELS``·``FIELD_RULES``·``TOTALS``·doctypes.ENUMS)과 공통 엔진으로 나눠 둔다.
+룰은 데이터 표(``rulesets/rules.yaml``·``FIELD_RULES``·doctypes.ENUMS)와 공통 엔진으로 나눠 둔다.
 """
 
 import logging
 import re
 from collections import Counter
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date as _calendar_date
+from functools import cached_property
+from pathlib import Path
+
+import yaml
 
 from . import doctypes, master
 from .doctypes import ENUMS
@@ -38,134 +45,48 @@ logger = logging.getLogger(__name__)
 OCR_DIGITS = str.maketrans({"I": "1", "l": "1", "|": "1", "/": "1", "O": "0", "o": "0",
                             "ㅇ": "0", "이": "0", "B": "8", "b": "6"})
 
-LABELS = {  # 필드 → 라벨 동의어. 블록에서 빠진 값을 찾을 때 쓴다(twin reader keywordInfo + 서식 실물 라벨).
-    "통원일수": ["통원일수", "방문일수", "실제내원일수", "외래일수", "통원치료일수", "실통원일수"],
-    "진단일": ["진단일", "진단일자", "진단연월일", "진단년월일", "소견일", "4.진단일"],
-    "진료과": ["진료과", "진료과목", "입원과", "과명", "진료센터(과)"],
-    "입원일자": ["입원일", "입원일자", "입원연월일", "입원년월일", "입원기간", "입원치료기간", "입퇴원일"],
-    "퇴원일자": ["퇴원일", "퇴원일자", "퇴원연월일", "퇴원년월일", "입퇴원일", "입원기간", "입원치료기간"],
-    "통원일": ["통원일", "통원일자", "실통원일자", "실제내원일자", "외래진료일", "내원일", "통원기간"],
-    "초진일": ["초진일", "초진일자", "초진연월일", "초진년월일", "최초진료일", "최초내원일"],
-    "발급일": ["발급일", "발행일", "발급일자", "발행일자", "발급연월일", "발행연월일", "작성일", "발급일시"],
-    "병원명": ["의료기관명칭", "의료기관명", "요양기관명칭", "요양기관명", "병의원명칭", "병원명칭", "병원명", "기관명", "명칭"],
-    "병원주소": ["주소", "소재지", "의료기관주소", "병의원주소", "사업장소재지"],
-    "병원연락처": ["전화및FAX", "대표전화", "전화번호", "TEL", "Tel", "전화"],
-    "면허번호": ["면허번호", "의사면허번호", "의사번호", "의사면허", "주치의면허번호"],
-    "의사명": ["의사성명", "의사명", "담당의사", "주치의", "전문의", "한의사성명", "치과의사성명", "성명", "의사"],
-    "환자 등록번호": ["환자등록번호", "병원등록번호", "등록번호", "환자번호", "병록번호", "병록번호", "고객번호", "환자ID"],
-    "차트번호": ["차트번호", "챠트번호", "진료카드번호", "연번호", "발행번호", "일련번호", "문서번호"],
-    "이름": ["환자의성명", "환자성명", "환자명", "수진자성명", "수진자명", "성명", "이름"],
-    "환자 주민번호": ["주민등록번호", "환자의주민등록번호", "주민번호", "환자의주민번호", "주민등록번호(수진자)"],
-    "성별": ["성별", "나이/성별"],
-    "생년월일": ["생년월일", "생일", "출생일", "출생년월일"],
-    "주소": ["환자의주소", "환자주소", "수진자주소", "주소", "거주지"],
-    "연락처": ["환자전화번호", "연락처", "전화번호", "휴대전화", "H/P", "전화"],
-    "외래/입원": ["외래입원", "입원외래", "진료구분", "진료형태", "유형"],
-    "공단부담총액": ["공단부담금", "공단부담액", "공단부담", "보험자부담금", "공단부담총액"],
-    "상환액초과금": ["상한액초과금", "상한초과금", "상한초과", "본인부담상한액초과금", "상환액초과금"],
-    "의료기관정보-명칭": ["요양기관명칭", "의료기관명칭", "의료기관명", "요양기관명", "병원명", "상호", "명칭"],
-    "의료기관정보-사업자등록번호": ["사업자등록번호", "사업자번호", "사업장등록번호", "사업장번호"],
-    "의료기관정보-요양기관종류": ["요양기관종류", "기관종류", "요양(의료)기관종류", "종별"],
-    "의료기관정보-주소": ["사업장소재지", "사업장주소", "주소", "소재지"],
-    "환자정보-성명": ["환자성명", "환자명", "수진자명", "성명", "이름"],
-    "환자정보-진료과": ["진료과목", "진료과", "진료과/병실", "진료센터(과)"],
-    "환자정보-질병군(DRG)번호": ["질병군(DRG)번호", "질병군번호", "DRG번호"],
-    "환자정보-진료시작일": ["진료기간", "진료일자", "진료일", "진료일시", "진료기간(처방일)", "시작일", "진료개시일"],
-    "환자정보-진료종료일": ["진료기간", "진료일자", "종료일", "진료종료일"],
-    "환자정보-환자구분": ["환자구분", "환자유형", "보험구분", "보험유형", "구분"],
-    "환자정보-환자등록번호": ["환자등록번호", "등록번호", "환자번호", "환자병록번호"],
-    "납부한금액_카드": ["신용카드", "카드수납액", "카드총액", "카드"],
-    "납부한금액_현금영수증": ["현금영수증", "현금영수증(소득공제)", "현금(현금영수증)"],
-    "납부한금액_현금": ["현금(소득공제)", "현금수납액", "현금총액", "현금"],
-    "납부한금액_합계": ["납부한금액", "납부금액", "수납금액", "영수액", "합계"],
-    "납부할금액": ["납부할금액", "납부하실금액", "계산하실금액", "수납하실금액"],
-    "이미납부한금액": ["이미납부한금액", "기납부금액", "기납부금", "기납입액", "먼저내신금액"],
-    "진료비총액": ["진료비총액", "총진료비", "요양급여비용총액", "진료비액"],
-    "환자부담총액": ["환자부담총액", "환자부담금총액", "환자부담액총액", "환자실부담액", "본인이부담할총액"],
-    "환자정보(환자등록번호)": ["환자등록번호", "등록번호", "환자번호", "병록번호", "환자ID"],
-    "환자성명": ["환자성명", "환자명", "수진자명", "성명", "환자이름"],
-    "환자정보(진료시작일)": ["진료기간", "시작일", "진료일자", "집계기간", "입원일"],
-    "환자정보(진료종료일)": ["진료기간", "종료일", "진료일자", "퇴원일"],
-    "환자정보(병실)": ["병실", "호실", "병실번호", "병실호수", "병실구분", "병동-병실", "진료과병실"],
-    "환자정보(입통원구분)": ["입통원구분", "입원외래구분", "진료구분", "유형"],
-    "영수증진료형태(환자구분)": ["환자구분", "환자유형", "보험구분", "보험유형", "유형", "자격"],
-    "급여_본인부담총액": ["본인부담금", "본인부담액", "급여본인", "일부본인부담금", "본인부담"],
-    "급여_공단부담총액": ["공단부담금", "공단부담액", "급여공단", "보험자부담금", "공단부담"],
-    "급여_전액본인부담총액": ["전액본인부담금", "전액본인부담", "전액본인", "전액부담"],
-    "급여_급여총액": ["급여총액", "요양급여", "급여계", "급여합계", "급여"],
-    "선택진료료총액": ["선택진료료", "선택진료", "지정진료비", "선택진료료총액"],
-    "선택진료료외총액": ["선택진료료이외", "선택진료료외", "선택진료외", "선택진료료외총액"],
-    "비급여총액": ["비급여", "비급여총액", "비급여계", "비급"],
-    "조제일자": ["조제일자", "조제일", "조제연월일", "조제년월일"],
-    "진료비내역-총액": ["약제비총액", "총약제비", "약제비합계"],
-    "진료비내역-급여본인부담": ["본인부담금", "본인부담액", "급여본인부담"],
-    "진료비내역-공단부담액": ["보험자부담금", "보험자부담액", "공단부담금", "공단부담액"],
-    "진료비내역-전액본인부담": ["전액본인부담금", "전액본인부담"],
-    "진료비내역-비급여및전액본인부담금": ["비급여및전액본인부담금", "비급여및전액본인부담"],
-    "진료비내역-환자부담총액": ["환자부담총액", "본인부담총액"],
-    "소득공제대상액-수납금액": ["총수납금액", "수납금액"],
-    "약국정보(상호)": ["상호", "약국명", "약국명칭"],
-    "약국정보(사업자등록번호)": ["사업자등록번호", "사업자번호"],
-    "약국정보(주소)": ["사업장소재지", "소재지", "약국주소", "주소"],
-}
 
-MASTER_NAMES = {  # 표 → (코드 열, 명칭 열, 마스터 계통). 코드가 마스터에 있을 때만 명칭을 고친다
-    "항목내역": ("EDI코드", "EDI명칭", "edi"),
-    "병명내역": ("병명코드", "병명", "kcd"),
-}
+def _load(path):
+    """룰 데이터 표 YAML. 모르는 최상위 키가 있으면 ValueError."""
+    tables = yaml.safe_load(path.read_text(encoding="utf-8"))
+    unknown = set(tables) - {"disable", "labels", "master_names", "exclusive", "sections", "field_section", "explicit",
+                             "last_date", "totals", "unprinted_null", "keep_totals", "row_keys", "notes", "marks",
+                             "total_fields", "field_sums", "swaps", "header_columns", "grouped", "item_aliases",
+                             "receipt_item_names", "date_order", "issued", "later_ok"}
+    if unknown:
+        raise ValueError(f"{path.name}: 알 수 없는 표 {sorted(unknown)}")
+    return tables
 
-# 같은 라벨('주소'·'성명'·'진료기간')을 여러 칸이 나눠 쓰는 필드 무리. 한 무리에서 한 값은 한 필드만 쓴다.
-EXCLUSIVE = (
-    ("주소", "병원주소", "의료기관정보-주소", "약국정보(주소)"),
-    ("연락처", "병원연락처"),
-    ("이름", "환자성명", "환자정보-성명", "의사명", "병원명", "의료기관정보-명칭", "약국정보(상호)"),
-    ("진단일", "발급일", "초진일", "입원일자", "퇴원일자", "통원일"),
-    ("환자정보-진료시작일", "환자정보-진료종료일"),
-    ("환자정보(진료시작일)", "환자정보(진료종료일)"),
-)
-SECTIONS = {  # 영역 → 그 영역이 시작됐다는 표시. 의료기관 표시가 환자 표시를 이긴다.
-    "기관": ("의료기관", "요양기관", "병의원", "면허번호", "사업자등록번호", "위와같이", "원본대조필",
-            "상호", "의사", "발행인", "사업장"),
-    "환자": ("환자", "수진자", "주민등록번호", "생년월일", "병록번호"),
-}
-FIELD_SECTION = {  # 환자 칸·의료기관 칸이 같은 라벨을 나눠 쓰는 필드만 영역을 따진다.
-    **dict.fromkeys(("주소", "연락처", "이름", "환자성명", "환자정보-성명"), "환자"),
-    **dict.fromkeys(("병원주소", "병원연락처", "병원명", "의사명",
-                     "의료기관정보-주소", "의료기관정보-명칭", "약국정보(주소)", "약국정보(상호)"), "기관"),
-}
-EXPLICIT = {("소견서", "진단일"), ("소견서", "초진일")}  # 그 유형에 원래 드문 필드. 제 이름 라벨일 때만 채운다.
-LAST_DATE = ("진료종료일", "퇴원일자")  # '진료기간(입원기간) A ~ B' 한 칸에서 마지막 날짜를 취할 필드
 
-TOTALS = {  # 표 합계행 → 합계 필드. 합계행은 표에서 빼고 비어 있는 필드만 채운다.
-    "세부내역서": {"항목내역": {"본인부담": "급여_본인부담총액", "공단부담": "급여_공단부담총액",
-                            "전액본인부담": "급여_전액본인부담총액", "급여": "급여_급여총액",
-                            "선택진료료": "선택진료료총액", "선택진료료외": "선택진료료외총액",
-                            "비급여": "비급여총액"}},
-    "진료비영수증": {"항목내역": {"공단부담금": "공단부담총액"}},
-}
-UNPRINTED_NULL = ("급여_본인부담총액", "급여_공단부담총액", "급여_전액본인부담총액", "급여_급여총액")  # 글자에 없으면 지우는 합계
-KEEP_TOTALS = {"진료비영수증"}  # AO 스키마가 합계 행을 표에 두는 유형. 합계 필드를 채운 뒤에도 행을 남긴다.
-
-ROW_KEYS = {  # 표 → 행을 식별하는 열. 두 표의 행을 짝지을 때 쓴다(``pair_rows``). 스키마에 없는 열은 건너뛴다.
-    "항목내역": ("항목", "EDI코드", "시작일자"),
-    "병명내역": ("병명코드",),
-    "수술내역": ("수술일자",),
-    "검사내역": ("검사일",),
-    "치료내역": ("치료일",),
-    "행위내역": ("행위일",),
-}
+# 데이터 표는 rulesets/rules.yaml에 둔다(설명도 거기 있다). 코드가 기대하는 튜플·집합으로 바꿔 모듈 속성에 싣는다.
+_TABLES = _load(Path(__file__).with_name("rulesets") / "rules.yaml")
+LABELS = _TABLES["labels"]
+MASTER_NAMES = {table: tuple(spec) for table, spec in _TABLES["master_names"].items()}
+EXCLUSIVE = tuple(map(tuple, _TABLES["exclusive"]))
+SECTIONS = {name: tuple(marks) for name, marks in _TABLES["sections"].items()}
+FIELD_SECTION = {field: section for section, fields in _TABLES["field_section"].items() for field in fields}
+EXPLICIT = {(doc_type, field) for doc_type, fields in _TABLES["explicit"].items() for field in fields}
+LAST_DATE = tuple(_TABLES["last_date"])
+TOTALS = _TABLES["totals"]
+UNPRINTED_NULL = tuple(_TABLES["unprinted_null"])
+KEEP_TOTALS = set(_TABLES["keep_totals"])
+ROW_KEYS = {table: tuple(columns) for table, columns in _TABLES["row_keys"].items()}
+NOTES = {table: (note["labels"], note["date"], note["name"]) for table, note in _TABLES["notes"].items()}
+MARKS = _TABLES["marks"]
+TOTAL_FIELDS = {field: tuple(columns) for field, columns in _TABLES["total_fields"].items()}
+FIELD_SUMS = {field: tuple(parts) for field, parts in _TABLES["field_sums"].items()}
+SWAPS = tuple(map(tuple, _TABLES["swaps"]))
+HEADER_COLUMNS = {column: tuple(words) for column, words in _TABLES["header_columns"].items()}
+GROUPED = {column: (tuple(group["titles"]), tuple(group["subs"])) for column, group in _TABLES["grouped"].items()}
+ITEM_ALIASES = tuple((re.compile(pattern), canonical) for pattern, canonical in _TABLES["item_aliases"])
+RECEIPT_ITEM_NAMES = frozenset(_TABLES["receipt_item_names"])
+DATE_ORDER = tuple(map(tuple, _TABLES["date_order"]))
+ISSUED = tuple(_TABLES["issued"])
+LATER_OK = tuple(_TABLES["later_ok"])
 
 _ACCIDENT_DATES = ("진단일", "조제일자")  # 사고발생일자 후보(스칼라). 약제비영수증은 조제일자다
 _ACCIDENT_COLUMNS = ("수술일자", "검사일", "치료일", "행위일")  # 사고발생일자 후보(표 열)
 
-NOTES = {  # 표 → (소견 문장을 담은 칸의 라벨, 날짜 열, 이름 열). 전용 표가 없는 서식에서 행을 만든다.
-    # 뒤의 표는 앞의 표에 이미 담긴 내용을 다시 담지 않는다(수술·검사를 적은 소견 문장은 치료내역이 되지 않는다).
-    "수술내역": (["수술소견", "수술내용"], "수술일자", "수술명"),
-    "검사내역": (["검사소견", "검사결과", "검사내용"], "검사일", "검사명"),
-    "치료내역": (["치료소견", "치료내용", "치료내용및향후치료에대한소견", "향후치료의견", "향후치료계획",
-                "치료및향후치료의견", "향후치료에대한소견", "내용"], "치료일", "치료명"),
-}
-MARKS = {"검사": "검사내역", "수술": "수술내역", "치료": "치료내역"}  # 비고의 ``날짜 (검사)`` 표시 → 표
 SENTENCE = 10  # 소견 문장으로 볼 최소 길이
 
 # 값이 아니라 서식의 라벨 글자가 흘러든 것을 가려낼 낱말. LABELS·doctypes 키에 서식 상용어를 더한다.
@@ -981,51 +902,6 @@ ITEM_TABLE = "항목내역"
 ITEM_COLUMNS = ("본인부담금", "공단부담금", "전액본인부담", "비급여", "선택진료료", "선택진료료외", "급여")
 TOLERANCE = 100  # 십의 자리 절사 허용 오차(요건 1절)
 SHIFT_REACH = 3  # 세로로 밀린 금액을 찾아볼 위아래 행 수
-# 합계 필드 → 합계 행에서 더할 열(요건 1절 합계식). 비급여와 선택진료료·선택진료료외는 한쪽만 값을 갖는
-# 묶음 제목·하위 열 관계라 함께 더해도 겹치지 않는다.
-TOTAL_FIELDS = {
-    "진료비총액": ITEM_COLUMNS,
-    "환자부담총액": tuple(column for column in ITEM_COLUMNS if column not in ("공단부담금", "급여")),
-    "공단부담총액": ("공단부담금",),
-}
-FIELD_SUMS = {  # 합계 필드 → 구성 필드. 구성 필드가 둘 이상 읽혔을 때 합을 맞춰 본다.
-    "진료비총액": ("환자부담총액", "공단부담총액"),
-    "납부한금액_합계": ("납부한금액_카드", "납부한금액_현금영수증", "납부한금액_현금"),
-    "급여_급여총액": ("급여_본인부담총액", "급여_공단부담총액", "급여_전액본인부담총액"),
-    "진료비내역-총액": ("진료비내역-급여본인부담", "진료비내역-공단부담액", "진료비내역-비급여및전액본인부담금"),
-    "진료비내역-환자부담총액": ("진료비내역-급여본인부담", "진료비내역-비급여및전액본인부담금"),
-}
-SWAPS = (("본인부담금", "공단부담금"), ("선택진료료", "선택진료료외"), ("선택진료료", "비급여"),
-         ("선택진료료외", "비급여"))  # 모델이 통째로 맞바꿔 읽기 쉬운 이웃 금액 열
-HEADER_COLUMNS = {"단가": ("단가", "금액"), "투여량": ("투여량", "두여량", "투약량", "용량")}  # 세부내역서 열 → 머리글 낱말
-GROUPED = {  # 열 → (묶음 제목 후보, 하위 열이 있으면 그 열은 독립 열이 아니다)
-    "급여": (("급여", "요양급여"), ("본인부담", "공단부담", "전액본인")),
-    "비급여": (("비급여",), ("선택진료",)),
-}
-ITEM_ALIASES = (  # AO 프롬프트의 항목명 정규화 규칙
-    (re.compile(r"^입원료.*1인"), "입원료_1인실"),
-    (re.compile(r"^입원료.*[23]"), "입원료_2-3인실"),
-    (re.compile(r"^입원료.*4인"), "입원료_4인실이상"),
-    (re.compile(r"^입원료.*상급"), "입원료_상급병실"),
-    (re.compile(r"^(투약|투약및조제료).*행위"), "투약및조제료_행위료"),
-    (re.compile(r"^(투약|투약및조제료).*약품"), "투약및조제료_약품비"),
-    (re.compile(r"^주사.*행위"), "주사료_행위료"),
-    (re.compile(r"^주사.*약품"), "주사료_약품비"),
-    (re.compile(r"^식대?$"), "식대"),
-    (re.compile(r"^(계|합계|총계|합계금액)$"), "합계"),
-    (re.compile(r"^(시행령별표2제4호|국민건강보험법제41조의4)"), "선별급여"),
-)
-# 건강보험 진료비 계산서·영수증의 표준 항목. 파서 표에서 새 행을 만들 때만 이 목록을 적용한다.
-# 모델이 낸 비정형 항목은 버리지 않고 그대로 보존한다.
-RECEIPT_ITEM_NAMES = frozenset((
-    "진찰료", "입원료", "입원료_1인실", "입원료_2-3인실", "입원료_4인실이상", "입원료_상급병실", "식대",
-    "투약및조제료_행위료", "투약및조제료_약품비", "주사료_행위료", "주사료_약품비",
-    "처치및수술", "처치및수술료", "검사료", "영상진단료", "방사선치료료", "마취료", "정신요법료",
-    "재활및물리치료료", "치료재료대", "전혈및혈액성분제제료", "CT진단료", "MRI진단료", "PET진단료",
-    "초음파진단료", "보철교정료", "제증명료", "정액수가", "정액수가요양병원", "포괄수가진료비",
-    "65세이상등정액", "선별급여", "기타", "합계",
-    "시술및처치료", "한방물리요법료", "한약첩약", "상급병실료",  # 한방진료비 계산서
-))
 _ITEM_GROUP = re.compile(r"^(필수항목|선택항목|필수|선택|필)")  # 항목명 앞에 붙어 오는 서식의 분류 칸 글자
 LUMP_ITEMS = ("정액수가", "65세이상등정액", "질병군포괄수가")  # 항목 행을 묶어 담는 포괄수가 행
 _MULTI_AMOUNT = re.compile(r"\d[\d,]*\s+\d")
@@ -1100,7 +976,24 @@ def _grouped(cells, titles, subs):
     return None if not (title or sub) else sub or not title
 
 
-def _master_checks(fields):
+class _Doc:
+    """룰이 보는 문서 하나: AO 필드와 그 항목내역 행, Docraft 항목내역, 파싱 블록. 파서 표 복원은 한 번만 한다."""
+
+    def __init__(self, doc_type, ao, docraft, blocks):
+        self.doc_type, self.ao, self.blocks = doc_type, ao, blocks or []
+        self.rows, self.mine = _rows(ao, ITEM_TABLE), docraft.get(ITEM_TABLE) or []
+
+    @cached_property
+    def rebuilt(self):
+        return _receipt_rows(self.blocks)
+
+    def sees(self, rule):
+        """유형에서 끈 룰(``DISABLE``)은 보지 않고, 유형 전용 룰은 그 유형 문서에 AO 항목내역 행이 있을 때만 본다."""
+        return rule.id not in DISABLE.get(self.doc_type, ()) and (
+            not rule.doc_types or self.doc_type in rule.doc_types and bool(self.rows))
+
+
+def _master_checks(doc):
     """마스터에 없는 병명코드를 Judge 참고용으로 알린다(교정은 하지 않는다).
 
     EDI코드는 원내코드가 섞여 들어와 미적중이 28%(76건 평가)라 신호가 되지 않으므로 보지 않는다.
@@ -1127,22 +1020,16 @@ def _master_checks(fields):
         return []
     return [_flag("code_unknown", f"병명내역 {index}행 병명코드 '{row[code_column]}'가 KCD 마스터에 없다.",
                   key="병명내역", row=index, column=code_column)
-            for index, row in enumerate(fields.get("병명내역") or [])
+            for index, row in enumerate(doc.ao.get("병명내역") or [])
             if row.get(code_column) and not master.names(system, row[code_column])]
 
 
-DATE_ORDER = (  # (앞 날짜, 뒤 날짜). 뒤 날짜가 앞서면 한쪽을 잘못 읽은 것이다. 표 열 쌍은 행마다 본다.
-    ("입원일자", "퇴원일자"), ("진단일", "발급일"), ("초진일", "발급일"), ("초진일", "진단일"),
-    ("환자정보-진료시작일", "환자정보-진료종료일"), ("환자정보(진료시작일)", "환자정보(진료종료일)"),
-    ("시작일자", "종료일자"),
-)
-ISSUED = ("발급일", "발행일")  # 문서의 다른 날짜는 발급일보다 늦을 수 없다
-LATER_OK = ("생년월일", "퇴원일자")  # 발급일과 앞뒤를 따지지 않는 날짜(퇴원 예정일은 발급일 뒤일 수 있다)
 OLDEST = "19000101"
 
 
-def _date_checks(doc_type, fields):
+def _date_checks(doc):
     """날짜의 앞뒤가 맞지 않거나(입원>퇴원, 시작>종료, 진단>발급) 발급일 뒤·1900년 전인 날짜."""
+    doc_type, fields = doc.doc_type, doc.ao
     spec = doctypes.spec(doc_type)
     dates = {key: normalize("date", fields.get(key)) for key, meta in spec["fields"].items() if meta["kind"] == "date"}
     issued = next((dates[key] for key in ISSUED if dates.get(key)), None)
@@ -1165,61 +1052,46 @@ def _date_checks(doc_type, fields):
     return found
 
 
-def _id_checks(doc_type, fields):
+def _id_checks(doc):
     """성별·생년월일이 주민번호와 어긋나는지."""
-    kinds = {"성별": "enum", "생년월일": "date"}
+    kinds, fields = {"성별": "enum", "생년월일": "date"}, doc.ao
     return [_flag("id_mismatch", f"{key} '{fields[key]}'이 주민번호로 본 '{value}'와 다르다.", key=key)
-            for key, value in _from_idnum(doc_type, fields).items()
+            for key, value in _from_idnum(doc.doc_type, fields).items()
             if fields.get(key) and not same(kinds[key], fields[key], value)]
 
 
-def check(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dict]) -> list[dict]:
-    """문서의 이상 징후 ``{"code", "key", "row"?, "message"}`` 목록. 모든 유형의 날짜·주민번호·병명코드
-    검사에 진료비영수증 항목내역 검사를 더한다."""
-    found = (_master_checks(ao_fields) + _date_checks(doc_type, ao_fields) + _id_checks(doc_type, ao_fields)
-             + _field_sums(ao_fields) + _detail_checks(doc_type, ao_fields) + _class_checks(doc_type, ao_fields)
-             + [_flag("ungrounded", f"{key} {ao_fields[key]}이 문서 글자 어디에도 없거나 항목 한 행의 값과 같다. "
-                                    "인쇄되지 않은 합계를 계산하거나 베낀 것이면 비운다.", key=key) for key in _ungrounded(doc_type, ao_fields, blocks or [])])
-    rows = _rows(ao_fields, ITEM_TABLE)
-    if doc_type != "진료비영수증" or not rows:
-        return found
-    mine = docraft_fields.get(ITEM_TABLE) or []
-    for side, side_rows in (("AO", rows), ("Docraft", mine)):
-        for index, row in enumerate(side_rows):
-            for column in ITEM_COLUMNS:
-                if _MULTI_AMOUNT.search(str(row.get(column) or "")):
-                    found.append(_flag("multi_amount", f"{side} 표 {index}행 '{column}' 셀에 금액이 둘 이상 들어 있다: "
-                                                       f"{row[column]}", row=index, column=column))
-    rebuilt = _receipt_rows(blocks)
-    for column in _absent_columns(blocks, rebuilt, mine):
-        for index, row in enumerate(rows):
-            if _money(row.get(column)):
-                found.append(_flag("no_column", f"이 표에는 독립된 '{column}' 열이 없으므로 {index}행 "
-                                                f"'{row.get('항목')}'의 {column}는 0이어야 한다.", row=index, column=column))
-    found += _row_checks(rows, mine)
-    found += _shift_checks(rows, mine)
-    found += _item_names(rows)
-    found += _row_shifts(rows, mine, rebuilt)
-    found += _sum_checks(ao_fields, rows)
-    return found
+def _unprinted(doc):
+    return [_flag("ungrounded", f"{key} {doc.ao[key]}이 문서 글자 어디에도 없거나 항목 한 행의 값과 같다. "
+                                "인쇄되지 않은 합계를 계산하거나 베낀 것이면 비운다.", key=key)
+            for key in _ungrounded(doc.doc_type, doc.ao, doc.blocks)]
 
 
-def _absent_columns(blocks, rebuilt, mine):
-    """서식에 없는 항목내역 금액 열. 머리글이 묶음 제목이라고 확신하는 급여·비급여와, 파서 표 머리글이
-    세 열 이상 읽혔는데 거기 없고 Docraft 표도 비워 둔 열이다(머리글 일부를 못 읽은 파서만 믿지 않는다).
+def _multi_amounts(doc):
+    """한 금액 칸에 금액이 둘 이상 든 행(AO·Docraft 양쪽)."""
+    return [_flag("multi_amount", f"{side} 표 {index}행 '{column}' 셀에 금액이 둘 이상 들어 있다: {row[column]}",
+                  row=index, column=column)
+            for side, side_rows in (("AO", doc.rows), ("Docraft", doc.mine)) for index, row in enumerate(side_rows)
+            for column in ITEM_COLUMNS if _MULTI_AMOUNT.search(str(row.get(column) or ""))]
+
+
+def _no_columns(doc):
+    """서식에 없는 항목내역 금액 열에 AO가 금액을 둔 행. 없는 열은 머리글이 묶음 제목이라고 확신하는 급여·비급여와,
+    파서 표 머리글이 세 열 이상 읽혔는데 거기 없고 Docraft 표도 비워 둔 열이다(머리글 일부를 못 읽은 파서만 믿지 않는다).
     열 전체가 없는 열로 옮겨 가면 열 합이 맞아 합계 검사로는 못 잡는다."""
-    cells = _headers(blocks)
+    cells = _headers(doc.blocks)
     absent = {column for column, (titles, subs) in GROUPED.items() if _grouped(cells, titles, subs) is True}
-    form = {column for row in rebuilt for column in row} - {"항목"}
+    form = {column for row in doc.rebuilt for column in row} - {"항목"}
     if len(form) >= 3:
-        absent |= {column for column in set(ITEM_COLUMNS) - form if not any(_money(row.get(column)) for row in mine)}
-    return sorted(absent)
+        absent |= {column for column in set(ITEM_COLUMNS) - form if not any(_money(row.get(column)) for row in doc.mine)}
+    return [_flag("no_column", f"이 표에는 독립된 '{column}' 열이 없으므로 {index}행 "
+                               f"'{row.get('항목')}'의 {column}는 0이어야 한다.", row=index, column=column)
+            for column in sorted(absent) for index, row in enumerate(doc.rows) if _money(row.get(column))]
 
 
-def _item_names(rows):
+def _item_names(doc):
     """AO 항목명이 프롬프트 규칙(선별급여 등 이름 변경)이나 한 글자 오독 교정으로 다른 표준 이름이 되는 행."""
     found = []
-    for index, row in enumerate(rows):
+    for index, row in enumerate(doc.rows):
         name = item(row.get("항목"))
         if name and name != re.sub(r"[^0-9A-Za-z가-힣_-]", "", str(row.get("항목"))):
             found.append(_flag("item_name", f"AO 표 {index}행 항목명 '{row.get('항목')}'은 '{name}'로 적는다.",
@@ -1231,39 +1103,49 @@ def _amounts(row):
     return tuple(_money(row.get(column)) or 0 for column in ITEM_COLUMNS)
 
 
-def _row_checks(rows, mine):
-    """합계 행 베끼기와 AO·Docraft 간 항목 행 누락·과다를 본다."""
-    found = []
-    names, my_names = [item(row.get("항목")) for row in rows], [item(row.get("항목")) for row in mine]
+def _names(rows):
+    return [item(row.get("항목")) for row in rows]
+
+
+def _row_copy(doc):
+    """합계 행 금액이 한 항목 행과 전부 같으면(합계 베끼기) 알린다."""
+    rows, names = doc.rows, _names(doc.rows)
     body = [row for row in rows if not is_total(row)]
     total = next((index for index, name in enumerate(names) if name == "합계"), len(rows) - 1)
-    if len(rows) > 1 and sum(any(_amounts(row)) for row in body) > 1:
-        # 포괄수가 행은 위쪽 항목 행을 다시 담으므로 합계와 같은 것이 정상이다
-        copied = next((index for index in range(total) if _amounts(rows[index]) == _amounts(rows[total])
-                       and any(_amounts(rows[total])) and not (item(rows[index].get("항목")) or "").startswith(LUMP_ITEMS)),
-                      None)
-        if copied is not None:
-            found.append(_flag("row_copy", f"합계 행({total}행)의 금액이 {copied}행 "
-                                           f"'{rows[copied].get('항목')}'과 전부 같다. 합계를 베낀 것으로 보인다.", row=total))
-    for name in dict.fromkeys(my_names):
-        if name and not is_total({"항목": name}) and name not in names:
-            found.append(_flag("row_missing", f"Docraft가 읽은 항목 '{name}' 행이 AO 표에 없다.", item=name))
-    valued = {name for row, name in zip(rows, names) if any(_amounts(row)) and not is_total(row)}
-    for name in dict.fromkeys(names):
-        if name in valued and my_names and name not in my_names:
-            found.append(_flag("row_extra", f"AO 표의 항목 '{name}' 행이 Docraft 표에는 없다."))
-    return found
+    if len(rows) <= 1 or sum(any(_amounts(row)) for row in body) <= 1:
+        return []
+    # 포괄수가 행은 위쪽 항목 행을 다시 담으므로 합계와 같은 것이 정상이다
+    copied = next((index for index in range(total) if _amounts(rows[index]) == _amounts(rows[total])
+                   and any(_amounts(rows[total])) and not (item(rows[index].get("항목")) or "").startswith(LUMP_ITEMS)),
+                  None)
+    return [] if copied is None else [_flag("row_copy", f"합계 행({total}행)의 금액이 {copied}행 "
+                                                        f"'{rows[copied].get('항목')}'과 전부 같다. 합계를 베낀 것으로 보인다.", row=total)]
 
 
-def _shift_checks(rows, mine):
+def _row_missing(doc):
+    """Docraft가 읽은 항목 행이 AO 표에 없는지."""
+    names = _names(doc.rows)
+    return [_flag("row_missing", f"Docraft가 읽은 항목 '{name}' 행이 AO 표에 없다.", item=name)
+            for name in dict.fromkeys(_names(doc.mine)) if name and not is_total({"항목": name}) and name not in names]
+
+
+def _row_extra(doc):
+    """금액이 있는 AO 항목 행이 Docraft 표에 없는지."""
+    names, my_names = _names(doc.rows), _names(doc.mine)
+    valued = {name for row, name in zip(doc.rows, names) if any(_amounts(row)) and not is_total(row)}
+    return [_flag("row_extra", f"AO 표의 항목 '{name}' 행이 Docraft 표에는 없다.")
+            for name in dict.fromkeys(names) if name in valued and my_names and name not in my_names]
+
+
+def _shift_checks(doc):
     """AO 행의 금액이 같은 항목의 Docraft(룰 적용 후) 행에서는 다른 열에 있으면 자리가 바뀐 것으로 본다.
 
     Docraft는 이미 ``_receipt_table``에서 파서 표로 열을 바로잡은 뒤라 열 정체성의 기준이 된다.
     룰이 AO 자체를 고칠 확신이 없을 때도 Judge에게는 알린다.
     """
     found = []
-    for index, row in enumerate(rows):
-        counterpart = _row_of(mine, row.get("항목"))
+    for index, row in enumerate(doc.rows):
+        counterpart = _row_of(doc.mine, row.get("항목"))
         if not counterpart:
             continue
         for column in ITEM_COLUMNS:
@@ -1275,7 +1157,7 @@ def _shift_checks(rows, mine):
     return found
 
 
-def _row_shifts(rows, mine, rebuilt):
+def _row_shifts(doc):
     """AO 행의 금액이 같은 열의 다른 행에 있어야 하면(세로 밀림) 그 자리를 알린다. 열 합은 그대로라 합계 검사로는 못 잡는다.
 
     Docraft가 위아래 ``SHIFT_REACH``행 안에서 그 값을 가진 행이 하나이고, AO는 그 행에 그 값을 갖지 않으며,
@@ -1285,9 +1167,10 @@ def _row_shifts(rows, mine, rebuilt):
     def amount(row, column):
         return abs(_money((row or {}).get(column)) or 0)
 
+    rows = doc.rows
     body = [index for index, row in enumerate(rows) if not is_total(row)]
-    theirs = {index: _row_of(mine, rows[index].get("항목")) for index in body}
-    base = {index: _row_of(rebuilt, rows[index].get("항목")) for index in body}
+    theirs = {index: _row_of(doc.mine, rows[index].get("항목")) for index in body}
+    base = {index: _row_of(doc.rebuilt, rows[index].get("항목")) for index in body}
     found = []
     for column in ITEM_COLUMNS:
         for index in body:
@@ -1342,31 +1225,26 @@ def _swap(rows, pairs):
     return rows
 
 
-def _sum_checks(fields, rows):
-    """요건 1절의 합계식·열별 합과 항목 열 통째 바뀜을 본다. 십의 자리 절사는 허용한다."""
+def _sum_checks(doc):
+    """요건 1절의 합계식·열별 합을 본다. 십의 자리 절사는 허용한다."""
     found = []
-    total, added, lump = _column_sums(rows)
+    total, added, lump = _column_sums(doc.rows)
     for column, value in (total if total and not lump else {}).items():
         if not _near(value, added[column]):
             found.append(_flag("sum_mismatch", f"합계 행의 '{column}' {value:,}이 항목 행 합 {added[column]:,}과 다르다."))
     stated = total or added
     for field, columns in TOTAL_FIELDS.items():
-        value, computed = _money(fields.get(field)), sum(stated[column] for column in columns)
+        value, computed = _money(doc.ao.get(field)), sum(stated[column] for column in columns)
         if value is not None and not _near(value, computed):
             found.append(_flag("sum_mismatch", f"{field} {value:,}이 합계 행의 {'+'.join(columns)} {computed:,}과 다르다.",
                                key=field))
-    found += [_flag("column_shift", f"항목 행의 '{a}'·'{b}' 열을 통째로 맞바꾸면 두 열의 합이 합계 행과 맞는다.",
-                    column=a, target=b) for a, b in _swaps(rows)]
     return found
 
 
-def sum_errors(doc_type: str, fields: dict) -> int:
-    """합계식 불일치 수. 합계 필드끼리의 식(``FIELD_SUMS``)과, 진료비영수증이면 합계 행·열별 합·합계 필드 식을 센다.
-    두 읽기 중 합계식에 더 맞는 쪽을 고르는 데 쓴다(``verify``)."""
-    found = _field_sums(fields)
-    if doc_type == "진료비영수증" and _rows(fields, ITEM_TABLE):
-        found += [flag for flag in _sum_checks(fields, _rows(fields, ITEM_TABLE)) if flag["code"] == "sum_mismatch"]
-    return len(found)
+def _swap_checks(doc):
+    """항목 금액 열 두 개가 통째로 맞바뀌었는지(``_swaps``)."""
+    return [_flag("column_shift", f"항목 행의 '{a}'·'{b}' 열을 통째로 맞바꾸면 두 열의 합이 합계 행과 맞는다.",
+                  column=a, target=b) for a, b in _swaps(doc.rows)]
 
 
 def _relations(fields, key=None):
@@ -1385,23 +1263,21 @@ def _fits(fields, key, value):
     return all(checks) if checks else None
 
 
-def _field_sums(fields):
+def _field_sums(doc):
     """인쇄된 합계 필드가 그 구성 필드의 합과 다른지(구성 필드가 둘 이상 읽혔을 때만)."""
     found = []
-    for field, value, terms in _relations(fields):
+    for field, value, terms in _relations(doc.ao):
         if not _near(value, sum(terms.values())):
             message = f"{field} {value:,}이 {'+'.join(terms)} {sum(terms.values()):,}과 다르다. 어느 쪽을 잘못 읽었는지 확인한다."
             found += [_flag("sum_mismatch", message, key=key) for key in (field, *terms)]
     return found
 
 
-def _detail_checks(doc_type, fields):
+def _row_arith(doc):
     """세부내역서 행의 단가×투여량×횟수×일수와 본인+공단(+전액본인)부담이 총액과 맞는지.
 
     종별 가산(행위료 ×1.2 등)처럼 문서 안 여러 행이 같은 비율로 어긋나면 그 비율도 맞는 것으로 본다."""
-    if doc_type != "세부내역서":
-        return []
-    rows, found, ratios = _rows(fields, ITEM_TABLE), [], {}
+    rows, found, ratios = doc.rows, [], {}
     for index, row in enumerate(rows):
         price, total = _money(row.get("단가")), _money(row.get("총액"))
         counts = [normalize("number", row.get(column)) for column in ("횟수", "일수")]
@@ -1421,24 +1297,27 @@ def _detail_checks(doc_type, fields):
         if not common & set(found_ratios):
             found.append(_flag("row_arith", f"{index}행 단가×투여량×횟수×일수가 총액 {rows[index]['총액']}과 맞지 않는다.",
                                row=index, column="총액"))
-    found.sort(key=lambda flag: flag["row"])
-    # 원내코드만 쓰는 병원도 많아 마스터에 없는 EDI코드만으로는 알리지 않고, 행 금액이 넷 중 하나 넘게 틀릴 때 더한다.
+    return sorted(found, key=lambda flag: flag["row"])
+
+
+def _low_quality(doc):
+    """행 금액이 넷 중 하나 넘게 틀리고, 과반이 틀리거나 EDI코드 과반이 마스터에 없으면 표 전체를 이미지로 재확인한다.
+    원내코드만 쓰는 병원도 많아 마스터에 없는 EDI코드만으로는 알리지 않는다."""
+    rows = doc.rows
     codes = [row["EDI코드"] for row in rows if row.get("EDI코드")]
     unknown = sum(not master.names("edi", code) for code in codes) if master.ready() else 0
-    bad = len({flag["row"] for flag in found})
+    bad = len({flag["row"] for flag in _row_arith(doc)})
     if len(rows) >= 5 and bad * 4 >= len(rows) and (bad * 2 > len(rows) or unknown * 2 > len(codes)):
-        found.append(_flag("low_quality", "문서 품질이 낮아 표 전체를 이미지로 재확인한다(행 금액이 여럿 맞지 않고 "
-                                          "EDI코드도 대부분 마스터에 없다)."))
-    return found
+        return [_flag("low_quality", "문서 품질이 낮아 표 전체를 이미지로 재확인한다(행 금액이 여럿 맞지 않고 "
+                                     "EDI코드도 대부분 마스터에 없다).")]
+    return []
 
 
-def _class_checks(doc_type, fields):
+def _class_checks(doc):
     """세부내역서 급여구분이 정규값(급여·비급여)이 아닌 행(AO의 '열추출' 등). 금액 열로 정해지면 그 값을 붙인다 —
     본인·공단·전액본인부담에만 금액이 있으면 급여, 비급여에만 있으면 비급여. 둘 다 있거나 없으면 Judge에 맡긴다."""
-    if doc_type != "세부내역서":
-        return []
     found = []
-    for index, row in enumerate(_rows(fields, ITEM_TABLE)):
+    for index, row in enumerate(doc.rows):
         value = row.get("급여구분")
         if not value or value in ENUMS["급여구분"] or is_total(row):
             continue
@@ -1451,47 +1330,177 @@ def _class_checks(doc_type, fields):
     return found
 
 
-def correct(doc_type: str, checks: list[dict], ao_fields: dict, docraft_fields: dict) -> dict:
-    """확실한 이상만 Judge 없이 룰로 교정한다. ``{key: (교정값, 사유)}``."""
-    rows, mine = [dict(row) for row in ao_fields.get(ITEM_TABLE) or []], docraft_fields.get(ITEM_TABLE) or []
-    reasons = []
-    shifts = [flag for flag in checks if flag["code"] == "row_shift"]
-    moved = {(flag["target_row"], flag["column"]): rows[flag["row"]].get(flag["column"]) for flag in shifts}
-    for flag in shifts:  # 모두 떼어 낸 뒤 제자리에 놓아야 연쇄 밀림에서 옮긴 값을 다시 지우지 않는다
+class _Fix:
+    """교정 중인 AO 항목내역 행(``rows``)과 교정 사유, 비울 필드. 룰의 ``fix``가 차례로 고친다."""
+
+    def __init__(self, rows, mine):
+        self.rows, self.mine, self.reasons, self.fields = rows, mine, [], {}
+
+    def row(self, flag):
+        return self.rows[flag["row"]] if flag.get("row") is not None and flag["row"] < len(self.rows) else None
+
+
+def _fix_row_shift(fix, flags):
+    rows = fix.rows
+    moved = {(flag["target_row"], flag["column"]): rows[flag["row"]].get(flag["column"]) for flag in flags}
+    for flag in flags:  # 모두 떼어 낸 뒤 제자리에 놓아야 연쇄 밀림에서 옮긴 값을 다시 지우지 않는다
         rows[flag["row"]][flag["column"]] = "0"
     for (index, column), value in moved.items():
         rows[index][column] = value
-    reasons += [f"row_shift: {rows[flag['row']].get('항목')} 행의 {flag['column']}를 "
-                f"{rows[flag['target_row']].get('항목')} 행으로 옮겼다" for flag in shifts]
-    order = {"column_shift": 0, "item_name": 1, "row_missing": 2}  # 열 통째 바뀜, 칸, 이름, 행 끼우기 순으로 고친다
-    for flag in sorted(checks, key=lambda flag: -1 if "target" in flag and "row" not in flag
-                       else order.get(flag["code"], 0)):
-        row = rows[flag["row"]] if flag.get("row") is not None and flag["row"] < len(rows) else None
-        if flag["code"] == "column_shift" and "row" not in flag:
-            rows = _swap(rows, [(flag["column"], flag["target"])])
-            reasons.append(f"column_shift: 항목 행의 {flag['column']}·{flag['target']} 열을 맞바꿨다")
-        elif flag["code"] == "item_class" and row is not None and flag["value"]:
-            reasons.append(f"item_class: {row.get('항목')} 행의 급여구분 {row.get('급여구분')}를 {flag['value']}로 고쳤다")
+    fix.reasons += [f"[{flag['rule']}] {rows[flag['row']].get('항목')} 행의 {flag['column']}를 "
+                    f"{rows[flag['target_row']].get('항목')} 행으로 옮겼다" for flag in flags]
+
+
+def _fix_swap(fix, flags):
+    for flag in flags:
+        fix.rows = _swap(fix.rows, [(flag["column"], flag["target"])])
+        fix.reasons.append(f"[{flag['rule']}] 항목 행의 {flag['column']}·{flag['target']} 열을 맞바꿨다")
+
+
+def _fix_column_shift(fix, flags):
+    for flag in flags:
+        row, column, target = fix.row(flag), flag["column"], flag["target"]
+        source = row is not None and _row_of(fix.mine, row.get("항목"))
+        if source and _money(source.get(target)) == _money(row.get(column)) and not _money(row.get(target)):
+            row[target], row[column] = row[column], "0"
+            fix.reasons.append(f"[{flag['rule']}] {row.get('항목')} 행의 {column}를 {target}로 옮겼다")
+
+
+def _fix_item_class(fix, flags):
+    for flag in flags:
+        row = fix.row(flag)
+        if row is not None and flag["value"]:
+            fix.reasons.append(f"[{flag['rule']}] {row.get('항목')} 행의 급여구분 {row.get('급여구분')}를 {flag['value']}로 고쳤다")
             row["급여구분"] = flag["value"]
-        elif flag["code"] == "item_name" and row is not None:
-            reasons.append(f"item_name: {row.get('항목')}를 {flag['name']}로 고쳤다")
+
+
+def _fix_item_name(fix, flags):
+    for flag in flags:
+        row = fix.row(flag)
+        if row is not None:
+            fix.reasons.append(f"[{flag['rule']}] {row.get('항목')}를 {flag['name']}로 고쳤다")
             row["항목"] = flag["name"]
-        elif flag["code"] == "column_shift" and row is not None:
-            column, target = flag["column"], flag["target"]
-            source = _row_of(mine, row.get("항목"))
-            if source and _money(source.get(target)) == _money(row.get(column)) and not _money(row.get(target)):
-                row[target], row[column] = row[column], "0"
-                reasons.append(f"column_shift: {row.get('항목')} 행의 {column}를 {target}로 옮겼다")
-        elif flag["code"] == "row_missing":
-            name = flag["item"]
-            source = _row_of(mine, name)
-            if source and not any(_amounts(source)):
-                rows.insert(_insert_at(rows, mine, name), {**source, "항목": name})
-                reasons.append(f"row_missing: 금액이 모두 0인 '{name}' 행을 Docraft에서 채웠다")
-    fixes = {flag["key"]: (None, f"{flag['code']}: 인쇄되지 않았거나 구성 금액의 합과 다른 급여 합계라 비웠다")
-             for flag in checks if flag["key"] in UNPRINTED_NULL
-             and (flag["code"] == "ungrounded" or flag["code"] == "sum_mismatch" and flag["key"] in FIELD_SUMS)}
-    return {**fixes, **({ITEM_TABLE: (rows, " / ".join(reasons))} if reasons else {})}
+
+
+def _fix_row_missing(fix, flags):
+    for flag in flags:
+        name = flag["item"]
+        source = _row_of(fix.mine, name)
+        if source and not any(_amounts(source)):
+            fix.rows.insert(_insert_at(fix.rows, fix.mine, name), {**source, "항목": name})
+            fix.reasons.append(f"[{flag['rule']}] 금액이 모두 0인 '{name}' 행을 Docraft에서 채웠다")
+
+
+def _fix_total(fix, flags):
+    """인쇄되지 않았거나(ungrounded) 합계식이 어긋나는(sum_mismatch, 합계 쪽) 급여 합계를 비운다."""
+    fix.fields.update({flag["key"]: (None, f"[{flag['rule']}] 인쇄되지 않았거나 구성 금액의 합과 다른 급여 합계라 비웠다")
+                       for flag in flags if flag["key"] in UNPRINTED_NULL
+                       and (flag["code"] == "ungrounded" or flag["key"] in FIELD_SUMS)})
+
+
+@dataclass(frozen=True)
+class Rule:
+    """검사 하나와 그 교정. ``detect(doc)``는 이상 징후 목록을, ``fix(fix, flags)``는 그 룰의 이상을 한꺼번에 고친다.
+    category는 harness-v2 RuleCategory 값을, on_fail은 교정하지 못했을 때의 조치(CORRECT·RE_EXTRACT·ESCALATE)를 쓴다."""
+    id: str
+    code: str  # 이상 징후 코드(flag의 "code")
+    category: str
+    doc_types: tuple  # 빈 튜플이면 전 유형
+    detect: Callable
+    fix: Callable | None
+    on_fail: str
+    priority: int = 0  # 교정 순서. 행 밀림, 열 통째 바뀜, 칸, 이름, 행 끼우기 순으로 고친다
+
+
+RECEIPT, DETAIL = ("진료비영수증",), ("세부내역서",)
+RULES = (  # 검사 순서가 곧 check()가 내는 이상 징후 순서다
+    Rule("MASTER.CODE_UNKNOWN", "code_unknown", "MASTER", (), _master_checks, None, "RE_EXTRACT"),
+    Rule("DATE.ORDER", "bad_date", "LOGIC", (), _date_checks, None, "RE_EXTRACT"),
+    Rule("ID.MISMATCH", "id_mismatch", "CROSS", (), _id_checks, None, "RE_EXTRACT"),
+    Rule("SUM.FIELD", "sum_mismatch", "CALC", (), _field_sums, _fix_total, "CORRECT"),
+    Rule("DETAIL.ROW_ARITH", "row_arith", "CALC", DETAIL, _row_arith, None, "RE_EXTRACT"),
+    Rule("DETAIL.LOW_QUALITY", "low_quality", "STRUCT", DETAIL, _low_quality, None, "ESCALATE"),
+    Rule("DETAIL.ITEM_CLASS", "item_class", "FMT", DETAIL, _class_checks, _fix_item_class, "CORRECT"),
+    Rule("GROUND.UNPRINTED", "ungrounded", "LOGIC", (), _unprinted, _fix_total, "CORRECT"),
+    Rule("RECEIPT.MULTI_AMOUNT", "multi_amount", "FMT", RECEIPT, _multi_amounts, None, "RE_EXTRACT"),
+    Rule("RECEIPT.NO_COLUMN", "no_column", "STRUCT", RECEIPT, _no_columns, None, "RE_EXTRACT"),
+    Rule("RECEIPT.ROW_COPY", "row_copy", "STRUCT", RECEIPT, _row_copy, None, "RE_EXTRACT"),
+    Rule("RECEIPT.ROW_MISSING", "row_missing", "STRUCT", RECEIPT, _row_missing, _fix_row_missing, "CORRECT", 2),
+    Rule("RECEIPT.ROW_EXTRA", "row_extra", "STRUCT", RECEIPT, _row_extra, None, "RE_EXTRACT"),
+    Rule("RECEIPT.COLUMN_SHIFT", "column_shift", "STRUCT", RECEIPT, _shift_checks, _fix_column_shift, "CORRECT"),
+    Rule("RECEIPT.ITEM_NAME", "item_name", "FMT", RECEIPT, _item_names, _fix_item_name, "CORRECT", 1),
+    Rule("RECEIPT.ROW_SHIFT", "row_shift", "STRUCT", RECEIPT, _row_shifts, _fix_row_shift, "CORRECT", -2),
+    Rule("SUM.TABLE", "sum_mismatch", "CALC", RECEIPT, _sum_checks, None, "RE_EXTRACT"),
+    Rule("RECEIPT.COLUMN_SWAP", "column_shift", "STRUCT", RECEIPT, _swap_checks, _fix_swap, "CORRECT", -1),
+)
+
+
+def _disabled(disable):
+    """유형 → 끈 룰 id 집합. 모르는 룰 id가 있으면 ValueError."""
+    unknown = {rule_id for ids in disable.values() for rule_id in ids} - {rule.id for rule in RULES}
+    if unknown:
+        raise ValueError(f"rules.yaml disable: 알 수 없는 룰 {sorted(unknown)}")
+    return {doc_type: frozenset(ids) for doc_type, ids in disable.items()}
+
+
+DISABLE = _disabled(_TABLES["disable"])
+
+
+def check(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dict]) -> list[dict]:
+    """문서의 이상 징후 ``{"code", "rule", "key", "row"?, "message"}`` 목록. ``RULES``를 차례로 돌린다."""
+    doc = _Doc(doc_type, ao_fields, docraft_fields, blocks)
+    return [{**flag, "rule": rule.id} for rule in RULES if doc.sees(rule) for flag in rule.detect(doc)]
+
+
+def _correct(checks, ao_fields, docraft_fields):
+    """확실한 이상만 Judge 없이 룰로 교정한다. ``{key: (교정값, 사유)}``."""
+    fix = _Fix([dict(row) for row in ao_fields.get(ITEM_TABLE) or []], docraft_fields.get(ITEM_TABLE) or [])
+    for rule in sorted((rule for rule in RULES if rule.fix), key=lambda rule: rule.priority):
+        rule.fix(fix, [flag for flag in checks if flag["rule"] == rule.id])
+    return {**fix.fields, **({ITEM_TABLE: (fix.rows, " / ".join(fix.reasons))} if fix.reasons else {})}
+
+
+def run(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dict], rounds: int = 3):
+    """검사(``check``)와 교정을 고칠 것이 없거나 같은 상태가 되풀이되거나 ``rounds``번이 될 때까지 되풀이한다.
+
+    ``(교정, 회차별 이상 징후, 실행 기록)``을 돌려준다. 교정은 ``{key: (교정값, 사유)}``로 회차를 거듭한 최종값과
+    사유 합집합이고, 이상 징후 목록의 마지막은 마지막 교정 뒤의 검사다(``rounds=0``이면 검사만 한다).
+    실행 기록은 회차 × 적용되는 룰마다 ``{rule, category, round, result, action, flags, fixed}``이고,
+    ``fixed``는 다음 회차 검사에서 사라진 이상 징후 수다(다음 회차가 없으면 None).
+    """
+    fields, fixes, history, seen, trace = dict(ao_fields), {}, [], [], []
+    for number in range(1, rounds + 2):
+        doc = _Doc(doc_type, fields, docraft_fields, blocks)
+        flags = check(doc_type, fields, docraft_fields, blocks)
+        history.append(flags)
+        counts = {rule.id: sum(flag["rule"] == rule.id for flag in flags) for rule in RULES if doc.sees(rule)}
+        trace += [{"rule": rule.id, "category": rule.category, "round": number, "result": "fail" if counts[rule.id] else "pass",
+                   "action": rule.on_fail, "flags": counts[rule.id], "fixed": None} for rule in RULES if rule.id in counts]
+        changed = _correct(flags, fields, docraft_fields) if number <= rounds else {}
+        seen.append(fields)
+        fields = {**fields, **{key: value for key, (value, _) in changed.items()}}
+        if fields in seen:  # 고칠 것이 없거나 앞선 상태로 되돌아가면(진동) 멈춘다
+            break
+        for key, (value, reason) in changed.items():
+            reasons = [*(fixes[key][1].split(" / ") if key in fixes else ()), *reason.split(" / ")]
+            fixes[key] = (value, " / ".join(dict.fromkeys(reasons)))
+    for entry in trace:
+        if entry["round"] < len(history):
+            after = {_where(flag) for flag in history[entry["round"]] if flag["rule"] == entry["rule"]}
+            entry["fixed"] = sum(_where(flag) not in after for flag in history[entry["round"] - 1] if flag["rule"] == entry["rule"])
+    return fixes, history, trace
+
+
+def _where(flag):
+    """회차를 넘어 같은 이상 징후인지 가릴 자리(사유 문장은 값이 바뀌면 달라지므로 뺀다)."""
+    return tuple(flag.get(name) for name in ("key", "row", "column", "item", "target"))
+
+
+def sum_errors(doc_type: str, fields: dict) -> int:
+    """합계식 불일치 수. 합계 필드끼리의 식(``FIELD_SUMS``)과, 진료비영수증이면 합계 행·열별 합·합계 필드 식을 센다.
+    두 읽기 중 합계식에 더 맞는 쪽을 고르는 데 쓴다(``verify``)."""
+    doc = _Doc(doc_type, fields, {}, [])
+    return sum(len(rule.detect(doc)) for rule in RULES if rule.code == "sum_mismatch" and doc.sees(rule))
 
 
 def _insert_at(rows, mine, name):

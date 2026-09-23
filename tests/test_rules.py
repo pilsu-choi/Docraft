@@ -444,27 +444,24 @@ def test_check_allows_a_sum_off_by_less_than_a_hundred():
 def test_correct_moves_a_nonexistent_column_to_the_column_docraft_read():
     rows = receipt(("정액수가(요양병원)", {"급여": "9010000"}))
     mine = receipt(("정액수가(요양병원)", {"비급여": "9010000"}))
-    checks = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, RECEIPT_BLOCKS)
 
-    fixed, reason = rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": mine})["항목내역"]
+    fixed, reason = rules.run("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, RECEIPT_BLOCKS, rounds=1)[0]["항목내역"]
 
     assert (fixed[0]["급여"], fixed[0]["비급여"]) == ("0", "9010000")
-    assert "column_shift" in reason and rows[0]["급여"] == "9010000"  # 입력은 건드리지 않는다
+    assert "[RECEIPT.COLUMN_SHIFT]" in reason and rows[0]["급여"] == "9010000"  # 입력은 건드리지 않는다
 
 
 def test_correct_leaves_a_move_docraft_does_not_confirm_to_the_judge():
     rows = receipt(("정액수가(요양병원)", {"급여": "9010000"}))
-    checks = rules.check("진료비영수증", {"항목내역": rows}, {}, RECEIPT_BLOCKS)
 
-    assert rules.correct("진료비영수증", checks, {"항목내역": rows}, {}) == {}
+    assert rules.run("진료비영수증", {"항목내역": rows}, {}, RECEIPT_BLOCKS, rounds=1)[0] == {}
 
 
 def test_correct_adds_a_missing_row_only_when_it_has_no_amounts():
     rows = receipt(("진찰료", {"본인부담금": "1000"}), ("합계", {"본인부담금": "1000"}))
     mine = receipt(("진찰료", {"본인부담금": "1000"}), ("CT진단료", {}), ("MRI진단료", {"비급여": "500000"}))
-    checks = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, RECEIPT_BLOCKS)
 
-    fixed, reason = rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": mine})["항목내역"]
+    fixed, reason = rules.run("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, RECEIPT_BLOCKS, rounds=1)[0]["항목내역"]
 
     assert [row["항목"] for row in fixed] == ["진찰료", "CT진단료", "합계"]  # 금액 있는 MRI는 Judge에게 맡긴다
     assert "CT진단료" in reason
@@ -518,21 +515,19 @@ def test_check_finds_a_column_shifted_to_its_neighbor():
 def test_correct_swaps_a_shifted_column_when_ao_left_the_true_column_empty():
     rows = receipt(("초음파진단료", {"선택진료료": "50000"}))
     mine = receipt(("초음파진단료", {"비급여": "50000"}))
-    checks = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [])
 
-    fixed, reason = rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": mine})["항목내역"]
+    fixed, reason = rules.run("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [], rounds=1)[0]["항목내역"]
 
     assert (fixed[0]["선택진료료"], fixed[0]["비급여"]) == ("0", "50000")
-    assert "column_shift" in reason
+    assert "[RECEIPT.COLUMN_SHIFT]" in reason
 
 
 def test_correct_leaves_a_shift_the_judge_should_decide():
     """AO의 대상 열에 이미 값(0이 아닌)이 있으면 함부로 바꾸지 않고 Judge에게 맡긴다."""
     rows = receipt(("초음파진단료", {"선택진료료": "50000", "비급여": "30000"}))
     mine = receipt(("초음파진단료", {"비급여": "50000"}))
-    checks = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [])
 
-    assert rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": mine}) == {}
+    assert rules.run("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [], rounds=1)[0] == {}
 
 
 def test_apply_realigns_a_value_shifted_to_the_neighboring_column():
@@ -580,11 +575,11 @@ def test_check_and_correct_a_column_shifted_down_by_rows():
                    ("처치및수술료", {"비급여": "1500000"}), ("검사료", {"비급여": "500000"}), ("영상진단료", {}))
 
     checks = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, SHIFT_BLOCKS)
-    fixed, reason = rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": mine})["항목내역"]
+    fixed, reason = rules.run("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, SHIFT_BLOCKS, rounds=1)[0]["항목내역"]
 
     assert [(flag["row"], flag["target_row"]) for flag in checks if flag["code"] == "row_shift"] == [(2, 1), (3, 2)]
     assert [row["비급여"] for row in fixed] == ["0", "1500000", "500000", "0"]
-    assert "row_shift" in reason
+    assert "[RECEIPT.ROW_SHIFT]" in reason
 
 
 def test_check_leaves_a_row_shift_the_parser_table_does_not_confirm():
@@ -624,12 +619,11 @@ def test_correct_renames_an_item_to_the_standard_name():
     """이슈 정리 260923 현상 2·3: 선별급여 유의어와 '시행및처치료' 오독을 표준 이름으로 고친다."""
     rows = receipt(("국민건강보험법 제41조의4에 따른 요양급여", {}), ("시행및처치료", {"본인부담금": "71608"}),
                    ("보철·교정료", {}))  # 기호만 다른 이름은 그대로 둔다
-    checks = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": rows}, [])
 
-    fixed, reason = rules.correct("진료비영수증", checks, {"항목내역": rows}, {"항목내역": rows})["항목내역"]
+    fixed, reason = rules.run("진료비영수증", {"항목내역": rows}, {"항목내역": rows}, [], rounds=1)[0]["항목내역"]
 
     assert [row["항목"] for row in fixed] == ["선별급여", "시술및처치료", "보철·교정료"]
-    assert "item_name" in reason
+    assert "[RECEIPT.ITEM_NAME]" in reason
 
 
 def test_apply_clears_a_subtotal_column_read_as_full_self_pay():
@@ -936,7 +930,7 @@ def test_a_whole_column_read_into_its_neighbour_is_swapped_back():
     flags = rules.check("진료비영수증", {"항목내역": SHIFTED}, {"항목내역": out}, [])
     swap = [flag for flag in flags if flag["code"] == "column_shift" and "row" not in flag]
     assert [(flag["column"], flag["target"]) for flag in swap] == [("선택진료료", "선택진료료외")]
-    fixed, reason = rules.correct("진료비영수증", flags, {"항목내역": SHIFTED}, {"항목내역": out})["항목내역"]
+    fixed, reason = rules.run("진료비영수증", {"항목내역": SHIFTED}, {"항목내역": out}, [], rounds=1)[0]["항목내역"]
     assert [row["선택진료료외"] for row in fixed] == ["20000", "15000", "35000"] and "맞바꿨다" in reason
 
 
@@ -964,8 +958,8 @@ def test_unprinted_detail_totals_are_dropped(value, rows, expected):
     assert out["급여_급여총액"] == expected
     flags = rules.check("세부내역서", {"급여_급여총액": value, "항목내역": []}, out, blocks)
     assert [flag["code"] for flag in flags] == ([] if value == "8543" else ["ungrounded"])
-    assert rules.correct("세부내역서", flags, {"급여_급여총액": value}, out) == (
-        {} if value == "8543" else {"급여_급여총액": (None, "ungrounded: 인쇄되지 않았거나 구성 금액의 합과 다른 급여 합계라 비웠다")})
+    assert rules.run("세부내역서", {"급여_급여총액": value}, out, blocks, rounds=1)[0] == (
+        {} if value == "8543" else {"급여_급여총액": (None, "[GROUND.UNPRINTED] 인쇄되지 않았거나 구성 금액의 합과 다른 급여 합계라 비웠다")})
 
 
 @pytest.mark.parametrize("visit, expected", [("외래", "20190121"), ("입원", None)])
@@ -1082,11 +1076,11 @@ def test_correct_sets_the_benefit_class_from_the_amount_columns():
             {"항목": "재료대", "급여구분": "급여", "본인부담": "100"}]
     checks = rules.check("세부내역서", {"항목내역": rows}, {}, [])
 
-    fixed, reason = rules.correct("세부내역서", checks, {"항목내역": rows}, {})["항목내역"]
+    fixed, reason = rules.run("세부내역서", {"항목내역": rows}, {}, [], rounds=1)[0]["항목내역"]
 
     assert [flag["row"] for flag in checks if flag["code"] == "item_class"] == [0, 1, 2, 3]
     assert [row["급여구분"] for row in fixed] == ["급여", "비급여", "급여", "열추출", "열추출", "급여"]
-    assert "item_class" in reason and rows[0]["급여구분"] == "열추출"  # 입력은 건드리지 않는다
+    assert "[DETAIL.ITEM_CLASS]" in reason and rows[0]["급여구분"] == "열추출"  # 입력은 건드리지 않는다
 
 
 def test_pair_rows_matches_rows_with_the_same_key_by_their_other_cells():
@@ -1099,3 +1093,38 @@ def test_pair_rows_matches_rows_with_the_same_key_by_their_other_cells():
     pairs = rules.pair_rows("세부내역서", "항목내역", left, right)
 
     assert [(a["EDI명칭"], b["EDI명칭"]) for a, b in pairs] == [("표층열치료", "표층열치료"), ("간섭파전류치료", "간섭파전류치료")]
+
+
+def test_run_repeats_until_a_round_fixes_nothing_and_traces_each_rule():
+    """0922 2020010684177: 1회차에 열 통째 바꾸기와 합계 행 칸 옮기기가 함께 걸려 검사료 비급여가 선택진료료외로 가고,
+    2회차가 되돌려 합계식이 맞는다. 고칠 것이 없는 3회차에서 멈춘다."""
+    ao = receipt(("진찰료", {"본인부담금": "4707"}), ("검사료", {"비급여": "50000"}),
+                 ("합계", {"본인부담금": "4707", "선택진료료외": "50000"}))
+    mine = receipt(("진찰료", {"본인부담금": "4707"}), ("검사료", {"비급여": "50000"}),
+                   ("합계", {"본인부담금": "4707", "비급여": "50000"}))
+    once = rules.run("진료비영수증", {"항목내역": ao}, {"항목내역": mine}, [], rounds=1)[0]["항목내역"][0]
+    fixes, history, trace = rules.run("진료비영수증", {"항목내역": ao}, {"항목내역": mine}, [])
+    assert once[1]["선택진료료외"] == "50000"
+    assert [row["비급여"] for row in fixes["항목내역"][0]] == ["0", "50000", "50000"]
+    assert len(history) == 3 and history[-1] == [] and ao[1]["비급여"] == "50000"  # 입력은 건드리지 않는다
+    swap = [entry for entry in trace if entry["rule"] == "RECEIPT.COLUMN_SWAP"]
+    assert [(entry["round"], entry["result"], entry["flags"], entry["fixed"]) for entry in swap] == [
+        (1, "fail", 1, 0), (2, "fail", 1, 1), (3, "pass", 0, None)]
+    assert {entry["action"] for entry in swap} == {"CORRECT"} and swap[0]["category"] == "STRUCT"
+
+
+def test_a_rule_disabled_for_a_doc_type_is_not_checked(monkeypatch):
+    rows = [{"항목": "진찰료", "급여구분": "열추출", "본인부담": "5000"}]
+    assert [flag["code"] for flag in rules.check("세부내역서", {"항목내역": rows}, {}, [])] == ["item_class"]
+    monkeypatch.setattr(rules, "DISABLE", rules._disabled({"세부내역서": ["DETAIL.ITEM_CLASS"]}))
+    assert rules.check("세부내역서", {"항목내역": rows}, {}, []) == []
+    assert rules.run("세부내역서", {"항목내역": rows}, {}, [])[0] == {}
+
+
+def test_rulesets_reject_an_unknown_table_or_rule_id(tmp_path):
+    path = tmp_path / "rules.yaml"
+    path.write_text("disable: {}\nlabelz: {}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="labelz"):
+        rules._load(path)
+    with pytest.raises(ValueError, match="NO.SUCH"):
+        rules._disabled({"세부내역서": ["NO.SUCH"]})

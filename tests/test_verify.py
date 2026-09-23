@@ -660,8 +660,23 @@ def test_run_reports_the_checks_and_hands_the_judge_a_hint(monkeypatch):
     assert "0이어야" not in calls[0]["항목내역"].get("hint", "")  # 룰이 고친 no_column은 Judge 힌트에서 빠진다
     table = result["tables"][0]
     assert (table["rows"][27][7]["value"], table["rows"][27][4]["value"]) == ("0", "9010000")  # 급여 → 비급여
-    assert table["source"] == "corrected" and "column_shift" in table["reason"]
+    assert table["source"] == "corrected" and "[RECEIPT.COLUMN_SHIFT]" in table["reason"]
     assert not [flag for flag in result["verify"]["checks_after"] if flag["code"] == "no_column"]
+
+
+def test_run_traces_every_round_and_marks_an_escalated_table_for_review(monkeypatch):
+    """회차마다 적용된 룰의 실행 기록과 최종값 검사(final)를 남기고, 최종값에도 남은 ESCALATE 이상은 review로 표시한다."""
+    ao = ui_case("[진료비영수증]비급여_급여_오추출됨", "07-extract-bbox.json")
+    escalate = rules.Rule("TEST.ESCALATE", "test", "STRUCT", (), lambda doc: [rules._flag("test", "재확인")], None, "ESCALATE")
+    monkeypatch.setattr(rules, "RULES", (*rules.RULES, escalate))
+    real_stub(monkeypatch, {"항목내역": []}, {})
+
+    result = verify.run("scan.png", ao, doc_type="진료비영수증")["result"]
+
+    trace = result["verify"]["trace"]
+    assert {entry["round"] for entry in trace} >= {1, "final"}
+    assert all(entry["result"] == ("fail" if entry["flags"] else "pass") for entry in trace)
+    assert result["tables"][0]["review"] is True and "review" not in result["fields"][0]
 
 
 def test_run_computes_checks_after_over_every_field_even_with_hint_paths(monkeypatch):
