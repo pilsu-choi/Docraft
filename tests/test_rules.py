@@ -1070,3 +1070,20 @@ def test_pharmacy_receipt_accident_date_is_the_dispensing_date_and_sums_are_chec
     assert not [flag for flag in rules.check("약제비영수증", out, out, []) if flag["code"] == "sum_mismatch"]
     out["진료비내역-환자부담총액"] = "12200"
     assert {flag["key"] for flag in rules.check("약제비영수증", out, out, []) if flag["code"] == "sum_mismatch"} >= {"진료비내역-환자부담총액"}
+
+
+def test_correct_sets_the_benefit_class_from_the_amount_columns():
+    """0922 재테스트: AO가 세부내역서 급여구분에 '열추출'을 잘못 낸다. 금액 열로 정해지는 행만 룰이 고친다."""
+    rows = [{"항목": "진찰료", "급여구분": "열추출", "본인부담": "5000", "공단부담": "13000"},
+            {"항목": "주사료", "급여구분": "열추출", "비급여": "30000"},
+            {"항목": "처치료", "급여구분": "열추출", "전액본인부담": "2000"},
+            {"항목": "검사료", "급여구분": "열추출"},  # 금액이 없으면 정할 수 없다
+            {"항목": "소계", "급여구분": "열추출", "본인부담": "5000"},  # 집계 행은 보지 않는다
+            {"항목": "재료대", "급여구분": "급여", "본인부담": "100"}]
+    checks = rules.check("세부내역서", {"항목내역": rows}, {}, [])
+
+    fixed, reason = rules.correct("세부내역서", checks, {"항목내역": rows}, {})["항목내역"]
+
+    assert [flag["row"] for flag in checks if flag["code"] == "item_class"] == [0, 1, 2, 3]
+    assert [row["급여구분"] for row in fixed] == ["급여", "비급여", "급여", "열추출", "열추출", "급여"]
+    assert "item_class" in reason and rows[0]["급여구분"] == "열추출"  # 입력은 건드리지 않는다

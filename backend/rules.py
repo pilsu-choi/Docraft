@@ -15,7 +15,7 @@
   달라도 같은 행끼리 맞물리게 하며, ``is_total(row)``은 그중 합계·소계 행을 가린다. 교차검증
   (``verify._row_diff``)과 채점(``scripts/verify_eval``)이 같은 규칙을 쓰도록 여기 한 곳에 둔다.
 - ``check(doc_type, ao, docraft, blocks)``: 이상 징후 목록. 모든 유형에 날짜 앞뒤·주민번호 일치·합계식·
-  근거 없는 합계·마스터에 없는 병명코드를, 세부내역서에 행 산술·문서 품질을, 진료비영수증 항목내역에
+  근거 없는 합계·마스터에 없는 병명코드를, 세부내역서에 행 산술·문서 품질·급여구분 값을, 진료비영수증 항목내역에
   금액 겹침·없는 열·합계 베끼기·합계 불일치·열 바뀜·행 밀림·행 누락을 본다.
 - ``correct(doc_type, checks, ao, docraft)``: 그중 확실한 이상을 Judge 없이 바로 교정한다.
 - ``sum_errors(doc_type, fields)``: 합계식 불일치 수. Judge 판정이 합계식을 더 어기면 되돌리는 데 쓴다.
@@ -1170,7 +1170,7 @@ def check(doc_type: str, ao_fields: dict, docraft_fields: dict, blocks: list[dic
     """문서의 이상 징후 ``{"code", "key", "row"?, "message"}`` 목록. 모든 유형의 날짜·주민번호·병명코드
     검사에 진료비영수증 항목내역 검사를 더한다."""
     found = (_master_checks(ao_fields) + _date_checks(doc_type, ao_fields) + _id_checks(doc_type, ao_fields)
-             + _field_sums(ao_fields) + _detail_checks(doc_type, ao_fields)
+             + _field_sums(ao_fields) + _detail_checks(doc_type, ao_fields) + _class_checks(doc_type, ao_fields)
              + [_flag("ungrounded", f"{key} {ao_fields[key]}이 문서 글자 어디에도 없거나 항목 한 행의 값과 같다. "
                                     "인쇄되지 않은 합계를 계산하거나 베낀 것이면 비운다.", key=key) for key in _ungrounded(doc_type, ao_fields, blocks or [])])
     rows = _rows(ao_fields, ITEM_TABLE)
@@ -1425,6 +1425,25 @@ def _detail_checks(doc_type, fields):
     return found
 
 
+def _class_checks(doc_type, fields):
+    """세부내역서 급여구분이 정규값(급여·비급여)이 아닌 행(AO의 '열추출' 등). 금액 열로 정해지면 그 값을 붙인다 —
+    본인·공단·전액본인부담에만 금액이 있으면 급여, 비급여에만 있으면 비급여. 둘 다 있거나 없으면 Judge에 맡긴다."""
+    if doc_type != "세부내역서":
+        return []
+    found = []
+    for index, row in enumerate(_rows(fields, ITEM_TABLE)):
+        value = row.get("급여구분")
+        if not value or value in ENUMS["급여구분"] or is_total(row):
+            continue
+        paid = any(_money(row.get(column)) for column in ("본인부담", "공단부담", "전액본인부담"))
+        unpaid = bool(_money(row.get("비급여")))
+        guess = "급여" if paid and not unpaid else "비급여" if unpaid and not paid else None
+        found.append(_flag("item_class", f"{index}행 급여구분 '{value}'은 급여·비급여가 아니다."
+                                         + (f" 금액 열로 보아 '{guess}'다." if guess else " 이미지로 확인한다."),
+                           row=index, column="급여구분", value=guess))
+    return found
+
+
 def correct(doc_type: str, checks: list[dict], ao_fields: dict, docraft_fields: dict) -> dict:
     """확실한 이상만 Judge 없이 룰로 교정한다. ``{key: (교정값, 사유)}``."""
     rows, mine = [dict(row) for row in ao_fields.get(ITEM_TABLE) or []], docraft_fields.get(ITEM_TABLE) or []
@@ -1444,6 +1463,9 @@ def correct(doc_type: str, checks: list[dict], ao_fields: dict, docraft_fields: 
         if flag["code"] == "column_shift" and "row" not in flag:
             rows = _swap(rows, [(flag["column"], flag["target"])])
             reasons.append(f"column_shift: 항목 행의 {flag['column']}·{flag['target']} 열을 맞바꿨다")
+        elif flag["code"] == "item_class" and row is not None and flag["value"]:
+            reasons.append(f"item_class: {row.get('항목')} 행의 급여구분 {row.get('급여구분')}를 {flag['value']}로 고쳤다")
+            row["급여구분"] = flag["value"]
         elif flag["code"] == "item_name" and row is not None:
             reasons.append(f"item_name: {row.get('항목')}를 {flag['name']}로 고쳤다")
             row["항목"] = flag["name"]
