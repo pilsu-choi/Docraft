@@ -705,7 +705,8 @@ def test_receipt_item_name_drops_every_non_alphanumeric_character(raw, expected)
 
 
 def test_detail_item_columns_follow_the_ao_convention():
-    """세부내역서: 코드는 EDI코드 한 열에 모으고, 비급여 칸과 종료일자를 채운다.
+    """세부내역서: 원내코드만 읽힌 코드는 EDI코드로 옮기고(두 칸에 같은 코드가 인쇄된 서식은 둘 다 둔다),
+    비급여 칸과 종료일자를 채운다.
 
     급여 칸은 총액에서 만들지 않고, 머리글 근거가 없으면 모델 값도 지운다.
     """
@@ -715,7 +716,7 @@ def test_detail_item_columns_follow_the_ao_convention():
 
     out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
 
-    assert [(row["원내코드"], row["EDI코드"]) for row in out] == [(None, "V2200"), (None, "AA254")]
+    assert [(row["원내코드"], row["EDI코드"]) for row in out] == [(None, "V2200"), ("AA254", "AA254")]
     assert (out[0]["종료일자"], out[0]["급여"]) == ("20230311", None)
     assert (out[1]["비급여"], out[1]["급여"]) == ("60000", None)
 
@@ -1154,3 +1155,16 @@ def test_required_rejects_a_key_or_column_the_doc_type_does_not_define():
     for required in ({"진단서": ["진단명"]}, {"진단서": [{"병명내역": {"수술명": "병명코드"}}]}, {"없는유형": []}):
         with pytest.raises(ValueError, match="required"):
             rules._required(required)
+
+
+@pytest.mark.parametrize("header, expected", [
+    (["항목", "코드", "명칭", "금액"], (None, "AA254")),                        # 코드 열 하나: 모델이 두 칸에 적은 것
+    (["항목", "EDI코드", "원내코드", "명칭", "금액"], ("AA254", "AA254")),      # 코드 열 둘: 같은 코드가 둘 다 인쇄됨(AO도 둘 다)
+])
+def test_detail_keeps_the_same_code_in_both_columns_only_when_the_form_prints_two(header, expected):
+    rows = [{"항목": "진찰료", "원내코드": "AA254", "EDI코드": "AA254", "EDI명칭": "재진진찰료", "총액": "12000"}]
+    blocks = [block(rows=[header, ["진찰료", "AA254", "AA254", "재진진찰료", "12,000"]], kind="table")]
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]
+
+    assert (out[0]["원내코드"], out[0]["EDI코드"]) == expected
