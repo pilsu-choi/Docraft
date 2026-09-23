@@ -208,6 +208,21 @@ def _decide(doc_type, key, verdict, ao_value, docraft_value, field="value"):
     return normalized, "corrected", reason
 
 
+def _with_totals(doc_type, key, original, rows):
+    """판정에서 뺀 AO 집계 행(소계·계·합계 등)을 판정된 행 목록의 원래 자리 — AO에서 바로 앞 항목 행과
+    짝지어진 행 뒤 — 에 되돌린다. 앞 항목 행이 없으면 맨 앞에 둔다."""
+    body = [row for row in original if not (isinstance(row, dict) and rules.is_total(row))]
+    mates = iter(mate for _, mate in rules.pair_rows(doc_type, key, body, rows, fallback=False)[:len(body)])
+    position = {id(row): index for index, row in enumerate(rows)}
+    after, anchor = {}, -1
+    for row in original:
+        if isinstance(row, dict) and rules.is_total(row):
+            after.setdefault(anchor, []).append(row)
+        else:
+            anchor = position.get(id(next(mates)), anchor)
+    return after.get(-1, []) + [out for index, row in enumerate(rows) for out in (row, *after.get(index, []))]
+
+
 def _balance(doc_type, chosen, ao_flat, docraft):
     """판정 결과가 합계식을 어기면 key를 하나씩(표 먼저) AO·Docraft 값으로 바꿔 보고, 불일치가 줄면 그 값을 택한다.
 
@@ -298,6 +313,11 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
     target = document(output)
     added = _add_missing(target, doc_type, only)
     ao_flat = flatten(target)
+    totals = {}  # Docraft가 집계 행을 뽑지 않는 유형은 AO의 인쇄된 집계 행을 판정에서 빼 두었다가 되돌린다
+    if doc_type not in rules.KEEP_TOTALS:
+        for key, value in ao_flat.items():
+            if isinstance(value, list) and any(isinstance(row, dict) and rules.is_total(row) for row in value):
+                totals[key], ao_flat[key] = value, [row for row in value if not (isinstance(row, dict) and rules.is_total(row))]
     checks = rules.check(doc_type, ao_flat, docraft, blocks)
     fixes = rules.correct(doc_type, checks, ao_flat, docraft)  # 확실한 이상은 Judge 없이 룰로 교정한다
     ao_flat.update({key: value for key, (value, _) in fixes.items()})
@@ -327,6 +347,9 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
 
     chosen = _balance(doc_type, {key: resolve(key, value, "rows" if isinstance(value, list) else "value")
                                  for key, value in ao_flat.items() if only is None or key in only}, ao_flat, docraft)
+    for key in set(totals) & set(chosen):
+        value, source, reason = chosen[key]
+        chosen[key] = (_with_totals(doc_type, key, totals[key], value), source, reason)
     counts, final = Counter(), {}
     for key, field in _scalars(target):
         if not key:

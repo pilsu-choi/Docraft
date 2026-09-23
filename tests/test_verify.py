@@ -755,3 +755,27 @@ def test_balance_keeps_a_judgement_when_the_other_reading_is_empty_or_no_better(
     assert verify._balance("진료비영수증", dict(chosen), ao, {"항목내역": HANBANG_DOCRAFT}) == chosen  # 빈 표로 바꾸지 않는다
     assert rules.sum_errors("진료비영수증", {"항목내역": HANBANG_AO, "진료비총액": "371270"}) == 0
     assert rules.sum_errors("진료비영수증", {"항목내역": HANBANG_DOCRAFT, "진료비총액": "371270"}) > 0
+
+
+def test_run_keeps_the_printed_subtotal_rows_of_a_detail_table(monkeypatch):
+    """0922 재테스트: Docraft는 세부내역서 집계 행을 뽑지 않으므로 Judge가 Docraft 표를 골라도 AO의 인쇄된
+    소계·합계 행은 원래 자리에 남아야 한다(지우면 인쇄된 행이 사라진다)."""
+    columns = ["항목", "EDI코드", "EDI명칭", "총액"]
+    rows = [["진찰료", "AA157", "초진진찰료", "18000"], ["소계", None, None, "18000"],
+            ["검사료", "B1010", "일반혈액검사", "900"], ["소계", None, None, "900"], ["합계", None, None, "18900"]]
+    ao = {"documents": [{"doc_type": "세부내역서", "extracted_fields": [], "extracted_tables": [{
+        "key": "항목내역", "headers": columns, "rows": [[{"key": column, "value": value} for column, value in zip(columns, row)]
+                                                    for row in rows]}]}]}
+    docraft = {"항목내역": [{"항목": "진찰료", "EDI코드": "AA157", "EDI명칭": "초진진찰료", "총액": "18000"},
+                        {"항목": "검사료", "EDI코드": "B1010", "EDI명칭": "일반혈액검사", "총액": "990"}]}
+    seen = []
+    real_stub(monkeypatch, docraft, {"항목내역": {"source": "docraft", "reason": "이미지"}})
+    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes: seen.append(disputes) or
+                        {"항목내역": {"source": "docraft", "reason": "이미지"}})
+
+    table = verify.run("scan.png", ao, doc_type="세부내역서")["documents"][0]["extracted_tables"][0]
+
+    names = [row[0]["value"] for row in table["rows"]]
+    assert names == ["진찰료", "소계", "검사료", "소계", "합계"]
+    assert [row[3]["value"] for row in table["rows"]] == ["18000", "18000", "990", "900", "18900"]
+    assert not any(rules.is_total(row) for row in seen[0]["항목내역"]["ao"])  # 집계 행은 판정에 보내지 않는다

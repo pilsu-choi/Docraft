@@ -186,7 +186,7 @@ _LICENSE = re.compile(r"\(?\s*(제)?\s*\d{4,6}\s*(호)?\s*\)?")
 _NAME_WORDS = re.compile(r"의사|성명|이름|환자|면허|직인|서명|담당|주치의|전문의|연령|나이|또는|만\s*\d+\s*세")
 _SEAL = re.compile(r"[(\[]\s*(?:인|印)\s*[)\]]|\s+(?:인|印)\s*$")  # 이름 뒤 날인 표시: (인)·[인]·(印)·공백+인
 _PHONE_IN_TEXT = re.compile(r"\(?\d{2,4}\)?\s*-\s*\d{3,4}\s*-\s*\d{4}\)?")
-_TOTAL_ROW = re.compile(r"^(합계|총계|소계|계|total|합계금액|끝수처리조정금액?)$", re.I)
+_TOTAL_ROW = re.compile(r"^(합계|총합계|총계|소계|계|total|합계금액|끝수처리조정금액?)$", re.I)
 _TRUE = re.compile(r"^[\[(]?\s*(y|yes|o|v|1|true|예|체크|해당|√|✓|✔|☑|■|●)\s*[\])]?$|[✓✔√☑■●]|체크", re.I)
 _WARD = re.compile(r"^(?=.*\d)[A-Za-z0-9/:\-]+호?$")
 _EMPTY = ("", "[]", "{}", "none", "null", "nan", "-", "n/a")
