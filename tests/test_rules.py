@@ -56,6 +56,10 @@ def test_dates_normalize_keeps_order_and_dedups():
     ("0012380", "12380"),
     ("  ", None),
     ("-", None),
+    ("954.5", "954.5"),           # 세부내역서 소수 단가(0922 재테스트: 9545로 10배가 됐다)
+    ("676,782.5", "676782.5"),
+    ("19160.0", "19160"),         # .0은 정수
+    ("1.234", "1234"),            # 소수 세 자리는 천 단위 구분
 ])
 def test_amount_normalize(raw, expected):
     assert rules.normalize("amount", raw) == expected

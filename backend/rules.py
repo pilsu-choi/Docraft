@@ -233,8 +233,15 @@ def _dates(text):
 
 
 def _amount(text):
-    digits = re.sub(r"\D", "", text.translate(OCR_DIGITS))
-    return (digits.lstrip("0") or "0") if digits else None
+    """금액의 숫자. 천 단위 구분 기호는 빼고, 소수 한두 자리(세부내역서 단가 954.5 등)는 살린다('.0'은 정수).
+    소수 세 자리('1.234')는 천 단위 구분으로 본다."""
+    digits = re.sub(r"[^\d.]", "", text.translate(OCR_DIGITS))
+    whole, dot, fraction = digits.rpartition(".") if re.fullmatch(r"\d+\.\d{1,2}", digits) else (digits, "", "")
+    whole = whole.replace(".", "")
+    if not whole:
+        return None
+    fraction = fraction.rstrip("0")
+    return (whole.lstrip("0") or "0") + (f".{fraction}" if fraction else "")
 
 
 def _number(text):
@@ -645,7 +652,7 @@ def _printed(value, blocks):
     """금액이 파싱 블록 글자 어딘가에 그대로(천 단위 구분 기호는 빼고)찍혀 있는지."""
     text = re.sub(r"(?<=\d)[,.](?=\d)", "", "\n".join((*_lines(blocks), *(str(cell or "") for block in blocks
                                                                          for row in block.get("rows") or [] for cell in row))))
-    return bool(re.search(rf"(?<!\d){value}(?!\d)", text))
+    return bool(re.search(rf"(?<!\d){re.escape(str(value).replace('.', ''))}(?!\d)", text))
 
 
 def _copied(doc_type, fields, key):
@@ -1045,7 +1052,10 @@ def _misread(name):
 def _money(value) -> int | None:
     """금액을 부호 있는 정수로. ``normalize``가 지우는 음수 부호를 살린다."""
     text = normalize("amount", value)
-    return None if text is None else -int(text) if str(value).strip().startswith("-") else int(text)
+    if text is None:
+        return None
+    number = int(float(text))  # 합계식은 원 단위로 따진다(소수점 이하 버림)
+    return -number if str(value).strip().startswith("-") else number
 
 
 def _rows(fields, table):
