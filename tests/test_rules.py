@@ -1320,3 +1320,11 @@ def test_has_header_needs_the_joined_words_in_separate_cells():
 
     assert not rules._has_header({"단가", "횟수(총투)", "일수"}, words)
     assert rules._has_header({"단가", "총투", "횟수", "일수"}, words)
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("정액수가(요양병원)", "정액수가(요양병원)"), ("정액수가 (완화의료)", "정액수가(완화의료)"),
+    ("정액수가요양병원", "정액수가(요양병원)"), ("입원료 2·3인실", "입원료_2-3인실"), ("입원료_2,3인실", "입원료_2-3인실")])
+def test_item_keeps_the_parentheses_of_standard_lump_sum_names(name, expected):
+    """2026-09-24 사용자 결정: 영수증 정액수가 항목은 AO·서식처럼 괄호를 두고, 입원료 2·3인실은 '2-3'으로 통일한다."""
+    assert rules.item(name) == expected

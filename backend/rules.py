@@ -940,7 +940,7 @@ _ITEM_GROUP = re.compile(r"^(필수항목|선택항목|필수|선택|필)")  # �
 LUMP_ITEMS = ("정액수가", "65세이상등정액", "질병군포괄수가")  # 항목 행을 묶어 담는 포괄수가 행
 _MULTI_AMOUNT = re.compile(r"\d[\d,]*\s+\d")
 _OTHER_THAN = re.compile(r"선택진료[료비]?.?외")  # '이외'를 '미외'로 읽는 등 한 글자 OCR 오독을 허용한다
-_RECEIPT_ITEM_TEXT = re.compile(r"^[0-9A-Z가-힣_-]{1,24}$")
+_RECEIPT_ITEM_TEXT = re.compile(r"^[0-9A-Z가-힣_()-]{1,24}$")
 
 
 def _alias(text):
