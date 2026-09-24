@@ -1168,3 +1168,71 @@ def test_detail_keeps_the_same_code_in_both_columns_only_when_the_form_prints_tw
     out = rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]
 
     assert (out[0]["원내코드"], out[0]["EDI코드"]) == expected
+
+
+# --- e2e 세부내역서 표적 룰(병실 진료과·섹션 항목·빈 투여량·EDI S/B) -------------------------------
+
+
+@pytest.mark.parametrize("room, expected", [("외과", None), ("내과혈액종양", None), ("이비인후-두경부외과", None),
+                                            ("내과,신경과", None), ("외래", "외래"), ("1203호", "1203호"),
+                                            ("외과병동 501", "외과병동 501"), ("신관6병동-650", "신관6병동-650")])
+def test_a_department_name_in_the_ward_is_dropped(room, expected):
+    """병실 칸이 비면 모델·AO가 옆 진료과 칸을 읽는다. 외래·호실·병동은 병실 값이다."""
+    assert rules.apply("세부내역서", {"환자정보(병실)": room}, [])["환자정보(병실)"] == expected
+
+
+def test_run_clears_a_department_name_in_the_ao_ward():
+    ao = {"환자정보(병실)": "내과혈액종양", "항목내역": [{"항목": "진찰료", "총액": "1000"}]}
+    fixes = rules.run("세부내역서", ao, {}, [])[0]
+    assert fixes["환자정보(병실)"][0] is None and fixes["환자정보(병실)"][1].startswith("[DETAIL.WARD]")
+    assert rules.run("세부내역서", {**ao, "환자정보(병실)": "외래"}, {}, [])[0] == {}
+
+
+def section_rows():
+    return [{"항목": "01.진찰료"},
+            {"항목": "소계", "총액": "3100"},
+            {"항목": "재진 진찰료", "EDI코드": "AA256", "EDI명칭": "재진 진찰료", "총액": "3000"},
+            {"항목": "01.진찰료", "EDI코드": "AU313", "EDI명칭": "의료질평가지원금", "총액": "60"},
+            {"항목": "80.100분의100미만본인부담(80%)"},
+            {"항목": "Medifoam 10*20", "EDI코드": "M3030702", "EDI명칭": "Medifoam 10*20", "총액": "40"}]
+
+
+def test_items_copied_from_the_name_take_the_section_title():
+    """창원경상대 서식: 섹션 제목('01.진찰료')이 제 행으로 읽히고 명세 행 항목에 EDI명칭이 들어간다. 라벨은 섹션명이다."""
+    rows = rules.apply("세부내역서", {"항목내역": section_rows()}, [])["항목내역"]
+    assert [row["항목"] for row in rows if row.get("EDI코드")] == ["01.진찰료", "01.진찰료", "80.100분의100미만본인부담(80%)"]
+    fixed, reason = rules.run("세부내역서", {"항목내역": section_rows()}, {}, [])[0]["항목내역"]
+    assert fixed[2]["항목"] == "01.진찰료" and fixed[5]["항목"].startswith("80.") and "[DETAIL.SECTION_ITEM]" in reason
+    plain = [{"항목": "검사료", "EDI코드": "E7540", "EDI명칭": "검사료", "총액": "100"}]  # 섹션 행이 없으면 두지 않는다
+    assert rules.apply("세부내역서", {"항목내역": plain}, [])["항목내역"][0]["항목"] == "검사료"
+
+
+@pytest.mark.parametrize("header, kept", [
+    (["항목", "코드", "명칭", "총투", "횟수", "일수", "금액"], "1"),  # 횟수가 따로 있으면 총투는 투여량이다
+    (["항목", "코드", "명칭", "수량", "횟수", "일수", "단가"], "1"),
+    (["항목", "코드", "명칭", "단가", "총투", "일수", "총액"], None),  # 횟수 열이 없는 서식의 총투는 횟수다
+])
+def test_dose_header_words_need_a_separate_count_column(header, kept):
+    rows = [{"항목": "검사료", "EDI코드": "E7540", "투여량": "1", "횟수": "1", "일수": "1", "총액": "6600"}]
+    out = rules.apply("세부내역서", {"항목내역": rows}, [block(rows=[header], kind="table")])["항목내역"][0]
+    assert out["투여량"] == kept
+
+
+def test_run_fills_ao_dose_cells_docraft_read_under_a_printed_header():
+    """AO가 머리글에 인쇄된 투여량 칸을 비우면 Judge가 Docraft 값도 버리곤 한다. 짝지은 행의 Docraft 값으로 채운다."""
+    ao = [{"항목": "진찰료", "EDI코드": "AA156", "시작일자": "20190710", "투여량": "", "총액": "17400"},
+          {"항목": "투약료", "EDI코드": "D6809", "시작일자": "20190710", "투여량": "2", "총액": "300"}]
+    mine = [{**row, "투여량": "1"} for row in ao]
+    header = [block(rows=[["항목", "일자", "코드", "명칭", "금액", "횟수", "일수", "투여량", "총액"]], kind="table")]
+    fixed, reason = rules.run("세부내역서", {"항목내역": ao}, {"항목내역": mine}, header)[0]["항목내역"]
+    assert [row["투여량"] for row in fixed] == ["1", "2"] and "[DETAIL.EMPTY_CELL]" in reason
+    assert rules.run("세부내역서", {"항목내역": ao}, {"항목내역": mine}, DETAIL_HEADER)[0] == {}  # 머리글에 없으면 두지 않는다
+
+
+def test_edi_s_and_b_become_digits_only_when_the_master_knows_only_the_digits(monkeypatch):
+    known = {"EB562": ["유도초음파"], "AA254": ["재진진찰료"]}
+    monkeypatch.setattr(rules.master, "names", lambda system, value: known.get(value, []))
+    assert rules.normalize("edi", "B1020B") == "B1020B"  # 원내코드는 B·S가 실제 글자다
+    assert rules.normalize("edi", "MX122s1") == "MX122S1"
+    assert rules.normalize("edi", "EB562") == "EB562"
+    assert rules.normalize("edi", "AA2S4") == "AA254"

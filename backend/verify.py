@@ -193,7 +193,7 @@ def _decide(doc_type, key, verdict, ao_value, docraft_value, field="value"):
     value = verdict.get(field, ao_value)
     if field == "rows":
         rows = [row for row in value or [] if isinstance(row, dict)]
-        normalized = rules.apply(doc_type, {key: rows}, [])[key]
+        normalized = _agreed(doc_type, key, rules.apply(doc_type, {key: rows}, [])[key], ao_value, docraft_value)
         if not _row_diff(doc_type, key, normalized, ao_value):
             return ao_value, "ao", reason
         if not _row_diff(doc_type, key, normalized, docraft_value):
@@ -206,6 +206,17 @@ def _decide(doc_type, key, verdict, ao_value, docraft_value, field="value"):
     if rules.same(kind, normalized, docraft_value):
         return docraft_value, "docraft", reason
     return normalized, "corrected", reason
+
+
+def _agreed(doc_type, key, rows, ao_rows, docraft_rows):
+    """Judge가 고친 표에서 AO(룰 교정 뒤)와 Docraft가 같게 읽은 칸은 그 값으로 되돌린다. 두 읽기가 모두 비운 칸에
+    인쇄되지 않은 금액을 지어내거나 한쪽만 읽은 열을 통째로 비우는 것을 막는다. 두 읽기 모두와 키 열로 짝지어진 행만 본다."""
+    def mates(others):
+        return [mate for _, mate in rules.pair_rows(doc_type, key, rows, others or [], fallback=False)[:len(rows)]]
+
+    return [{**row, **{column: ao.get(column) for column in row
+                       if rules.same(doctypes.kind(doc_type, column, key), ao.get(column), mine.get(column))}} if ao and mine else row
+            for row, ao, mine in zip(rows, mates(ao_rows), mates(docraft_rows))]
 
 
 def _with_totals(doc_type, key, original, rows):
