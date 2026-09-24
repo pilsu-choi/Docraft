@@ -670,11 +670,7 @@ def _columns(doc_type, out):
         if doc_type != "세부내역서":
             return
         if row.get("EDI코드") and row["EDI코드"] == normalize("edi", row.get("EDI명칭")):
-            row["EDI코드"] = None  # 명칭이 코드 열까지 밀려 들어오면 원내코드 자리의 코드가 EDI코드다
-        # 코드 열이 하나면(원내코드만 읽힘) 그 코드는 EDI코드다. 코드 열이 둘인 서식은 같은 코드가 두 칸에 모두
-        # 인쇄되기도 하므로(AO도 둘 다 둔다) 같다고 원내코드를 비우지 않는다.
-        if row.get("원내코드") and not row.get("EDI코드"):
-            row["원내코드"], row["EDI코드"] = None, row["원내코드"]
+            row["원내코드"], row["EDI코드"] = None, row.get("원내코드")  # 명칭이 코드 열까지 밀려 들어오면 원내코드 자리의 코드가 EDI코드다
         if not row.get("종료일자") and row.get("시작일자"):
             row["종료일자"] = row["시작일자"]
         if row.get("급여구분") == "급여" and row.get("급여") == row.get("총액"):
@@ -689,8 +685,8 @@ def _header_columns(doc_type, out, blocks):
     - 머리글이 '묶음 제목'이라고 말하는 열은 하위 열의 합일 뿐이다(진료비영수증 급여·비급여).
     - 세부내역서 급여 열은 머리글에 독립 열로 보일 때만 남긴다 — 모델이 총액−비급여를 계산해 채우곤 한다.
     - 진료비영수증 머리글에 소계 열이 있고 전액본인부담 값의 과반이 본인부담금+공단부담금이면 소계를 옮긴 것이다.
-    - 세부내역서 머리글에 코드 열이 둘 미만인데 원내코드·EDI코드가 같으면 모델이 한 코드를 두 칸에 적은 것이다
-      (파싱 블록이 없는 Judge 교정 표는 AO처럼 둘 다 둔다).
+    - 세부내역서 머리글에 코드 열이 둘 미만이면 원내코드만 읽혔거나 두 칸이 같은 코드는 EDI코드로 모은다. 코드 열이
+      둘인 서식과 파싱 블록이 없는 Judge 교정 표는 AO처럼 인쇄된 칸 그대로 둔다.
     - 세부내역서 머리글이 일수 칸까지 읽혔는데 단가·투여량 낱말(``HEADER_COLUMNS``)이 없으면 이웃 열 값을 옮긴 것이다.
     """
     cells, columns = _headers(blocks), []
@@ -706,9 +702,9 @@ def _header_columns(doc_type, out, blocks):
         if added * 2 > len(rows):  # 과반이 본인+공단이면 소계를 옮겨 적은 것이다(오독 행이 섞여도)
             columns.append("전액본인부담")
     if doc_type == "세부내역서" and blocks and sum("코드" in cell for cell in cells) < 2:
-        for row in out.get(ITEM_TABLE) or []:  # 코드 열이 하나인 서식에서 모델이 같은 코드를 두 칸에 적었다
-            if row.get("원내코드") and row["원내코드"] == row.get("EDI코드"):
-                row["원내코드"] = None
+        for row in out.get(ITEM_TABLE) or []:  # 코드 열이 하나인 서식: 그 코드는 EDI코드다(모델이 원내코드에 적었거나 두 칸에 적었다)
+            if row.get("원내코드") and (not row.get("EDI코드") or row["원내코드"] == row["EDI코드"]):
+                row["원내코드"], row["EDI코드"] = None, row.get("EDI코드") or row["원내코드"]
     if doc_type == "세부내역서" and any("일수" in cell for cell in cells):
         columns += [column for column, words in HEADER_COLUMNS.items() if not _has_header(cells, words)]
     for row in out.get(ITEM_TABLE) or []:
