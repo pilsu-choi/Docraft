@@ -1,6 +1,7 @@
 # Docraft wiki 변경 이력
 
 ## 2026-09-24 (1)
+* **Creation**: 7종 210장 e2e 테스트의 통계 수집 항목과 소요 시간 추산을 [e2e-210-plan](2026-09-24-e2e-210-plan.md)에 기록했다(브랜치 `docs/e2e-210-plan`, 워크트리 `.worktrees/e2e-210-plan`).
 * **Update**: [e2e-edge-cases](2026-09-24-e2e-edge-cases.md)에 `9248589` 배포 후 57건 재실행 결과를 더했다(세부내역서 96.73%, 영수증 98.16%, 급여구분 오류 0, 직전 실행과 나빠짐 23·좋아짐 24로 재실행 흔들림 범위).
 * **Creation**: e2e 57건에서 확인한 엣지케이스를 [e2e-edge-cases](2026-09-24-e2e-edge-cases.md)에 정리했다(브랜치 `fix/item-class-placeholder`, 워크트리 `.worktrees/item-class-placeholder`). 함께 `DETAIL.ITEM_CLASS`가 `급여` 열 금액으로 급여를 정하고 금액 없는 행·집계 행의 `열추출`을 비우도록 고쳤고, `scripts/verify_e2e.py`가 정답지 코드 칸의 `-`를 빈칸으로 읽게 했다. 사용자 확인으로 `비급표현-KJM02605.tif` 급여구분 빈칸 7칸·`100%` 1칸을 `급여`로 고쳤다. 세부내역서 96.87%, 465 passed.
 * **Update**: [e2e-ao-verify](2026-09-24-e2e-ao-verify.md)에 사용자 확인으로 고친 e2e 정답지 2건(입원기간 날짜 28칸, `비급`→`비급여` 5칸)과 재채점 결과(세부내역서 최신 96.26%)를 더했다.
