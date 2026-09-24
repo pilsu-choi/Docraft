@@ -1255,3 +1255,15 @@ def test_check_does_not_add_a_docraft_row_that_misreads_an_existing_ao_row():
     found = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [])
 
     assert [flag["item"] for flag in found if flag["code"] == "row_missing"] == ["MRI진단료", "예약진찰료"]
+
+
+def test_check_flags_a_printed_column_both_readings_left_empty():
+    """e2e(3022033115105207-1.png): 머리글에 총투·횟수가 인쇄됐는데 AO·Docraft 모두 투여량 열을 통째로 비웠다."""
+    blocks = [{"type": "table", "rows": [["항목", "코드", "명칭", "금액", "총투", "횟수", "일수"], ["이학요법료", "MX12251", "도수치료", "50000", "1", "1", "1"]]}]
+    rows = [{"항목": "이학요법료", "EDI명칭": "도수치료", "단가": "50000", "투여량": None},
+            {"항목": "소계", "단가": None, "투여량": "1"}]
+
+    flags = [flag for flag in rules.check("세부내역서", {"항목내역": rows}, {"항목내역": rows}, blocks) if flag["code"] == "empty_column"]
+
+    assert [(flag["key"], flag["column"]) for flag in flags] == [("항목내역", "투여량")]  # 소계 행은 보지 않는다
+    assert not [flag for flag in rules.check("세부내역서", {"항목내역": rows}, {}, []) if flag["code"] == "empty_column"]  # 머리글 근거 없음

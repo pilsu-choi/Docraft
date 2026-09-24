@@ -272,6 +272,36 @@ def _mates(doc_type, key, rows, others):
     return [mate for _, mate in rules.pair_rows(doc_type, key, rows, others)[:len(rows)]]
 
 
+def mark_review(doc_type, document, checks_after, only=None):
+    """자동 통과시키지 않을 칸에 ``review: true``를 붙이고 ``{"cells": 판정한 칸 수, "review": 그중 검토 칸 수}``를 돌려준다.
+    AO와 Docraft가 다르게 읽은 칸(Judge가 골랐어도)과, 최종값에 남은 계산·구조 이상(CALC·STRUCT 룰)이 가리키는
+    행·열(행 번호가 없으면 그 필드·표 전체, 표 원소에도 붙인다 — 빠진 행은 칸이 없다)이다."""
+    category = {rule.id: rule.category for rule in rules.RULES}
+    broken = [flag for flag in checks_after if category.get(flag.get("rule")) in ("CALC", "STRUCT")]
+    counts = Counter()
+
+    def mark(element, kind, key, row=None, column=None):
+        if "ao_value" not in element:  # 판정하지 않은 원소(힌트 밖·이름 없음)
+            return
+        hit = any(flag["key"] == key and flag.get("row") in (None, row) and flag.get("column") in (None, column) for flag in broken)
+        if hit or not rules.same(kind, element["ao_value"], element["docraft_value"], strict=True):
+            element["review"] = True
+        counts["cells"] += 1
+        counts["review"] += bool(element.get("review"))
+
+    for key, field in _scalars(document):
+        if key and (only is None or key in only):
+            mark(field, doctypes.kind(doc_type, key), key)
+    for key, table in _tables(document):
+        if key and (only is None or key in only):
+            if any(flag["key"] == key and flag.get("row") is None and flag.get("column") is None for flag in broken):  # 빠진 행은 칸이 없어 표로 표시한다
+                table["review"] = True
+            for index, row in enumerate(table.get("rows") or []):
+                for column, cell in _cells(table, row):
+                    mark(cell, doctypes.kind(doc_type, column, key), key, index, column)
+    return dict(counts)
+
+
 def _table_rows(doc_type, key, table, rows, docraft_rows, source, reason):
     """판정된 행 목록을 AO 원소 형식으로 되돌린다. 행마다 짝이 되는 원래 행의 셀에서 confidence 등을 보존한다.
 
@@ -421,7 +451,8 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
         if key in review:
             element["review"] = True
     target["verify"] = {"doc_type": doc_type, "docraft": docraft, "counts": counts, "checks": checks,
-                        "checks_after": checks_after, "trace": trace}
+                        "checks_after": checks_after, "trace": trace,
+                        "review": mark_review(doc_type, target, checks_after, only)}
     logger.info("verify: doc_type=%s fields=%d disputes=%d checks=%d counts=%s elapsed=%.2fs",
                 doc_type, len(ao_flat), len(disputes), len(checks), counts, time.monotonic() - started)
     return output

@@ -16,7 +16,7 @@
   (``verify._row_diff``)과 채점(``scripts/verify_eval``)이 같은 규칙을 쓰도록 여기 한 곳에 둔다.
 - ``check(doc_type, ao, docraft, blocks)``: 룰 레지스트리(``RULES``)의 검사를 차례로 돌린 이상 징후 목록. 모든 유형에
   날짜 앞뒤·주민번호 일치·합계식·근거 없는 합계·마스터에 없는 병명코드·필수 필드 누락(``REQUIRED``)을, 세부내역서에 행 산술·문서 품질·급여구분 값·
-  병실 칸의 진료과·EDI명칭을 베낀 항목·AO가 비운 단가·투여량 칸을,
+  병실 칸의 진료과·EDI명칭을 베낀 항목·AO가 비운 단가·투여량 칸·모든 행이 빈 단가·투여량 열을,
   진료비영수증 항목내역에 금액 겹침·없는 열·합계 베끼기·합계 불일치·열 바뀜·행 밀림·행 누락을 본다.
 - ``run(doc_type, ao, docraft, blocks)``: 검사하고 확실한 이상을 룰의 교정(``Rule.fix``)으로 Judge 없이 고치기를
   고칠 것이 없을 때까지 되풀이하고, 룰별 실행 기록(trace)을 남긴다.
@@ -260,12 +260,13 @@ def normalize(kind: str, value) -> str | None:
     return None if text.lower() in _EMPTY else _NORMALIZERS.get(kind, _text)(text)
 
 
-def same(kind: str, a, b) -> bool:
+def same(kind: str, a, b, strict: bool = False) -> bool:
     """두 값이 정규화 후 같은지.
 
     표기 차이를 같게 보도록 느슨하게 판정한다: 금액·수량은 빈 칸과 0을 같게 보고(빈 금액 칸은 0이다),
     텍스트는 한쪽이 다른 쪽을 통째로 품고 있으면 같게 본다('(주상병)이상체중감소'와 '이상체중감소').
     다만 짧은 쪽이 네 글자는 되어야 한다 — '외과'는 '정형외과'와 다른 값이다.
+    ``strict``면 텍스트도 정규화 값이 그대로 같아야 한다(자동 통과 판정용 — 구두점 한 글자도 다른 값이다).
     """
     left, right = normalize(kind, a), normalize(kind, b)
     if kind in ("amount", "number"):
@@ -274,7 +275,7 @@ def same(kind: str, a, b) -> bool:
         return left is None and right is None
     if kind == "dates":
         return set(left.split(", ")) == set(right.split(", "))
-    if kind == "text":
+    if kind == "text" and not strict:
         short, long = sorted((re.sub(r"[\s\W_]+", "", value) for value in (left, right)), key=len)
         return short == long or (len(short) >= 4 and short in long)
     return left == right
@@ -1417,6 +1418,14 @@ def _empty_cells(doc):
             if mate and _blank(row.get(column)) and not _blank(mate.get(column))]
 
 
+def _empty_columns(doc):
+    """머리글에 인쇄된 단가·투여량 열(``HEADER_COLUMNS``)이 모든 행에서 비었다. 두 읽기가 함께 열을 놓치면 비교로는 드러나지 않는다."""
+    cells = _headers(doc.blocks)
+    rows = [row for row in doc.rows if not is_total(row)]
+    return [_flag("empty_column", f"머리글에 {column} 열이 있는데 모든 행이 비었다.", column=column)
+            for column, words in HEADER_COLUMNS.items() if rows and _has_header(cells, words) and all(_blank(row.get(column)) for row in rows)]
+
+
 def _ward_checks(doc):
     """병실 칸에 든 진료과 이름. 병실 칸이 비면 옆 진료과 칸을 읽곤 한다(``FIELD_RULES``가 Docraft 쪽에서 버리는 값)."""
     value = doc.ao.get(WARD)
@@ -1537,6 +1546,7 @@ RULES = (  # 검사 순서가 곧 check()가 내는 이상 징후 순서다
     Rule("DETAIL.SECTION_ITEM", "section_item", "FMT", DETAIL, _section_checks, _fix_cell, "CORRECT"),
     Rule("DETAIL.EMPTY_CELL", "empty_cell", "CROSS", DETAIL, _empty_cells, _fix_cell, "CORRECT"),
     Rule("DETAIL.WARD", "ward", "FMT", DETAIL, _ward_checks, _fix_clear, "CORRECT"),
+    Rule("DETAIL.EMPTY_COLUMN", "empty_column", "STRUCT", DETAIL, _empty_columns, None, "RE_EXTRACT"),
     Rule("GROUND.UNPRINTED", "ungrounded", "LOGIC", (), _unprinted, _fix_total, "CORRECT"),
     Rule("RECEIPT.MULTI_AMOUNT", "multi_amount", "FMT", RECEIPT, _multi_amounts, None, "RE_EXTRACT"),
     Rule("RECEIPT.NO_COLUMN", "no_column", "STRUCT", RECEIPT, _no_columns, None, "RE_EXTRACT"),
