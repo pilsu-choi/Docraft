@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-24 (1)
+* **Creation**: harness-v2 e2e 폴더 57건(세부내역서 28·영수증 29, AO 완료분)을 AWS `/api/verify`(`bbd1aeb`)로 돌리고 e2e `make_report.compare`로 AO 단독과 같은 칸 집합에서 채점한 기록을 [e2e-ao-verify](2026-09-24-e2e-ao-verify.md)에 추가했다(브랜치 `feat/e2e-eval`, 워크트리 `.worktrees/e2e-eval`). 영수증 96.16%→98.04%(개선 119·악화 25), 세부내역서 94.36%→94.08%(개선 25·악화 35). 실행·채점 스크립트 `scripts/verify_e2e.py`를 추가했다.
+* **Update**: [index](index.md)에 새 문서를 연결했다.
+
 ## 2026-09-23 (13)
 * **Update**: [master-name-mismatch-flag](2026-09-23-master-name-mismatch-flag.md)를 harness-v2 `BAAI/bge-m3` 임베딩 재평가로 갱신했다(같은 브랜치 `feat/master-name-flag`, 워크트리 `.worktrees/master-name-flag`). AWS 개발 EC2의 `vllm-embedding`(`deploy/aws`가 발행하지 않는 컨테이너 전용 포트라 `docker inspect`로 컨테이너 IP를 얻어 `ssh -L 8201:<IP>:8000`을 직접 열었다)에 harness와 같은 전처리(KCD는 `kcd_name.py::judge` 4단처럼 원문 그대로, EDI는 `similarity.py::edi_embedding_form`)로 같은 76건(kcd 35행·EDI 120행)을 코사인 유사도로 재측정했다. 최고 정밀도가 kcd 29%→40%(표본 5건, <0.75), EDI 21%(동일, <0.60)로 여전히 목표 70%에 못 미쳐 검사는 추가하지 않고, 결합 규칙(임베딩<t1 AND difflib<t2)도 EDI 27%가 최고라 채택하지 않았다. `backend/master.py::similarity()`(difflib)를 쓰지 않는 함수로 판단해 제거하고 `tests/test_master.py`의 관련 테스트 6개도 지웠다. `backend/rules.py::_master_checks` 독스트링을 difflib·임베딩 두 표로 갱신했다. `DATABASE_URL=postgresql://docraft:docraft@127.0.0.1:5433/docraft .venv/bin/python -m pytest tests -q` 381 passed. 스윕 스크립트는 일회성이라 커밋하지 않았다(`/tmp` 스크래치패드).
 
