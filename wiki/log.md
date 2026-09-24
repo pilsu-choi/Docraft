@@ -202,3 +202,4 @@
 * **Update**: README 교차검증 절에 세부내역서 집계 행 유지·같은 키 행 짝짓기·급여구분(`item_class`) 교정·`predicted_value` 동기화·동시 호출과 처리 시간, Docker 절에 프록시 900초를 반영했다.
 * **Update**: [required-fields](2026-09-23-required-fields.md)에 AWS 0922 59건 재테스트를 더했다(룰이 걸린 문서 5/59, 룰 때문에 늘어난 분쟁·Judge 호출 0, 걸린 필드 12개 중 맞음 9·틀림 2·review 1, 납부할금액은 필수에서 빼는 것을 권고).
 * **Creation**: `/api/verify` 연결 끊김 중단, AWS 배포 잠금·배포 기록·처리 중 거부, `tunnel.sh` 제어 소켓, 진료비영수증 필수 필드에서 납부할금액 제외를 [verify-ops](2026-09-23-verify-ops.md)에 기록했다(438 passed, `bbd1aeb` 배포 후 서버에서 취소와 배포 거부를 실측).
+* **Update**: [rules-flow-example](2026-09-23-rules-flow-example.md)을 현재 코드 기준으로 갱신했다. 없어진 `rules.correct` 대신 `rules.run` 반복 교정(열 맞바뀜·항목명·누락 행 교정 → 2회차 검사 → 진료비총액만 Judge·`_balance`)을 새 진료비영수증 예시로 실제 실행해 보였고, `apply` 단계표를 현재 함수 순서로 고쳤으며 전체 흐름·on_fail 표를 더했다.
