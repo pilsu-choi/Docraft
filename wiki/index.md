@@ -10,6 +10,7 @@ okf_version: "0.2"
 # 계획과 구현 기록
 
 * [harness-v2 e2e 57건 AO 단독 vs AO+Docraft 최종 정확도](2026-09-24-e2e-ao-verify.md) - AO 응답을 AWS `/api/verify`에 넣고 e2e 채점기로 같은 칸 집합에서 비교: 영수증 96.16%→98.04%, 세부내역서 94.36%→94.08%(악화 원인·남은 오류 필드), 하네스는 값을 바꾸지 않음
+* [세부내역서 e2e 표적 룰](2026-09-24-detail-target-rules.md) - 병실 진료과·섹션 항목·투여량(총투·수량 머리글, AO 빈 칸)·EDI S/B 정규화·Judge 합의 칸 보존. e2e 재적용 94.08%→95.33%, 76건 rules 변화 없음(fp −1)
 * [/api/verify 연결 끊김 중단과 AWS 배포 잠금](2026-09-23-verify-ops.md) - 클라이언트가 끊기면 추출·Judge 전에 멈추고(실측 89.9초에 중단), 배포 잠금(`flock`)·배포 기록(`DEPLOYED`)·처리 중 요청이 있으면 거부(`verify_inflight`, 실측 exit 3)·자기 터널만 끄는 `tunnel.sh`, 필수 필드에서 납부할금액 제외
 * [필수 필드 누락 룰 MISSING.REQUIRED](2026-09-23-required-fields.md) - 설계안 4단계: 고객 후처리 플러그인·반출 샘플·라벨 93건 빈 값 비율로 유형별 필수 필드를 `rules.yaml` `required`에 정의하고, AO에서 비면 Judge 힌트로 보내고 끝까지 비면 `review`로 표시. 라벨 헛경고 93건 중 2건
 * [룰 레지스트리·반복 교정·rulesets YAML 구현](2026-09-23-rule-registry.md) - 설계안 1~3단계: 검사·교정 18개를 `rules.RULES`로, `rules.run` 최대 3회 반복·`verify.trace`·ESCALATE `review` 표시, 룰 데이터 표 23개를 `backend/rulesets/rules.yaml`로 옮기고 `disable` 추가. 1·3단계 동작 변화 0 대조, 범위 룰은 걸릴 일이 없어 뺌

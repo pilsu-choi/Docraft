@@ -859,3 +859,17 @@ def test_run_keeps_each_row_on_its_own_original_cells_when_a_row_is_inserted(mon
         ["진찰료", "848"], ["선별급여", None], ["예약진찰료", None], ["합계", "2000"]]
     assert table["rows"][2][1]["ao_value"] == "" and table["rows"][3][1]["ao_value"] == "2000"
     assert [row["본인부담금"] for row in verify.flatten(document)["항목내역"]] == ["848", None, None, "2000"]
+
+
+def test_decide_keeps_cells_both_readings_agree_on():
+    """e2e 코드2종포함: 두 읽기 모두 빈 금액 칸에 Judge가 인쇄되지 않은 금액을 지어냈다. 두 읽기가 같은 칸은 그 값을 쓴다."""
+    ao = [{"항목": "투약료", "EDI코드": "694002011", "시작일자": "20221026", "총액": "0", "본인부담": "0", "투여량": "1"}]
+    docraft = [{"항목": "투약료", "EDI코드": "694002011", "시작일자": "20221026", "총액": None, "본인부담": None, "투여량": "1"}]
+    verdict = {"source": "corrected", "reason": "다시 읽었다", "rows": [
+        {"항목": "투약료", "EDI코드": "694002011", "시작일자": "20221026", "총액": "42", "본인부담": "18", "투여량": None},
+        {"항목": "주사료", "EDI코드": "KK010", "시작일자": "20221026", "총액": "500"}]}  # 두 읽기에 없는 행은 Judge 값 그대로
+
+    rows, source, _ = verify._decide("세부내역서", "항목내역", verdict, ao, docraft, "rows")
+
+    assert [(row["총액"], row["본인부담"], row["투여량"]) for row in rows] == [("0", "0", "1"), ("500", None, None)]
+    assert source == "corrected"

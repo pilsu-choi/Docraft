@@ -15,7 +15,8 @@
   달라도 같은 행끼리 맞물리게 하며, ``is_total(row)``은 그중 합계·소계 행을 가린다. 교차검증
   (``verify._row_diff``)과 채점(``scripts/verify_eval``)이 같은 규칙을 쓰도록 여기 한 곳에 둔다.
 - ``check(doc_type, ao, docraft, blocks)``: 룰 레지스트리(``RULES``)의 검사를 차례로 돌린 이상 징후 목록. 모든 유형에
-  날짜 앞뒤·주민번호 일치·합계식·근거 없는 합계·마스터에 없는 병명코드·필수 필드 누락(``REQUIRED``)을, 세부내역서에 행 산술·문서 품질·급여구분 값을,
+  날짜 앞뒤·주민번호 일치·합계식·근거 없는 합계·마스터에 없는 병명코드·필수 필드 누락(``REQUIRED``)을, 세부내역서에 행 산술·문서 품질·급여구분 값·
+  병실 칸의 진료과·EDI명칭을 베낀 항목·AO가 비운 단가·투여량 칸을,
   진료비영수증 항목내역에 금액 겹침·없는 열·합계 베끼기·합계 불일치·열 바뀜·행 밀림·행 누락을 본다.
 - ``run(doc_type, ao, docraft, blocks)``: 검사하고 확실한 이상을 룰의 교정(``Rule.fix``)으로 Judge 없이 고치기를
   고칠 것이 없을 때까지 되풀이하고, 룰별 실행 기록(trace)을 남긴다.
@@ -133,7 +134,10 @@ _HTML = re.compile(r"</?(?:t[dhr]|table|br|p)\b", re.I)
 _OPTIONS = re.compile(r"[\[(][^\]\)]{0,3}[\])]|[□☐■▣☑✔√●○]")  # 서식의 선택지 표시([ ] 의사 [ ] 치과의사)
 _MARKED_DATE = re.compile(r"(\d{4}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{1,2})\s*[(\[]\s*(" + "|".join(MARKS) + r")\s*[)\]]")
 _EDI_CODE = re.compile(r"^([A-Za-z]{0,3})([0-9A-Za-z]{2,})$")
-_EDI_DIGITS = str.maketrans({"O": "0", "I": "1", "L": "1", "S": "5", "B": "8"})
+_EDI_DIGITS = str.maketrans({"O": "0", "I": "1", "L": "1"})
+_EDI_LETTERS = str.maketrans({"S": "5", "B": "8"})  # 실제 코드에도 쓰이는 글자('B1020B'·'MX122S1')라 마스터로 확인해 바꾼다
+_DEPARTMENT = re.compile(r"^(?!.*(?:\d|병동|실|호|외래|입원))[가-힣,/\s-]*과[가-힣,/\s-]*$")  # 진료과 이름('외과'·'내과혈액종양')
+_SECTION_TITLE = re.compile(r"^[0-9A-Z]{1,2}\s*\.\s*\S")  # 세부내역서 섹션 제목 행('01.진찰료', 'B0.100분의100미만본인부담')
 
 # ── kind별 정규화 ───────────────────────────────────────────────────────────
 
@@ -220,13 +224,17 @@ def _code(text):
 
 
 def _edi(text):
-    """EDI·원내 코드: 공백·구분기호를 빼고 대문자로, 숫자부의 흔한 오인식(O·I·L·S·B)을 숫자로 돌린다."""
+    """EDI·원내 코드: 공백·구분기호를 빼고 대문자로, 숫자부의 흔한 오인식(O·I·L)을 숫자로 돌린다.
+    S·B는 읽은 코드가 마스터에 없고 숫자로 바꾼 코드만 마스터에 있을 때만 5·8로 바꾼다."""
     text = re.sub(r"[\s.\-_{}()\[\]]+", "", text).upper()
     match = _EDI_CODE.match(text)
     if not match:
         return _text(text)
     head, tail = match[1], match[2]
-    return head + (tail.translate(_EDI_DIGITS) if set(tail) <= set("0123456789OILSB") else tail)
+    if not set(tail) <= set("0123456789OILSB"):
+        return text
+    code, digits = head + tail.translate(_EDI_DIGITS), head + tail.translate(_EDI_DIGITS).translate(_EDI_LETTERS)
+    return digits if digits != code and master.names("edi", digits) and not master.names("edi", code) else code
 
 
 def _bool(text):
@@ -358,6 +366,7 @@ FIELD_RULES = {  # 필드 → 추가 정제(정규화 뒤에 적용)
     **dict.fromkeys(["이름", "의사명", "환자정보-성명", "환자성명"], _name),
     **dict.fromkeys(["병원명", "의료기관정보-명칭", "약국정보(상호)"], _hospital),
     **dict.fromkeys(["주소", "병원주소", "의료기관정보-주소", "약국정보(주소)"], _address),
+    "환자정보(병실)": lambda text: None if _DEPARTMENT.match(text) else text,  # 빈 병실 칸 옆 진료과가 흘러든 것
 }
 
 
@@ -701,8 +710,7 @@ def _header_columns(doc_type, out, blocks):
             if row.get("원내코드") and row["원내코드"] == row.get("EDI코드"):
                 row["원내코드"] = None
     if doc_type == "세부내역서" and any("일수" in cell for cell in cells):
-        columns += [column for column, words in HEADER_COLUMNS.items()
-                    if not any(word in cell for cell in cells for word in words)]
+        columns += [column for column, words in HEADER_COLUMNS.items() if not _has_header(cells, words)]
     for row in out.get(ITEM_TABLE) or []:
         row.update(dict.fromkeys(columns))
 
@@ -923,6 +931,7 @@ def _earliest(out):
 # ── 진료비영수증 항목내역 검사 ──────────────────────────────────────────────
 
 ITEM_TABLE = "항목내역"
+WARD = "환자정보(병실)"
 ITEM_COLUMNS = ("본인부담금", "공단부담금", "전액본인부담", "비급여", "선택진료료", "선택진료료외", "급여")
 TOLERANCE = 100  # 십의 자리 절사 허용 오차(요건 1절)
 SHIFT_REACH = 3  # 세로로 밀린 금액을 찾아볼 위아래 행 수
@@ -991,6 +1000,11 @@ def _headers(blocks):
         for row in rows[start:start + 3] if start is not None else []:
             cells.update(_key(cell) for cell in row if str(cell or "").strip())
     return cells
+
+
+def _has_header(cells, words):
+    """머리글 셀에 낱말(``HEADER_COLUMNS``)이 있는지. 'a+b'는 두 낱말이 모두 있어야 한다."""
+    return any(all(any(part in cell for cell in cells) for part in word.split("+")) for word in words)
 
 
 def _grouped(cells, titles, subs):
@@ -1358,6 +1372,42 @@ def _blank(value):
     return normalize("text", value) is None
 
 
+def _section_items(rows):
+    """세부내역서에서 항목에 제 EDI명칭을 베낀 행과 바로 위 섹션 제목 행('01.진찰료', 코드·명칭·총액 없이 항목만 있는 행)의
+    제목 ``(행 번호, 제목)``. 라벨 관례상 항목은 섹션명이다."""
+    title = None
+    for index, row in enumerate(rows):
+        name = row.get("항목")
+        if name and _SECTION_TITLE.match(str(name)) and all(_blank(row.get(column)) for column in ("원내코드", "EDI코드", "EDI명칭", "총액")):
+            title = name
+        elif title and name and _key(name) == _key(row.get("EDI명칭") or ""):
+            yield index, title
+
+
+def _section_checks(doc):
+    return [_flag("section_item", f"{index}행 항목 '{doc.rows[index].get('항목')}'은 EDI명칭을 베낀 것이다. 섹션 제목 '{title}'을 쓴다.",
+                  row=index, column="항목", value=title) for index, title in _section_items(doc.rows)]
+
+
+def _empty_cells(doc):
+    """머리글에 인쇄된 단가·투여량 열(``HEADER_COLUMNS``)에서 AO가 비운 칸을 Docraft가 읽었으면 그 값으로 채운다.
+    한쪽만 읽은 칸은 Judge가 비워 두곤 한다(투여량 열 통째 누락)."""
+    cells = _headers(doc.blocks)
+    columns = [column for column, words in HEADER_COLUMNS.items() if _has_header(cells, words)]
+    pairs = pair_rows(doc.doc_type, ITEM_TABLE, doc.rows, doc.mine, fallback=False)[:len(doc.rows)]
+    return [_flag("empty_cell", f"{index}행 {column}이 비었는데 Docraft는 '{mate[column]}'로 읽었다.",
+                  row=index, column=column, value=mate[column])
+            for column in columns for index, (row, mate) in enumerate(pairs)
+            if mate and _blank(row.get(column)) and not _blank(mate.get(column))]
+
+
+def _ward_checks(doc):
+    """병실 칸에 든 진료과 이름. 병실 칸이 비면 옆 진료과 칸을 읽곤 한다(``FIELD_RULES``가 Docraft 쪽에서 버리는 값)."""
+    value = doc.ao.get(WARD)
+    return [_flag("ward", f"{WARD} '{value}'은 진료과 이름이다. 병실 칸이 비었으면 비운다.", key=WARD)] \
+        if value and _DEPARTMENT.match(str(value)) else []
+
+
 def _missing(doc):
     """필수 필드(``REQUIRED``)가 AO에 비어 있다. 표는 값 있는 행이 없거나, 조건 열이 찬 행에서 그 열이 비었다."""
     found = []
@@ -1408,12 +1458,17 @@ def _fix_column_shift(fix, flags):
             fix.reasons.append(f"[{flag['rule']}] {row.get('항목')} 행의 {column}를 {target}로 옮겼다")
 
 
-def _fix_item_class(fix, flags):
+def _fix_cell(fix, flags):
+    """flag가 가리키는 행·열 칸을 flag의 value로 고친다(value가 없으면 두고 Judge에 맡긴다)."""
     for flag in flags:
-        row = fix.row(flag)
+        row, column = fix.row(flag), flag["column"]
         if row is not None and flag["value"]:
-            fix.reasons.append(f"[{flag['rule']}] {row.get('항목')} 행의 급여구분 {row.get('급여구분')}를 {flag['value']}로 고쳤다")
-            row["급여구분"] = flag["value"]
+            fix.reasons.append(f"[{flag['rule']}] {row.get('항목')} 행의 {column} {row.get(column)}를 {flag['value']}로 고쳤다")
+            row[column] = flag["value"]
+
+
+def _fix_clear(fix, flags):
+    fix.fields.update({flag["key"]: (None, f"[{flag['rule']}] {flag['message']}") for flag in flags})
 
 
 def _fix_item_name(fix, flags):
@@ -1462,7 +1517,10 @@ RULES = (  # 검사 순서가 곧 check()가 내는 이상 징후 순서다
     Rule("SUM.FIELD", "sum_mismatch", "CALC", (), _field_sums, _fix_total, "CORRECT"),
     Rule("DETAIL.ROW_ARITH", "row_arith", "CALC", DETAIL, _row_arith, None, "RE_EXTRACT"),
     Rule("DETAIL.LOW_QUALITY", "low_quality", "STRUCT", DETAIL, _low_quality, None, "ESCALATE"),
-    Rule("DETAIL.ITEM_CLASS", "item_class", "FMT", DETAIL, _class_checks, _fix_item_class, "CORRECT"),
+    Rule("DETAIL.ITEM_CLASS", "item_class", "FMT", DETAIL, _class_checks, _fix_cell, "CORRECT"),
+    Rule("DETAIL.SECTION_ITEM", "section_item", "FMT", DETAIL, _section_checks, _fix_cell, "CORRECT"),
+    Rule("DETAIL.EMPTY_CELL", "empty_cell", "CROSS", DETAIL, _empty_cells, _fix_cell, "CORRECT"),
+    Rule("DETAIL.WARD", "ward", "FMT", DETAIL, _ward_checks, _fix_clear, "CORRECT"),
     Rule("GROUND.UNPRINTED", "ungrounded", "LOGIC", (), _unprinted, _fix_total, "CORRECT"),
     Rule("RECEIPT.MULTI_AMOUNT", "multi_amount", "FMT", RECEIPT, _multi_amounts, None, "RE_EXTRACT"),
     Rule("RECEIPT.NO_COLUMN", "no_column", "STRUCT", RECEIPT, _no_columns, None, "RE_EXTRACT"),
@@ -1582,6 +1640,8 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     if doc_type == "진료비영수증":  # 통째로 맞바뀐 이웃 금액 열을 합계 행에 맞춰 되돌린다
         out[ITEM_TABLE] = _swap(out[ITEM_TABLE], _swaps(out[ITEM_TABLE]))
     _period(out)
+    for index, title in list(_section_items(out[ITEM_TABLE]) if doc_type == "세부내역서" else ()):
+        out[ITEM_TABLE][index]["항목"] = title
     out = derive(doc_type, out)  # derive는 라벨 정리(verify_label.conform)도 쓰므로 마스터 교정은 그 뒤에 한다
     _master_names(out)
     return out
