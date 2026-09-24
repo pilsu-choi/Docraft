@@ -97,10 +97,31 @@ def grade(args):
                                          "정확도": round(c[report.MATCH] / scored * 100, 2)}
             print(f"{doc_type:8} {name:8} {dict((v, c[v]) for v in report.SCORED)} → {out[f'{doc_type}/{name}']['정확도']}%")
     print(f"문서 {len(files)}건, Docraft가 바꾼 칸 {len(changes)}")
+    out["자동통과"] = auto_pass(report, args.out, files)
     (args.out / "grade.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     with (args.out / "changes.csv").open("w", encoding="utf-8-sig", newline="") as fh:
         csv.writer(fh).writerows([["문서종류", "파일", "칸", "정답", "AO", "Docraft", "AO판정", "Docraft판정"], *changes])
 
+
+
+def auto_pass(report, folder, files):
+    """Docraft 결과에서 review가 없는 칸(자동 통과)의 비율과 정확도. 결과 칸이 없는 누락(빠진 행)은 표의 review를 따른다."""
+    cell_vals, report.HARNESS_DIR = report.cell_vals, folder
+    report.cell_vals = lambda cell: (*cell_vals(cell)[:2], bool(cell.get("review")) if cell else None, cell_vals(cell)[3])
+    summary = {}
+    for doc_type in DOC_TYPES:
+        cells = []
+        for t, image in (item for item in files if item[0] == doc_type):
+            document = json.loads((folder / t / f"{image.name}.harness.json").read_text(encoding="utf-8"))["documents"][0]
+            tables = {table["key"]: bool(table.get("review")) for table in document.get("extracted_tables") or []}
+            cells += [(row.auto == report.MATCH, row.tier if row.tier is not None else tables.get(row.container, False))
+                      for row in report.compare(t, image).rows if row.auto != report.SKIP]
+        auto = [ok for ok, review in cells if not review]
+        summary[doc_type] = {"자동통과율": round(len(auto) / len(cells) * 100, 1), "정확도": round(sum(auto) / len(auto) * 100, 2),
+                             "남은오류": len(auto) - sum(auto)}
+        print(f"{doc_type:8} 자동통과 {summary[doc_type]['자동통과율']}% → 정확도 {summary[doc_type]['정확도']}% (남은 오류 {summary[doc_type]['남은오류']})")
+    report.cell_vals = cell_vals
+    return summary
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

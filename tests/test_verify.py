@@ -68,7 +68,7 @@ def stub(monkeypatch, judged=VERDICTS, docraft=DOCRAFT):
     monkeypatch.setitem(doctypes.DOC_TYPES, "진단서", {})
     monkeypatch.setattr(doctypes, "schema", lambda doc_type: {"type": "object"})
     monkeypatch.setattr(doctypes, "kind", lambda doc_type, key, table=None: "text")
-    monkeypatch.setattr(rules, "same", lambda kind, a, b: (a or None) == (b or None))
+    monkeypatch.setattr(rules, "same", lambda kind, a, b, strict=False: (a or None) == (b or None))
     # blocks가 있으면(추출 단계) 고정된 docraft를, 없으면(_decide의 판정값 정규화) 입력을 그대로 돌려준다.
     monkeypatch.setattr(rules, "apply", lambda doc_type, result, blocks: deepcopy(docraft) if blocks else deepcopy(result))
     monkeypatch.setattr(verify, "parse", lambda *args, **kwargs: ("md", [{"text": "x"}]))
@@ -701,7 +701,9 @@ def test_run_traces_every_round_and_marks_an_escalated_table_for_review(monkeypa
     trace = result["verify"]["trace"]
     assert {entry["round"] for entry in trace} >= {1, "final"}
     assert all(entry["result"] == ("fail" if entry["flags"] else "pass") for entry in trace)
-    assert result["tables"][0]["review"] is True and "review" not in result["fields"][0]
+    assert result["tables"][0]["review"] is True
+    # 필드는 ESCALATE와 무관하게 Docraft가 읽지 못해(스텁이 비었다) AO와 달라 review다
+    assert result["fields"][0]["review"] is True and result["fields"][0]["docraft_value"] is None
 
 
 def test_run_sends_a_still_missing_required_field_to_judge_and_marks_it_for_review(monkeypatch):
@@ -873,3 +875,22 @@ def test_decide_keeps_cells_both_readings_agree_on():
 
     assert [(row["총액"], row["본인부담"], row["투여량"]) for row in rows] == [("0", "0", "1"), ("500", None, None)]
     assert source == "corrected"
+
+
+def test_mark_review_leaves_only_cells_both_readings_agree_on_to_auto_pass():
+    """AO·Docraft가 다르게 읽은 칸(구두점 한 글자도)과 남은 구조 이상이 가리키는 표·열은 review, 같게 읽은 칸만 자동 통과다."""
+    cell = lambda key, ao, dc: {"key": key, "value": dc, "ao_value": ao, "docraft_value": dc}
+    document = {"extracted_fields": [cell("발행일", "20200101", "20200101"), cell("환자성명", "홍길동", "홍길둥")],
+                "extracted_tables": [{"key": "항목내역", "rows": [
+                    [cell("EDI명칭", "일반식-종합병원/", "일반식-종합병원)"), cell("단가", "100", "100"), cell("투여량", None, None)]]}]}
+    checks = [{"code": "empty_column", "key": "항목내역", "column": "투여량", "rule": "DETAIL.EMPTY_COLUMN", "message": ""}]
+
+    counts = verify.mark_review("세부내역서", document, checks)
+
+    fields, table = document["extracted_fields"], document["extracted_tables"][0]
+    assert [field.get("review") for field in fields] == [None, True]
+    assert [cell.get("review") for cell in table["rows"][0]] == [True, None, True]
+    assert "review" not in table and counts == {"cells": 5, "review": 3}
+    table["rows"][0][1].pop("review", None)
+    verify.mark_review("세부내역서", document, [{**checks[0], "code": "sum_mismatch", "rule": "SUM.TABLE", "column": None}])
+    assert table["review"] is True and table["rows"][0][1]["review"] is True  # 열이 없는 표 이상은 표 전체
