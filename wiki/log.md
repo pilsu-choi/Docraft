@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-25 (2)
+* **Creation**: [edge-speed-accuracy-priorities](2026-09-25-edge-speed-accuracy-priorities.md)에 기존 57건 e2e·76건 모델 비교·AWS 처리량 실측과 엣지 카탈로그를 바탕으로, 비용이 작은 표/출력 오류 수정부터 선택적 Judge·룰 1차 추출·청구 건 검증까지 우선순위와 동일 입력 전후 채택 기준을 기록했다. 브랜치 `docs/edge-speed-accuracy`, 워크트리 `.worktrees/edge-speed-accuracy`.
+* **Update**: [index](index.md)에 우선순위 문서를 연결했다.
+
 ## 2026-09-25
 * **Creation**: [ocr-edge-catalog-audit](2026-09-25-ocr-edge-catalog-audit.md)에 외부 보험 청구서류 7종 OCR 엣지 케이스 카탈로그 102개 ID와 검산식 11개를 `2548d25` 기준 코드와 대조한 결과(지원 1·부분 52·미지원 49), 카탈로그 라우팅·교차검증·평가 공백과 우선 대응 순서를 기록했다. 브랜치 `docs/edge-catalog-audit`, 워크트리 `.worktrees/edge-catalog-audit`.
 * **Update**: [index](index.md)에 점검 문서를 연결했다.
