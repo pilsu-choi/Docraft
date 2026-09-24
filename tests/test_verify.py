@@ -809,6 +809,32 @@ def test_balance_reverts_a_judged_table_that_breaks_the_totals():
     assert (value, source) == (HANBANG_AO, "ao") and "합계식" in reason
 
 
+def test_balance_keeps_ao_item_names_when_it_takes_the_docraft_table():
+    """표본 e2e(KJM02605 영수증): 합계식으로 Docraft 표를 택해도 Docraft가 달리 적은 항목명
+    ('투약및조제료_약품비' → '조제료약품비')은 따라오지 않고 금액만 Docraft 값을 쓴다."""
+    renamed = {"진찰료": "진찰", "시술및처치료": "처치료"}
+    docraft_rows = [dict(row, 항목=renamed.get(row["항목"], row["항목"])) for row in HANBANG_AO]
+    ao = {"항목내역": HANBANG_DOCRAFT, "진료비총액": "371270", "환자부담총액": "74334"}  # AO 가 흐린 숫자를 잘못 읽었다
+    chosen = {"항목내역": (HANBANG_DOCRAFT, "agree", None), "진료비총액": ("371270", "agree", None),
+              "환자부담총액": ("74334", "agree", None)}
+
+    value, source, _ = verify._balance("진료비영수증", chosen, ao, {"항목내역": docraft_rows})["항목내역"]
+
+    assert source == "docraft"
+    assert [row["항목"] for row in value] == [row["항목"] for row in HANBANG_AO]
+    assert [row["본인부담금"] for row in value] == [row["본인부담금"] for row in HANBANG_AO]
+    assert docraft_rows[0]["항목"] == "진찰"  # 입력은 건드리지 않는다
+
+
+def test_decide_keeps_a_corrected_value_for_a_key_outside_the_doc_type():
+    """표본 e2e(입퇴원확인서 20230621_140515): AO 의 진단.사고발생일자는 Docraft 정의 밖 key 다. Judge 가 corrected 로
+    돌려줘도 KeyError(502) 없이 판정값을 그대로 쓴다."""
+    value, source, _ = verify._decide("입퇴원확인서", "사고발생일자", {"source": "corrected", "value": "20230416"},
+                                      "20230417", None)
+
+    assert (value, source) == ("20230416", "corrected")
+
+
 def test_balance_keeps_a_judgement_when_the_other_reading_is_empty_or_no_better():
     ao = {"항목내역": [], "진료비총액": "371270"}
     chosen = {"항목내역": (HANBANG_DOCRAFT, "docraft", "Judge"), "진료비총액": ("371270", "agree", None)}

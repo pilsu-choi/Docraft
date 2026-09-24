@@ -193,13 +193,14 @@ def _decide(doc_type, key, verdict, ao_value, docraft_value, field="value"):
     value = verdict.get(field, ao_value)
     if field == "rows":
         rows = [row for row in value or [] if isinstance(row, dict)]
-        normalized = _agreed(doc_type, key, rules.apply(doc_type, {key: rows}, [])[key], ao_value, docraft_value)
+        normalized = _agreed(doc_type, key, rules.apply(doc_type, {key: rows}, []).get(key, rows), ao_value, docraft_value)
         if not _row_diff(doc_type, key, normalized, ao_value):
             return ao_value, "ao", reason
         if not _row_diff(doc_type, key, normalized, docraft_value):
             return docraft_value, "docraft", reason
         return normalized, "corrected", reason
-    normalized = rules.apply(doc_type, {key: value}, [])[key]
+    # rules.apply 는 유형 정의에 있는 key 만 돌려준다 — 정의 밖 AO key(진단서 계열 사고발생일자 등)는 판정값 그대로 둔다
+    normalized = rules.apply(doc_type, {key: value}, []).get(key, value)
     kind = doctypes.kind(doc_type, key)
     if rules.same(kind, normalized, ao_value):
         return ao_value, "ao", reason
@@ -249,13 +250,33 @@ def _balance(doc_type, chosen, ao_flat, docraft):
         if not count:
             break
         value, source, _ = chosen[key]
-        for side, other in (("ao", ao_flat.get(key)), ("docraft", docraft.get(key))):
+        for side, other in (("ao", ao_flat.get(key)), ("docraft", _with_ao_names(doc_type, key, docraft.get(key), ao_flat.get(key)))):
             if side == source or other in (None, "", []) or other == value or (trial := errors(**{key: other})) >= count:
                 continue
             chosen[key] = (other, side, f"합계식: 판정 값은 불일치 {count}건, {side} 값은 {trial}건이라 {side} 값을 택했다")
             count = trial
             break
     return chosen
+
+
+def _with_ao_names(doc_type, key, rows, ao_rows):
+    """Docraft 표에서 AO 행과 짝지어진 행의 이름 열(``ROW_KEYS`` 중 text 열, 영수증 ``항목``)은 AO 값으로 둔다.
+
+    합계식은 금액만 따지므로 ``_balance``가 표를 통째로 Docraft 쪽으로 바꾸면 Docraft가 달리 적은 항목명
+    ('투약및조제료_약품비' → '조제료약품비')까지 따라 들어와 행이 통째로 틀린다. 코드·날짜 열은 Docraft가 바로
+    고친 값일 수 있어 건드리지 않는다.
+    """
+    if not isinstance(rows, list) or not isinstance(ao_rows, list) or not ao_rows:
+        return rows
+    names = [column for column in rules.ROW_KEYS.get(key, ()) if doctypes.kind(doc_type, column, key) == "text"]
+    if not names:
+        return rows
+    index = {id(row): position for position, row in enumerate(rows)}
+    out = [dict(row) for row in rows]
+    for mine, ao in rules.pair_rows(doc_type, key, rows, ao_rows):
+        if mine is not None and ao is not None:
+            out[index[id(mine)]].update({column: ao[column] for column in names if ao.get(column) not in (None, "")})
+    return out
 
 
 def _annotate(element, value, ao_value, docraft_value, source, reason):
