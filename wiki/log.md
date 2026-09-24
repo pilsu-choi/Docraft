@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-25
+* **Creation**: [ocr-edge-catalog-audit](2026-09-25-ocr-edge-catalog-audit.md)에 외부 보험 청구서류 7종 OCR 엣지 케이스 카탈로그 102개 ID와 검산식 11개를 `2548d25` 기준 코드와 대조한 결과(지원 1·부분 52·미지원 49), 카탈로그 라우팅·교차검증·평가 공백과 우선 대응 순서를 기록했다. 브랜치 `docs/edge-catalog-audit`, 워크트리 `.worktrees/edge-catalog-audit`.
+* **Update**: [index](index.md)에 점검 문서를 연결했다.
+
 ## 2026-09-24 (2)
 * **Creation**: 세부내역서 항목 표 열 머리글을 못 찾던 경우(오타 "함목", 병합 셀, 머리글 없는 이어지는 쪽)를 보강한 작업을 [detail-headerless](2026-09-24-detail-headerless.md)에 기록했다(브랜치 `fix/detail-headerless`, 워크트리 `.worktrees/detail-headerless`). `_headers`가 "항목" 행이 없을 때 머리글 낱말(`header_words`) 셋 이상인 행을 쓰고, 병합 셀을 낱말로 나누며, 그래도 없으면 `_inferred`가 금액×횟수×일수(×투여량)=총액 열을 찾는다. 76건 rules 단계 세부내역서 94.1% 같음·fp 88→63. AWS e2e 재실행(`e2e-20260924d`) 세부내역서 96.73%→96.45%는 두 문서 투여량 22칸을 Judge가 비운 편차로, 머리글 판정은 main과 같았다. 470 passed.
 * **Update**: [index](index.md)에 새 문서를 연결했다.
