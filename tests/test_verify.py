@@ -920,3 +920,55 @@ def test_mark_review_leaves_only_cells_both_readings_agree_on_to_auto_pass():
     table["rows"][0][1].pop("review", None)
     verify.mark_review("세부내역서", document, [{**checks[0], "code": "sum_mismatch", "rule": "SUM.TABLE", "column": None}])
     assert table["review"] is True and table["rows"][0][1]["review"] is True  # 열이 없는 표 이상은 표 전체
+
+
+# --- 검토(2026-09-24): 이름 유지 짝짓기·정의 밖 key·AO 가 빈 재추출 요청 ---------------------------------
+
+
+def test_ao_names_are_not_copied_by_order_when_row_counts_differ():
+    """Docraft 가 행을 더 읽었으면 순서 짝은 엉뚱한 행을 잇는다 — 이름을 옮기지 않는다."""
+    ao = [{"항목": "진찰료", "본인부담금": "1"}, {"항목": "시술및처치료", "본인부담금": "2"}, {"항목": "합계", "본인부담금": "3"}]
+    mine = [{"항목": "시술및처치료", "본인부담금": "2"}, {"항목": "합계", "본인부담금": "3"}, {"항목": "기타약제", "본인부담금": "9"}]
+
+    assert [row["항목"] for row in verify._with_ao_names("진료비영수증", "항목내역", mine, ao)] == \
+        ["시술및처치료", "합계", "기타약제"]
+
+
+def test_ao_names_skip_total_rows_and_columns_outside_the_spec():
+    ao = [{"항목": "진찰료", "EDI코드": "AA157", "본인부담금": "1"}, {"항목": "소계", "본인부담금": "1"}]
+    mine = [{"항목": "진찰", "본인부담금": "1"}, {"항목": "합계", "본인부담금": "1"}]
+
+    got = verify._with_ao_names("진료비영수증", "항목내역", mine, ao)
+
+    assert [row["항목"] for row in got] == ["진찰료", "합계"]  # 합계 행은 이름을 주고받지 않는다
+    assert "EDI코드" not in got[0]  # 영수증 정의 밖 열은 옮기지 않는다
+
+
+def test_run_keeps_keys_outside_the_spec_out_of_the_judge(monkeypatch):
+    """AO 의 진단.사고발생일자는 진단서 정의 밖이다 — 다툼으로 보내지 않고 AO 값을 unknown 으로 둔다."""
+    ao = {"documents": [{"doc_type": "진단서", "extracted_fields": [{"key": "발급일", "value": "20220517"}],
+                         "extracted_groups": [{"key": "진단", "fields": [{"key": "사고발생일자", "value": "20220501"}]}]}]}
+    real_stub(monkeypatch, {"발급일": "20220517"}, {})
+    seen = []
+    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes: seen.append(set(disputes)) or {})
+
+    document = verify.run("scan.png", ao)["documents"][0]
+
+    accident = document["extracted_groups"][0]["fields"][0]
+    assert (accident["value"], accident["source"]) == ("20220501", "unknown")
+    assert all("사고발생일자" not in keys for keys in seen)
+
+
+def test_run_takes_docraft_values_without_the_judge_when_ao_is_blank(monkeypatch):
+    """하네스 서식 재분류의 재추출 요청 — AO 값이 하나도 없으면 Judge 없이 Docraft 추출값을 쓴다."""
+    ao = {"documents": [{"doc_type": "진단서", "extracted_fields": [], "extracted_groups": [], "extracted_tables": []}]}
+    docraft = {"발급일": "20220517", "병명내역": [{"병명코드": "R634", "병명": "이상체중감소"}]}
+    real_stub(monkeypatch, docraft, {})
+    monkeypatch.setattr(verify, "judge", lambda *args: (_ for _ in ()).throw(AssertionError("Judge 를 부르면 안 된다")))
+
+    document = verify.run("scan.png", ao)["documents"][0]
+
+    issued = field(document, "발급일")
+    assert (issued["value"], issued["source"]) == ("20220517", "docraft")
+    table = next(t for t in document["extracted_tables"] if t["key"] == "병명내역")
+    assert table["source"] == "docraft" and table["rows"][0][0]["value"] == "R634"

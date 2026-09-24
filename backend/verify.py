@@ -13,6 +13,7 @@ AO 응답은 API 형식(``documents[].extracted_fields/_tables/_groups``)과 UI 
 
 import json
 import logging
+import re
 import time
 from collections import Counter
 from copy import deepcopy
@@ -25,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 SOURCES = ("agree", "ao", "docraft", "corrected", "unknown")
 NO_VERDICT = "판정 결과가 없어 AO 값을 유지했습니다(이미지로 확인되지 않음)."
+OUT_OF_SPEC = "유형 정의 밖 key 라 판정하지 않고 AO 값을 유지했습니다."
+BLANK_AO = "AO 값이 없는 재추출 요청이라 Docraft 추출값을 그대로 썼습니다."
 UNKNOWN = "key도 display_label도 없어 판정 대상에서 제외했습니다."
 FORMATS = (("extracted_fields", "extracted_tables", "extracted_groups"),  # API 응답 documents[i]
            ("fields", "tables", "groups"))                                # UI 응답 result
@@ -263,20 +266,34 @@ def _with_ao_names(doc_type, key, rows, ao_rows):
     """Docraft 표에서 AO 행과 짝지어진 행의 이름 열(``ROW_KEYS`` 중 text 열, 영수증 ``항목``)은 AO 값으로 둔다.
 
     합계식은 금액만 따지므로 ``_balance``가 표를 통째로 Docraft 쪽으로 바꾸면 Docraft가 달리 적은 항목명
-    ('투약및조제료_약품비' → '조제료약품비')까지 따라 들어와 행이 통째로 틀린다. 코드·날짜 열은 Docraft가 바로
-    고친 값일 수 있어 건드리지 않는다.
+    ('투약및조제료_약품비' → '조제료약품비')까지 따라 들어와 행이 통째로 틀린다. 코드·날짜 열·유형 정의 밖 열은
+    Docraft가 바로 고친 값일 수 있어 건드리지 않는다. 합계 행과, 행 수가 다른 표의 순서 짝은 제외한다.
     """
     if not isinstance(rows, list) or not isinstance(ao_rows, list) or not ao_rows:
         return rows
-    names = [column for column in rules.ROW_KEYS.get(key, ()) if doctypes.kind(doc_type, column, key) == "text"]
+    columns = doctypes.spec(doc_type)["tables"].get(key, {})
+    names = [column for column in rules.ROW_KEYS.get(key, ())
+             if column in columns and doctypes.kind(doc_type, column, key) == "text"]
     if not names:
         return rows
     index = {id(row): position for position, row in enumerate(rows)}
     out = [dict(row) for row in rows]
     for mine, ao in rules.pair_rows(doc_type, key, rows, ao_rows):
-        if mine is not None and ao is not None:
-            out[index[id(mine)]].update({column: ao[column] for column in names if ao.get(column) not in (None, "")})
+        # 합계·소계 행은 이름이 곧 행의 역할이다 — 본문 행과 이름을 주고받으면 합계식이 틀어진다
+        if mine is None or ao is None or rules.is_total(mine) or rules.is_total(ao):
+            continue
+        # 순서로만 이어진 짝(fallback)은 한쪽 이름이 다른 쪽에 들어 있을 때만 같은 항목으로 본다
+        # ('조제료약품비' ⊂ '투약및조제료약품비'). Docraft 가 행을 빠뜨리고 다른 행을 더했으면 이름이 전혀 다르다.
+        if not all(_same_item(mine.get(column), ao.get(column)) for column in names):
+            continue
+        out[index[id(mine)]].update({column: ao[column] for column in names if ao.get(column) not in (None, "")})
     return out
+
+
+def _same_item(mine, ao):
+    """두 이름이 같은 항목을 가리키는가 — 기호를 뗀 한쪽이 다른 쪽에 들어 있다(둘 다 비었거나 한쪽이 비면 참)."""
+    a, b = (re.sub(r"[\W_]+", "", str(value or "")) for value in (mine, ao))
+    return not a or not b or a in b or b in a
 
 
 def _annotate(element, value, ao_value, docraft_value, source, reason):
@@ -415,9 +432,16 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
     for flag in history[-1]:
         hints.setdefault(flag["key"], []).append(flag["message"])
 
+    spec = doctypes.spec(doc_type)
+    known = {*spec["fields"], *spec["tables"]}
+    # AO 값이 하나도 없으면(하네스 서식 재분류의 재추출 요청) 다툴 AO 값이 없다 — Judge 없이 Docraft 추출값을 쓴다.
+    # Judge 가 원소를 빠뜨리면 Docraft 값이 버려지고, 긴 표를 통째로 되풀이하게 해 시간·절단 위험만 는다.
+    blank = all(value in (None, "", []) for value in ao_flat.values())
     disputes = {}
     for key, value in ao_flat.items():
         if only is not None and key not in only:
+            continue
+        if known and key not in known:  # 유형 정의 밖 AO key(진단서 계열 사고발생일자 등) — Docraft 값이 없어 다툼이 성립하지 않는다
             continue
         mine, rows = docraft.get(key), isinstance(value, list)
         diff = _row_diff(doc_type, key, value, mine) if rows else None
@@ -426,10 +450,15 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
                              **({"diff": diff} if diff else {}),
                              **({"hint": " ".join(hints[key])} if key in hints else {})}
     _check(cancel)
-    verdicts = judge(image, doc_type, disputes) if disputes else {}
+    if blank:
+        verdicts = {key: {"source": "docraft", "reason": BLANK_AO} for key in disputes}
+    else:
+        verdicts = judge(image, doc_type, disputes) if disputes else {}
 
     def resolve(key, value, field="value"):
         """판정·룰 교정을 합쳐 ``(최종값, source, reason)``. 룰이 고친 값을 Judge가 받아들이면 corrected로 남긴다."""
+        if known and key not in known:
+            return value, "unknown", OUT_OF_SPEC
         chosen = (_decide(doc_type, key, verdicts.get(key), value, docraft.get(key) or ([] if field == "rows" else None), field)
                   if key in disputes else (value, "agree", None))
         if key in fixes and chosen[1] in ("agree", "ao", "unknown"):
