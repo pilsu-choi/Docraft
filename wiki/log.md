@@ -5,6 +5,7 @@
 * **Update**: [index](index.md)에 새 문서를 연결했다.
 
 ## 2026-09-24 (1)
+* **Creation**: [auto-review](2026-09-24-auto-review.md)에 자동 통과 칸 `review` 표시(`verify.mark_review`, `rules.same(strict=True)`, `DETAIL.EMPTY_COLUMN`)와 e2e 57건 실측(세부내역서 자동 통과 76.2%·99.71%, 영수증 81.5%·99.11%)을 기록했다(브랜치 `feat/auto-review`·`fix/header-parts`). `_has_header`가 `횟수(총투)` 한 칸을 투여량 열로 보지 않게 고쳤다(473 passed).
 * **Creation**: 7종 210장 e2e 테스트의 통계 수집 항목과 소요 시간 추산을 [e2e-210-plan](2026-09-24-e2e-210-plan.md)에 기록했다(브랜치 `docs/e2e-210-plan`, 워크트리 `.worktrees/e2e-210-plan`).
 * **Update**: [e2e-edge-cases](2026-09-24-e2e-edge-cases.md)에 `9248589` 배포 후 57건 재실행 결과를 더했다(세부내역서 96.73%, 영수증 98.16%, 급여구분 오류 0, 직전 실행과 나빠짐 23·좋아짐 24로 재실행 흔들림 범위).
 * **Creation**: e2e 57건에서 확인한 엣지케이스를 [e2e-edge-cases](2026-09-24-e2e-edge-cases.md)에 정리했다(브랜치 `fix/item-class-placeholder`, 워크트리 `.worktrees/item-class-placeholder`). 함께 `DETAIL.ITEM_CLASS`가 `급여` 열 금액으로 급여를 정하고 금액 없는 행·집계 행의 `열추출`을 비우도록 고쳤고, `scripts/verify_e2e.py`가 정답지 코드 칸의 `-`를 빈칸으로 읽게 했다. 사용자 확인으로 `비급표현-KJM02605.tif` 급여구분 빈칸 7칸·`100%` 1칸을 `급여`로 고쳤다. 세부내역서 96.87%, 465 passed.

@@ -1055,8 +1055,12 @@ def _figure(cell):
 
 
 def _has_header(cells, words):
-    """머리글 셀에 낱말(``HEADER_COLUMNS``)이 있는지. 'a+b'는 두 낱말이 모두 있어야 한다."""
-    return any(all(any(part in cell for cell in cells) for part in word.split("+")) for word in words)
+    """머리글 셀에 낱말(``HEADER_COLUMNS``)이 있는지. 'a+b'는 두 낱말이 서로 다른 셀에 있어야 한다 —
+    '횟수(총투)' 한 칸은 총투 열과 횟수 열이 따로 있는 서식이 아니다."""
+    def alone(part, parts):
+        return any(part in cell and not any(other in cell for other in parts if other != part) for cell in cells)
+
+    return any(all(alone(part, word.split("+")) for part in word.split("+")) for word in words)
 
 
 def _grouped(cells, titles, subs):
