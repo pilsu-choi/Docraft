@@ -1241,3 +1241,14 @@ def test_edi_s_and_b_become_digits_only_when_the_master_knows_only_the_digits(mo
     assert rules.normalize("edi", "MX122s1") == "MX122S1"
     assert rules.normalize("edi", "EB562") == "EB562"
     assert rules.normalize("edi", "AA2S4") == "AA254"
+
+
+def test_check_does_not_add_a_docraft_row_that_misreads_an_existing_ao_row():
+    """0922 재테스트: Docraft가 '치료재료대'를 '치료제료다'로 읽은 빈 행을 누락 행으로 끼워 중복 행이 생겼다.
+    표준 이름 행(MRI진단료)은 비슷한 이름(CT진단료)이 있어도 그대로 끼운다."""
+    rows = receipt(("치료재료대", {}), ("CT진단료", {}), ("합계", {}))
+    mine = receipt(("치료제료다", {}), ("CT진단료", {}), ("MRI진단료", {}), ("예약진찰료", {}), ("합계", {}))
+
+    found = rules.check("진료비영수증", {"항목내역": rows}, {"항목내역": mine}, [])
+
+    assert [flag["item"] for flag in found if flag["code"] == "row_missing"] == ["MRI진단료", "예약진찰료"]

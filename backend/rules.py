@@ -1166,10 +1166,20 @@ def _row_copy(doc):
 
 
 def _row_missing(doc):
-    """Docraft가 읽은 항목 행이 AO 표에 없는지."""
+    """Docraft가 읽은 항목 행이 AO 표에 없는지. 표준 이름이 아닌데 AO 행 이름과 한두 글자만 다르면 같은 행을
+    잘못 읽은 것이라 보지 않는다(Docraft '치료제료다' ↔ AO '치료재료대' — 끼우면 중복 행이 된다)."""
     names = _names(doc.rows)
     return [_flag("row_missing", f"Docraft가 읽은 항목 '{name}' 행이 AO 표에 없다.", item=name)
-            for name in dict.fromkeys(_names(doc.mine)) if name and not is_total({"항목": name}) and name not in names]
+            for name in dict.fromkeys(_names(doc.mine)) if name and not is_total({"항목": name}) and name not in names
+            and (name in RECEIPT_ITEM_NAMES or not any(_misread_of(name, other) for other in names if other))]
+
+
+def _misread_of(name, other):
+    """name이 other를 한두 글자 잘못 읽은 것인지(같은 길이에서 두 글자 이하 — 세 글자 이하 이름은 한 글자 — 바뀜,
+    또는 한 글자 빠짐·더해짐)."""
+    if len(name) == len(other):
+        return 0 < sum(a != b for a, b in zip(name, other)) <= (1 if len(name) <= 3 else 2)
+    return _one_off(name, other)
 
 
 def _row_extra(doc):
