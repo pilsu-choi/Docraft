@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-24 (2)
+* **Creation**: 세부내역서 항목 표 열 머리글을 못 찾던 경우(오타 "함목", 병합 셀, 머리글 없는 이어지는 쪽)를 보강한 작업을 [detail-headerless](2026-09-24-detail-headerless.md)에 기록했다(브랜치 `fix/detail-headerless`, 워크트리 `.worktrees/detail-headerless`). `_headers`가 "항목" 행이 없을 때 머리글 낱말(`header_words`) 셋 이상인 행을 쓰고, 병합 셀을 낱말로 나누며, 그래도 없으면 `_inferred`가 금액×횟수×일수(×투여량)=총액 열을 찾는다. 76건 rules 단계 세부내역서 94.1% 같음·fp 88→63. AWS e2e 재실행(`e2e-20260924d`) 세부내역서 96.73%→96.45%는 두 문서 투여량 22칸을 Judge가 비운 편차로, 머리글 판정은 main과 같았다. 470 passed.
+* **Update**: [index](index.md)에 새 문서를 연결했다.
+
 ## 2026-09-24 (1)
 * **Creation**: e2e 57건에서 확인한 엣지케이스를 [e2e-edge-cases](2026-09-24-e2e-edge-cases.md)에 정리했다(브랜치 `fix/item-class-placeholder`, 워크트리 `.worktrees/item-class-placeholder`). 함께 `DETAIL.ITEM_CLASS`가 `급여` 열 금액으로 급여를 정하고 금액 없는 행·집계 행의 `열추출`을 비우도록 고쳤고, `scripts/verify_e2e.py`가 정답지 코드 칸의 `-`를 빈칸으로 읽게 했다. 사용자 확인으로 `비급표현-KJM02605.tif` 급여구분 빈칸 7칸·`100%` 1칸을 `급여`로 고쳤다. 세부내역서 96.87%, 465 passed.
 * **Update**: [e2e-ao-verify](2026-09-24-e2e-ao-verify.md)에 사용자 확인으로 고친 e2e 정답지 2건(입원기간 날짜 28칸, `비급`→`비급여` 5칸)과 재채점 결과(세부내역서 최신 96.26%)를 더했다.
