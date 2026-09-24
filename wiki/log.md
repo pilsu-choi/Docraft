@@ -5,6 +5,7 @@
 * **Update**: [index](index.md)에 새 문서를 연결했다.
 
 ## 2026-09-24 (1)
+* **Update**: [auto-review](2026-09-24-auto-review.md)·[e2e-edge-cases](2026-09-24-e2e-edge-cases.md)에 사용자 결정 관례 반영을 기록했다(브랜치 `fix/item-paren`, 워크트리 `.worktrees/item-paren`). 영수증 `입원료_2-3인실` 통일(e2e 정답지 12칸), `정액수가(요양병원)`·`(완화의료)` 괄호 유지(`rules.yaml` 표준명·별칭, 76건 라벨 11곳), `사고발생일자` 조회기간은 보류. 76건 영수증 4262→4263, 478 passed.
 * **Update**: [auto-review](2026-09-24-auto-review.md)에 e2e 57건 작업의 후속 과제 9개를 우선순위 표로 모았다(그룹 구조 유지, 배포 확인, 항목명 오독, 파서 머리글, 관례 결정, 병실 `외래`, 저품질 오독, 공유 서버 운영, 정답지 검수).
 * **Creation**: [auto-review](2026-09-24-auto-review.md)에 자동 통과 칸 `review` 표시(`verify.mark_review`, `rules.same(strict=True)`, `DETAIL.EMPTY_COLUMN`)와 e2e 57건 실측(세부내역서 자동 통과 76.2%·99.71%, 영수증 81.5%·99.11%)을 기록했다(브랜치 `feat/auto-review`·`fix/header-parts`). `_has_header`가 `횟수(총투)` 한 칸을 투여량 열로 보지 않게 고쳤다(473 passed).
 * **Creation**: 7종 210장 e2e 테스트의 통계 수집 항목과 소요 시간 추산을 [e2e-210-plan](2026-09-24-e2e-210-plan.md)에 기록했다(브랜치 `docs/e2e-210-plan`, 워크트리 `.worktrees/e2e-210-plan`).
