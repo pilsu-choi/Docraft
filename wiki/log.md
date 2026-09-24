@@ -223,3 +223,4 @@
 * **Update**: [verify-test-0922](2026-09-23-verify-test-0922.md)에 원내코드만 있는 행을 AO처럼 원내코드에 두는 결정(2026-09-24)과 머리글 코드 열 조건을 더했다.
 * **Update**: [verify-test-0922](2026-09-23-verify-test-0922.md)에 금액 음수 부호 보존과 영수증 항목명 오독 교정 확대(끝 글자 변형 제외, 영수증 rules +1, 라벨 헛교정 0), 누락 행 보충 중복 문제를 더했다.
 * **Update**: [verify-test-0922](2026-09-23-verify-test-0922.md)에 누락 행 보충의 오독 중복 방지(`_misread_of`)와 0922 적용 결과를 더했다.
+* **Creation**: 하네스 표본 7종 e2e에서 드러난 `/api/verify` 결함 셋(정의 밖 key 502, `_balance` 항목명, 빈 AO 재추출 요청)과 검토 보완을 [verify-harness-e2e-fixes](2026-09-24-verify-harness-e2e-fixes.md)에 기록했다(484 passed, `df5af1c` AWS 배포).
