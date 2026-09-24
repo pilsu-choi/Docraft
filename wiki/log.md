@@ -211,3 +211,4 @@
 * **Update**: [rules-flow-example](2026-09-23-rules-flow-example.md)을 현재 코드 기준으로 갱신했다. 없어진 `rules.correct` 대신 `rules.run` 반복 교정(열 맞바뀜·항목명·누락 행 교정 → 2회차 검사 → 진료비총액만 Judge·`_balance`)을 새 진료비영수증 예시로 실제 실행해 보였고, `apply` 단계표를 현재 함수 순서로 고쳤으며 전체 흐름·on_fail 표를 더했다.
 * **Creation**: e2e 세부내역서 남은 오류 다섯 부류(병실 진료과, 항목에 EDI명칭, 투여량 누락, EDI코드 S/B, Judge가 지어낸 금액)의 원인과 룰(`DETAIL.WARD`·`DETAIL.SECTION_ITEM`·`DETAIL.EMPTY_CELL`, `_edi` 마스터 확인, `header_columns` 총투·수량, `verify._agreed`)을 [detail-target-rules](2026-09-24-detail-target-rules.md)에 기록했다(454 passed, e2e 재적용 94.08%→95.33%, 76건 rules 세부내역서 fp 89→88).
 * **Update**: [verify-test-0922](2026-09-23-verify-test-0922.md)에 원내코드만 있는 행을 AO처럼 원내코드에 두는 결정(2026-09-24)과 머리글 코드 열 조건을 더했다.
+* **Update**: [verify-test-0922](2026-09-23-verify-test-0922.md)에 금액 음수 부호 보존과 영수증 항목명 오독 교정 확대(끝 글자 변형 제외, 영수증 rules +1, 라벨 헛교정 0), 누락 행 보충 중복 문제를 더했다.
