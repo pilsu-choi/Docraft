@@ -1,6 +1,7 @@
 # Docraft wiki 변경 이력
 
 ## 2026-09-24 (1)
+* **Creation**: e2e 57건에서 확인한 엣지케이스를 [e2e-edge-cases](2026-09-24-e2e-edge-cases.md)에 정리했다(브랜치 `fix/item-class-placeholder`, 워크트리 `.worktrees/item-class-placeholder`). 함께 `DETAIL.ITEM_CLASS`가 `급여` 열 금액으로 급여를 정하고 금액 없는 행·집계 행의 `열추출`을 비우도록 고쳤고, `scripts/verify_e2e.py`가 정답지 코드 칸의 `-`를 빈칸으로 읽게 했다. 사용자 확인으로 `비급표현-KJM02605.tif` 급여구분 빈칸 7칸·`100%` 1칸을 `급여`로 고쳤다. 세부내역서 96.87%, 465 passed.
 * **Update**: [e2e-ao-verify](2026-09-24-e2e-ao-verify.md)에 사용자 확인으로 고친 e2e 정답지 2건(입원기간 날짜 28칸, `비급`→`비급여` 5칸)과 재채점 결과(세부내역서 최신 96.26%)를 더했다.
 * **Update**: [detail-target-rules](2026-09-24-detail-target-rules.md)에 AWS 실측(`49c1ac2` 배포, 57건 재실행)을 더했다. 세부내역서 94.08%→95.38%, 영수증 98.04%→98.11%, 투여량 규칙은 파서 머리글 미인식으로 1건에만 걸림.
 * **Creation**: harness-v2 e2e 폴더 57건(세부내역서 28·영수증 29, AO 완료분)을 AWS `/api/verify`(`bbd1aeb`)로 돌리고 e2e `make_report.compare`로 AO 단독과 같은 칸 집합에서 채점한 기록을 [e2e-ao-verify](2026-09-24-e2e-ao-verify.md)에 추가했다(브랜치 `feat/e2e-eval`, 워크트리 `.worktrees/e2e-eval`). 영수증 96.16%→98.04%(개선 119·악화 25), 세부내역서 94.36%→94.08%(개선 25·악화 35). 실행·채점 스크립트 `scripts/verify_e2e.py`를 추가했다.

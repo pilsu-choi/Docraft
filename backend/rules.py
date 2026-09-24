@@ -1358,17 +1358,18 @@ def _low_quality(doc):
 
 def _class_checks(doc):
     """세부내역서 급여구분이 정규값(급여·비급여)이 아닌 행(AO의 '열추출' 등). 금액 열로 정해지면 그 값을 붙인다 —
-    본인·공단·전액본인부담에만 금액이 있으면 급여, 비급여에만 있으면 비급여. 둘 다 있거나 없으면 Judge에 맡긴다."""
+    급여·본인·공단·전액본인부담에만 금액이 있으면 급여, 비급여에만 있으면 비급여. 둘 다 있으면 Judge에 맡기고,
+    금액이 없거나 합계·소계 행이면 정할 근거가 없으므로 비운다(``""``)."""
     found = []
     for index, row in enumerate(doc.rows):
         value = row.get("급여구분")
-        if not value or value in ENUMS["급여구분"] or is_total(row):
+        if not value or value in ENUMS["급여구분"]:
             continue
-        paid = any(_money(row.get(column)) for column in ("본인부담", "공단부담", "전액본인부담"))
+        paid = any(_money(row.get(column)) for column in ("급여", "본인부담", "공단부담", "전액본인부담"))
         unpaid = bool(_money(row.get("비급여")))
-        guess = "급여" if paid and not unpaid else "비급여" if unpaid and not paid else None
+        guess = "" if is_total(row) or not (paid or unpaid) else "급여" if not unpaid else "비급여" if not paid else None
         found.append(_flag("item_class", f"{index}행 급여구분 '{value}'은 급여·비급여가 아니다."
-                                         + (f" 금액 열로 보아 '{guess}'다." if guess else " 이미지로 확인한다."),
+                                         + (f" 금액 열로 보아 '{guess}'다." if guess else " 정할 근거가 없어 비운다." if guess == "" else " 이미지로 확인한다."),
                            row=index, column="급여구분", value=guess))
     return found
 
@@ -1464,12 +1465,12 @@ def _fix_column_shift(fix, flags):
 
 
 def _fix_cell(fix, flags):
-    """flag가 가리키는 행·열 칸을 flag의 value로 고친다(value가 없으면 두고 Judge에 맡긴다)."""
+    """flag가 가리키는 행·열 칸을 flag의 value로 고친다(value가 None이면 두고 Judge에 맡기고, ""이면 비운다)."""
     for flag in flags:
         row, column = fix.row(flag), flag["column"]
-        if row is not None and flag["value"]:
-            fix.reasons.append(f"[{flag['rule']}] {row.get('항목')} 행의 {column} {row.get(column)}를 {flag['value']}로 고쳤다")
-            row[column] = flag["value"]
+        if row is not None and flag["value"] is not None:  # ""는 비우기
+            fix.reasons.append(f"[{flag['rule']}] {row.get('항목')} 행의 {column} {row.get(column)}를 {flag['value'] or '빈 값'}으로 고쳤다")
+            row[column] = flag["value"] or None
 
 
 def _fix_clear(fix, flags):

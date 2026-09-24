@@ -56,6 +56,19 @@ def grade(args):
     spec = importlib.util.spec_from_file_location("make_report", args.e2e / "make_report.py")
     report = sys.modules["make_report"] = importlib.util.module_from_spec(spec)  # dataclass가 sys.modules에서 모듈을 찾는다
     spec.loader.exec_module(report)
+    load = report.load
+
+    def blank_dash(path):
+        """정답지가 코드 칸에 인쇄된 '-'를 적으면 결과의 빈 코드와 짝이 안 맞아 같은 행이 '결과에만 있는 행'이 된다."""
+        data = load(path)
+        for doc in (data or {}).get("documents") or []:
+            for table in doc.get("extracted_tables") or []:
+                for cell in (cell for row in table.get("rows") or [] for cell in row):
+                    if cell.get("key") in ("EDI코드", "원내코드") and str(cell.get("value") or "").strip() == "-":
+                        cell["value"] = ""
+        return data
+
+    report.load = blank_dash
     files = [(t, i) for t, i, _ in samples(args.e2e) if (args.out / t / f"{i.name}.harness.json").exists()]
     verdicts = {}
     for name, folder in (("ao", args.e2e / "out" / "harness"), ("docraft", args.out)):
