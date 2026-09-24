@@ -1312,3 +1312,11 @@ def test_check_flags_a_printed_column_both_readings_left_empty():
 
     assert [(flag["key"], flag["column"]) for flag in flags] == [("항목내역", "투여량")]  # 소계 행은 보지 않는다
     assert not [flag for flag in rules.check("세부내역서", {"항목내역": rows}, {}, []) if flag["code"] == "empty_column"]  # 머리글 근거 없음
+
+
+def test_has_header_needs_the_joined_words_in_separate_cells():
+    """e2e(비급표현-KJM02605.tif): '횟수(총투)' 한 칸은 투여량 열이 아니다. 총투·횟수가 따로 인쇄돼야 투여량이다."""
+    words = rules.HEADER_COLUMNS["투여량"]
+
+    assert not rules._has_header({"단가", "횟수(총투)", "일수"}, words)
+    assert rules._has_header({"단가", "총투", "횟수", "일수"}, words)
