@@ -176,14 +176,16 @@ def _dates(text):
 
 def _amount(text):
     """금액의 숫자. 천 단위 구분 기호는 빼고, 소수 한두 자리(세부내역서 단가 954.5 등)는 살린다('.0'은 정수).
-    소수 세 자리('1.234')는 천 단위 구분으로 본다."""
+    소수 세 자리('1.234')는 천 단위 구분으로 본다. 맨 앞의 음수 표기(-·−·△)는 살린다(끝수처리 조정금액 -6 등)."""
+    sign = "-" if re.match(r"\s*[-−△]\s*\d", text) else ""
     digits = re.sub(r"[^\d.]", "", text.translate(OCR_DIGITS))
     whole, dot, fraction = digits.rpartition(".") if re.fullmatch(r"\d+\.\d{1,2}", digits) else (digits, "", "")
     whole = whole.replace(".", "")
     if not whole:
         return None
     fraction = fraction.rstrip("0")
-    return (whole.lstrip("0") or "0") + (f".{fraction}" if fraction else "")
+    number = (whole.lstrip("0") or "0") + (f".{fraction}" if fraction else "")
+    return number if number == "0" else sign + number
 
 
 def _number(text):
@@ -950,24 +952,31 @@ def item(name) -> str | None:
     text = re.sub(r"[^0-9A-Za-z가-힣]", "", str(name or ""))
     bare = _alias(_ITEM_GROUP.sub("", text, count=1))
     name = bare if bare in RECEIPT_ITEM_NAMES else _alias(text)
-    return name if name in RECEIPT_ITEM_NAMES or name is None or len(name) < 5 else _misread(name)
+    return name if name in RECEIPT_ITEM_NAMES or name is None or len(name) < 4 else _misread(name)
 
 
 def _misread(name):
-    """표준 항목명과 같은 길이에 한 글자만 다르고 그런 이름이 하나뿐이면 OCR 오독으로 보고 표준 이름을 돌려준다
-    ('시행및처치료' → '시술및처치료'). 짧은 이름은 다른 항목과 헷갈리기 쉬워 다섯 글자 이상만 본다."""
-    hits = [known for known in RECEIPT_ITEM_NAMES
-            if len(known) == len(name) and sum(a != b for a, b in zip(known, name)) == 1]
+    """표준 항목명과 한 글자만 다르고(바뀜·빠짐·더해짐) 그런 이름이 하나뿐이면 OCR 오독으로 보고 표준 이름을
+    돌려준다('시행및처치료'→'시술및처치료', '치료재대'→'치료재료대'). 세 글자 이하는 다른 항목과 헷갈리기 쉬워 보지 않는다."""
+    hits = [known for known in RECEIPT_ITEM_NAMES if len(known) >= 4 and _one_off(known, name)]
     return hits[0] if len(hits) == 1 else name
 
 
+def _one_off(a, b):
+    """a와 b가 한 글자를 바꾸거나, 끝이 아닌 자리에서 한 글자를 빼거나 더하면 같아지는지(같은 문자열은 아니다).
+    끝 글자만 다른 이름('재활및물리치료'·'재활및물리치료료')은 서식마다 인쇄되는 변형이라 오독으로 보지 않는다."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) == 1
+    short, long = sorted((a, b), key=len)
+    return not long.startswith(short) and any(long[:index] + long[index + 1:] == short for index in range(len(long)))
+
+
 def _money(value) -> int | None:
-    """금액을 부호 있는 정수로. ``normalize``가 지우는 음수 부호를 살린다."""
+    """금액을 부호 있는 정수로. 합계식은 원 단위로 따진다(소수점 이하 버림)."""
     text = normalize("amount", value)
-    if text is None:
-        return None
-    number = int(float(text))  # 합계식은 원 단위로 따진다(소수점 이하 버림)
-    return -number if str(value).strip().startswith("-") else number
+    return None if text is None else int(float(text))
 
 
 def _rows(fields, table):
