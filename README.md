@@ -130,6 +130,9 @@ curl -X POST http://127.0.0.1:8000/api/verify \
 .venv/bin/python scripts/verify_label.py --write-manifest data/verify/accuracy-20260922/manifest.json
 .venv/bin/python scripts/verify_label.py --manifest data/verify/accuracy-20260922/manifest.json --model anthropic/claude-sonnet-4.5
 .venv/bin/python scripts/verify_eval.py --manifest data/verify/accuracy-20260922/manifest.json --split holdout --stage rules
+# harness-v2 e2e 폴더(AO 응답·정답지)로 AO 단독 vs /api/verify 최종 비교
+.venv/bin/python scripts/verify_e2e.py run   --e2e <e2e 폴더> --out data/verify/e2e-<날짜>
+.venv/bin/python scripts/verify_e2e.py grade --e2e <e2e 폴더> --out data/verify/e2e-<날짜>
 ```
 
 `scripts/parse_audit.py --cache-root <캐시 경로>`는 같은 매니페스트의 parse 캐시만 읽어 표 블록 수·괘선 격자 적용·머리글 검출·행 수·다중 금액 셀을 세므로, 모델 변동과 무관하게 파서 변경의 효과를 볼 수 있습니다.
