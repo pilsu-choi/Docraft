@@ -1,6 +1,7 @@
 # Docraft wiki 변경 이력
 
 ## 2026-09-24 (1)
+* **Update**: [e2e-edge-cases](2026-09-24-e2e-edge-cases.md)에 `9248589` 배포 후 57건 재실행 결과를 더했다(세부내역서 96.73%, 영수증 98.16%, 급여구분 오류 0, 직전 실행과 나빠짐 23·좋아짐 24로 재실행 흔들림 범위).
 * **Creation**: e2e 57건에서 확인한 엣지케이스를 [e2e-edge-cases](2026-09-24-e2e-edge-cases.md)에 정리했다(브랜치 `fix/item-class-placeholder`, 워크트리 `.worktrees/item-class-placeholder`). 함께 `DETAIL.ITEM_CLASS`가 `급여` 열 금액으로 급여를 정하고 금액 없는 행·집계 행의 `열추출`을 비우도록 고쳤고, `scripts/verify_e2e.py`가 정답지 코드 칸의 `-`를 빈칸으로 읽게 했다. 사용자 확인으로 `비급표현-KJM02605.tif` 급여구분 빈칸 7칸·`100%` 1칸을 `급여`로 고쳤다. 세부내역서 96.87%, 465 passed.
 * **Update**: [e2e-ao-verify](2026-09-24-e2e-ao-verify.md)에 사용자 확인으로 고친 e2e 정답지 2건(입원기간 날짜 28칸, `비급`→`비급여` 5칸)과 재채점 결과(세부내역서 최신 96.26%)를 더했다.
 * **Update**: [detail-target-rules](2026-09-24-detail-target-rules.md)에 AWS 실측(`49c1ac2` 배포, 57건 재실행)을 더했다. 세부내역서 94.08%→95.38%, 영수증 98.04%→98.11%, 투여량 규칙은 파서 머리글 미인식으로 1건에만 걸림.
