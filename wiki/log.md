@@ -1,5 +1,8 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-25 (3)
+* **Update**: [edge-speed-accuracy-priorities](2026-09-25-edge-speed-accuracy-priorities.md)에 사용자 후속 질문에 대한 룰 전용 후보(표 헤더·항목명, 괄호 음수, 납부금액 검산, 입원일수/발병일, 청구 건 비교)를 자동 보정과 검출 전용으로 나눠 보강했다. 브랜치 `docs/rule-only-priorities`, 워크트리 `.worktrees/rule-only-priorities`.
+
 ## 2026-09-25 (2)
 * **Creation**: [edge-speed-accuracy-priorities](2026-09-25-edge-speed-accuracy-priorities.md)에 기존 57건 e2e·76건 모델 비교·AWS 처리량 실측과 엣지 카탈로그를 바탕으로, 비용이 작은 표/출력 오류 수정부터 선택적 Judge·룰 1차 추출·청구 건 검증까지 우선순위와 동일 입력 전후 채택 기준을 기록했다. 브랜치 `docs/edge-speed-accuracy`, 워크트리 `.worktrees/edge-speed-accuracy`.
 * **Update**: [index](index.md)에 우선순위 문서를 연결했다.
