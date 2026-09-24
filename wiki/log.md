@@ -1,6 +1,7 @@
 # Docraft wiki 변경 이력
 
 ## 2026-09-24 (1)
+* **Update**: [detail-target-rules](2026-09-24-detail-target-rules.md)에 AWS 실측(`49c1ac2` 배포, 57건 재실행)을 더했다. 세부내역서 94.08%→95.38%, 영수증 98.04%→98.11%, 투여량 규칙은 파서 머리글 미인식으로 1건에만 걸림.
 * **Creation**: harness-v2 e2e 폴더 57건(세부내역서 28·영수증 29, AO 완료분)을 AWS `/api/verify`(`bbd1aeb`)로 돌리고 e2e `make_report.compare`로 AO 단독과 같은 칸 집합에서 채점한 기록을 [e2e-ao-verify](2026-09-24-e2e-ao-verify.md)에 추가했다(브랜치 `feat/e2e-eval`, 워크트리 `.worktrees/e2e-eval`). 영수증 96.16%→98.04%(개선 119·악화 25), 세부내역서 94.36%→94.08%(개선 25·악화 35). 실행·채점 스크립트 `scripts/verify_e2e.py`를 추가했다.
 * **Update**: [index](index.md)에 새 문서를 연결했다.
 
