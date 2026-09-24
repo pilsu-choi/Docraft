@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-24 (2)
+* **Creation**: 세부내역서 항목 표 열 머리글을 못 찾던 경우(오타 "함목", 병합 셀, 머리글 없는 이어지는 쪽)를 보강한 작업을 [detail-headerless](2026-09-24-detail-headerless.md)에 기록했다(브랜치 `fix/detail-headerless`, 워크트리 `.worktrees/detail-headerless`). `_headers`가 "항목" 행이 없을 때 머리글 낱말(`header_words`) 셋 이상인 행을 쓰고, 병합 셀을 낱말로 나누며, 그래도 없으면 `_inferred`가 금액×횟수×일수(×투여량)=총액 열을 찾는다. 76건 rules 단계 세부내역서 94.1% 같음·fp 88→63. AWS e2e 재실행(`e2e-20260924d`) 세부내역서 96.73%→96.45%는 두 문서 투여량 22칸을 Judge가 비운 편차로, 머리글 판정은 main과 같았다. 470 passed.
+* **Update**: [index](index.md)에 새 문서를 연결했다.
+
 ## 2026-09-24 (1)
 * **Creation**: 7종 210장 e2e 테스트의 통계 수집 항목과 소요 시간 추산을 [e2e-210-plan](2026-09-24-e2e-210-plan.md)에 기록했다(브랜치 `docs/e2e-210-plan`, 워크트리 `.worktrees/e2e-210-plan`).
 * **Update**: [e2e-edge-cases](2026-09-24-e2e-edge-cases.md)에 `9248589` 배포 후 57건 재실행 결과를 더했다(세부내역서 96.73%, 영수증 98.16%, 급여구분 오류 0, 직전 실행과 나빠짐 23·좋아짐 24로 재실행 흔들림 범위).

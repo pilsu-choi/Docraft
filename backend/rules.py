@@ -26,6 +26,7 @@
 """
 
 import logging
+import math
 import re
 from collections import Counter
 from collections.abc import Callable
@@ -52,7 +53,7 @@ def _load(path):
     tables = yaml.safe_load(path.read_text(encoding="utf-8"))
     unknown = set(tables) - {"disable", "labels", "master_names", "exclusive", "sections", "field_section", "explicit",
                              "last_date", "totals", "unprinted_null", "keep_totals", "row_keys", "notes", "marks",
-                             "total_fields", "field_sums", "swaps", "header_columns", "grouped", "item_aliases",
+                             "total_fields", "field_sums", "swaps", "header_columns", "header_words", "grouped", "item_aliases",
                              "receipt_item_names", "date_order", "issued", "later_ok", "required"}
     if unknown:
         raise ValueError(f"{path.name}: 알 수 없는 표 {sorted(unknown)}")
@@ -95,6 +96,7 @@ FIELD_SUMS = {field: tuple(parts) for field, parts in _TABLES["field_sums"].item
 SWAPS = tuple(map(tuple, _TABLES["swaps"]))
 HEADER_COLUMNS = {column: tuple(words) for column, words in _TABLES["header_columns"].items()}
 GROUPED = {column: (tuple(group["titles"]), tuple(group["subs"])) for column, group in _TABLES["grouped"].items()}
+HEADER_WORDS = tuple(_TABLES["header_words"])
 ITEM_ALIASES = tuple((re.compile(pattern), canonical) for pattern, canonical in _TABLES["item_aliases"])
 RECEIPT_ITEM_NAMES = frozenset(_TABLES["receipt_item_names"])
 DATE_ORDER = tuple(map(tuple, _TABLES["date_order"]))
@@ -997,15 +999,59 @@ def _row_of(rows, name):
 def _headers(blocks):
     """파싱 블록에서 항목 표 머리글 셀 모음. '항목'으로 끝나는 셀이 있는 행부터 세 행을 머리글로 본다.
 
-    병합된 셀 탓에 '항목'이 앞 칸 글자와 붙어 나오기도 해서 끝만 맞춰 찾는다. 항목 행이 없는 블록은
-    다른 표이므로 건너뛴다(엉뚱한 표의 제목이 섞이면 없는 열을 있다고 볼 수 있다)."""
-    cells = set()
+    병합된 셀 탓에 '항목'이 앞 칸 글자와 붙어 나오기도 해서 끝만 맞춰 찾는다. 항목 행이 없는 블록은 다른 표이므로
+    건너뛴다(엉뚱한 표의 제목이 섞이면 없는 열을 있다고 볼 수 있다). 어느 블록에도 항목 행이 없으면('함목'으로 읽었거나
+    병합 셀 한가운데 있으면) 머리글 낱말(``HEADER_WORDS``)이 셋 이상인 행을 찾고, 그것도 없으면 값의 곱셈 관계로 열을
+    짐작한다(``_inferred``). 항목 행이 있는 문서에 낱말 행까지 보태면 머리글이 흩어진 블록의 일부(일수만 있고 금액이
+    없는 행)를 잡아 단가를 지운다. 머리글 낱말 여럿이 한 셀에 병합되면('명칭 금액 횟수 일수') 낱말로 나눠 둔다(통째로도
+    두면 '코드' 열을 둘로 센다)."""
+    for found in (lambda row: any(_key(cell).endswith("항목") for cell in row),
+                  lambda row: len(_words(" ".join(map(str, row)))) >= 3):
+        cells = set()
+        for block in blocks or []:
+            rows = block.get("rows") or []
+            start = next((index for index, row in enumerate(rows) if found(row)), len(rows))
+            for cell in [cell for row in rows[start:start + 3] for cell in row if str(cell or "").strip()]:
+                merged = len(_words(cell, _MERGED_WORDS)) >= 2
+                cells.update(_key(token) for token in (str(cell).split() if merged else [cell]))
+        if cells:
+            return cells
+    return _inferred(blocks)
+
+
+_MERGED_WORDS = HEADER_WORDS + tuple(word for titles, subs in GROUPED.values() for word in titles + subs)
+_FIGURE = re.compile(r"\d[\d,]*(\.\d+)?")
+_FACTORS = {2: ("횟수", "일수"), 3: ("투여량", "횟수", "일수")}  # 금액과 총액 사이에서 곱하는 열 수 → 그 머리글 낱말
+
+
+def _words(text, vocab=HEADER_WORDS):
+    """띄어 쓴 낱말 가운데 머리글 낱말(``vocab``)로 시작하는 것들의 그 머리글 낱말 모음."""
+    return {word for token in str(text or "").split() for word in vocab if _key(token).startswith(word)}
+
+
+def _inferred(blocks):
+    """머리글 행이 없는 이어지는 쪽 표에서 금액×횟수×일수(×투여량)=총액이 되는 이웃 열을 찾아 그 머리글 낱말을 만든다.
+
+    곱이 맞는 숫자 행이 셋 이상이고 8할 이상일 때만 믿는다. 이 낱말만 룰을 움직이므로(일수가 있으면 단가·투여량 낱말이
+    없는 열을 비운다) 이것만 만든다 — 날짜·코드·명칭 열은 짐작해 넣어도 머리글이 없을 때와 같게 다뤄지고(코드 열 하나),
+    급여 열도 본인부담 하위 열이 있든 머리글이 없든 비우니 만들지 않는다. 곱하는 열이 둘이면 표준 서식(금액·횟수·일수),
+    셋이면 투여량 열이 더 있는 서식으로 본다."""
     for block in blocks or []:
-        rows = block.get("rows") or []
-        start = next((index for index, row in enumerate(rows) if any(_key(cell).endswith("항목") for cell in row)), None)
-        for row in rows[start:start + 3] if start is not None else []:
-            cells.update(_key(cell) for cell in row if str(cell or "").strip())
-    return cells
+        rows = [[_figure(cell) for cell in row] for row in block.get("rows") or []]
+        for width, factors in _FACTORS.items():
+            for start in range(max(map(len, rows), default=0) - width - 1):
+                spans = [row[start:start + width + 2] for row in rows]
+                spans = [span for span in spans if len(span) == width + 2 and None not in span and span[-1] >= 10]
+                hits = sum(abs(math.prod(span[:-1]) - span[-1]) <= max(1, span[-1] / 100) for span in spans)
+                if len(spans) >= 3 and hits >= 0.8 * len(spans):
+                    return {"금액", *factors, "총액"}
+    return set()
+
+
+def _figure(cell):
+    """표 칸이 숫자만이면 그 값(천 단위 콤마 제외), 아니면 None."""
+    text = str(cell or "").strip()
+    return float(text.replace(",", "")) if _FIGURE.fullmatch(text) else None
 
 
 def _has_header(cells, words):

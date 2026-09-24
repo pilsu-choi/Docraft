@@ -659,6 +659,51 @@ def test_headers_find_the_item_row_even_when_cells_are_merged():
     assert rules._grouped(cells, *rules.GROUPED["비급여"][:2]) is False  # 비급여는 독립 열
 
 
+def test_headers_find_the_row_by_column_words_when_item_is_misread():
+    """'항목'을 '함목'으로 읽어도 코드·명칭·횟수 같은 머리글 낱말이 셋 이상인 행을 머리글로 본다."""
+    rows = [["함목 진찰료 입원료", "일자", "코드", "명칭", "금액", "횟수", "일수", "총액", "급여", "비급여"],
+            ["함목 진찰료 입원료", "일자", "코드", "명칭", "금액", "횟수", "일수", "총액", "본인부담금", "비급여"],
+            ["함목 진찰료 입원료", "2019.10.21", "AA156", "진찰료(초진)", "17,400", "1", "1", "17,400", "0", "0"]]
+
+    cells = rules._headers([block(rows=[["환자등록번호", "환자성명"]], kind="table"), block(rows=rows, kind="table")])
+
+    assert {"코드", "명칭", "금액", "일수", "본인부담금"} <= cells
+    assert "환자등록번호" not in cells  # 머리글 낱말이 없는 표는 건너뛴다
+
+
+def test_headers_split_merged_header_cells_into_words():
+    """머리글 낱말 여럿이 병합된 셀은 낱말로 나눠, 코드 열을 하나로 세고 급여를 묶음 제목으로 본다."""
+    rows = [["명칭 급여 항목 일자 코드 금액 횟수 일수 비급여 총액 일부본인부담 전액본인 공단부담금 부담 본인부담금"] * 3,
+            ["진찰료 20211214", "AH011", "감염예방관리료(1등급)"]]
+
+    cells = rules._headers([block(rows=rows, kind="table")])
+
+    assert {"코드", "금액", "일수", "본인부담금"} <= cells
+    assert sum("코드" in cell for cell in cells) == 1
+    assert rules._grouped(cells, *rules.GROUPED["급여"]) is True
+
+
+def test_headers_infer_columns_from_arithmetic_without_header_row():
+    """머리글 없는 이어지는 쪽: 금액×횟수×일수=총액인 이웃 열로 머리글 낱말을 만들어 서식에 없는 투여량을 비운다."""
+    rows = [["진찰료", "2022-12-08", "AA254", "재진진찰료-의원", "12,130", "1", "1", "12,130", "1,213", "10,917", "ㅇ", "0"],
+            ["진찰료", "2023-01-18", "AH200000", "만성질환관리료", "2,230", "1", "1", "2,230", "223", "2,007", "o", "0"],
+            ["검사료", "2023-01-18", "03021002", "당검사", "1,184", "1", "1", "1,184", "118", "1,066", "ㅇ", "0"],
+            ["주사료", "2023-01-18", "vd3m", "비타민D", "50,000", "1", "1", "50,000", "0", "0", "0", "50,000"],
+            ["투약 및 조제료", "2023-01-18", "650100021", "가소콜액", "25", "3", "5", "375", "∞", "17", "0", "0"]]
+    read = {"항목내역": [{"항목": "진찰료", "EDI코드": "AA254", "단가": "12130", "투여량": "1", "횟수": "1", "일수": "1"}]}
+
+    out = rules.apply("세부내역서", read, [block(rows=rows, kind="table")])
+
+    assert rules._headers([block(rows=rows, kind="table")]) == {"금액", "횟수", "일수", "총액"}
+    assert out["항목내역"][0]["투여량"] is None and out["항목내역"][0]["단가"] == "12130"
+
+
+def test_headers_infer_nothing_from_an_unrelated_table():
+    rows = [["가", "3", "7", "40"], ["나", "2", "9", "5"], ["다", "11", "4", "12"], ["라", "6", "6", "100"]]
+
+    assert rules._headers([block(rows=rows, kind="table")]) == set()
+
+
 # ── 룰 확장: 라벨 글자 제거·표 열 관례·소견 문장 보충 ───────────────────────
 
 @pytest.mark.parametrize("key, value", [
