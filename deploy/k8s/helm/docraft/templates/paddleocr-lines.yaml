@@ -1,8 +1,7 @@
 {{- if .Values.paddleocrLines.enabled }}
-{{- include "dft.requireGpuNode" . }}
 {{- $fn := include "dft.fullname" . -}}
 {{- $l := .Values.paddleocrLines -}}
-{{- $count := len (splitList "," (toString $l.deviceIds)) -}}
+{{- include "dft.requireGpuNode" (dict "ctx" . "gpu" $l) }}
 # =============================================================================
 # PP-OCRv5 줄 좌표 전용 파이프라인. 구조·내용은 paddleocr-vl 이 맡고 여기서는 근거 상자용
 # 좌표만 얻는다. CPU 추론(device: cpu 기본)이지만 이미지가 paddlepaddle-gpu 라 libcuda
@@ -63,21 +62,21 @@ spec:
       {{- end }}
       securityContext: { seccompProfile: { type: RuntimeDefault } }
       initContainers:
-        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "paddleocrVl")) "deviceIds" $l.deviceIds "count" $count) | nindent 8 }}
+        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "paddleocrVl")) "gpu" $l) | nindent 8 }}
       containers:
         - name: paddleocr-lines
           image: {{ include "dft.image" (dict "ctx" . "name" "paddleocrVl") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["paddlex", "--serve", "--pipeline", "/home/paddleocr/ocr_lines.yaml", "--device", {{ $l.device | quote }}]
           env:
-            {{- include "dft.gpuEnv" $l.deviceIds | nindent 12 }}
+            {{- include "dft.gpuEnv" $l | nindent 12 }}
           ports: [{ name: http, containerPort: 8080 }]
           securityContext: { allowPrivilegeEscalation: false }
           # 모델 캐시가 비어 있으면 첫 기동 때 받는다(폐쇄망은 미리 채워 둬야 한다 — 아래 volumes 주석).
           startupProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 10, failureThreshold: 60 }
           readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 10, timeoutSeconds: 5 }
           livenessProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3 }
-          resources: {{- toYaml $l.resources | nindent 12 }}
+          resources: {{- include "dft.gpuResources" (dict "res" $l.resources "gpu" $l) | nindent 12 }}
           volumeMounts:
             - { name: config, mountPath: /home/paddleocr/ocr_lines.yaml, subPath: ocr_lines.yaml }
             - { name: models, mountPath: /home/paddleocr/.paddlex }

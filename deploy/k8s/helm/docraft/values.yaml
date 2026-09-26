@@ -9,7 +9,8 @@
 #   externalDatabase.url        harness pgvector Postgres의 docraft 전용 DB
 #   externalRedis.url           harness redis(QUEUE_NAME 으로 분리)
 #   paddleocrVl.enabled / paddleocrLines.enabled / vllmVlm.enabled   GPU 컴포넌트 켜고 끄기
-#   gpu.nodeSelector             deviceIds 를 쓰는 모든 GPU 파드가 뜰 노드(필수)
+#   각 컴포넌트의 gpuCount(device plugin 자원 요청, 기본) / deviceIds(카드 번호 직접 지정)
+#   gpu.nodeSelector             deviceIds(카드 지정 모드)를 쓰는 GPU 파드가 뜰 노드(그때만 필수)
 #   models.volume.hostPath       vLLM VLM 가중치 루트(반입 번들이 채운다)
 # =============================================================================
 
@@ -147,11 +148,19 @@ models:
     existingClaim: ""
 
 # ── GPU 파드 공통 스케줄링 ───────────────────────────────────────────────
-# paddleocr-vl(vlm-server·api) · paddleocr-lines · vllm-vlm 세 컴포넌트에 적용된다.
-# 셋 다 deviceIds 로 device plugin 을 우회한다(harness-v2 INSTALL.md §11과 같은 방식) — 전제 조건:
-# 노드의 nvidia-container-toolkit 이 accept-nvidia-visible-devices-envvar-when-unprivileged=true
-# 여야 한다(GPU Operator 기본은 false). 그래서 nvidia.com/gpu 를 요청하지 않고, 아래 nodeSelector 로
-# 노드를 직접 지정해야 한다(비우면 렌더링이 멈춘다).
+# paddleocr-vl(vlm-server·api) · paddleocr-lines · vllm-vlm 세 컴포넌트에 적용된다. 컴포넌트마다
+# 아래 두 방식 중 하나로 GPU 를 할당한다(각 컴포넌트의 gpuCount/deviceIds 주석 참고):
+#   · device plugin 모드(deviceIds 비움, 기본) — nvidia.com/gpu 를 gpuCount 장 요청한다. 스케줄러가
+#     유휴 카드를 알아서 고르므로 아래 nodeSelector 가 없어도 된다. 한 카드를 여러 파드가 나눠
+#     쓰려면(예: paddleocrVl 과 paddleocrLines) device plugin time-slicing 설정이 있어야 한다 —
+#     GPU 메모리는 격리되지 않으므로 함께 쓰는 컴포넌트의 gpuMemoryUtilization 비율 합이 카드
+#     하나에 들어와야 한다.
+#   · 카드 지정 모드(deviceIds 채움) — device plugin 을 우회해 nvidia.com/gpu 를 요청하지 않고
+#     NVIDIA_VISIBLE_DEVICES 로 그 번호의 카드를 직접 붙인다(harness-v2 INSTALL.md §11과 같은
+#     방식). 노드의 nvidia-container-toolkit 이
+#     accept-nvidia-visible-devices-envvar-when-unprivileged=true 여야 하고(GPU Operator 기본은
+#     false), 스케줄러가 이 사용량을 모르므로 아래 nodeSelector 로 노드를 직접 지정해야 한다
+#     (비우면 렌더링이 멈춘다 — dft.requireGpuNode).
 gpu:
   nodeSelector: {}
   tolerations:
@@ -164,12 +173,20 @@ gpu:
 paddleocrVl:
   enabled: false
   model: PaddleOCR-VL-1.6-0.9B
-  # 쓸 GPU 카드 번호(쉼표 구분, 노드의 물리 번호). 기본 배치: GPU0 = paddleocr-vl + harness bge-m3(이
-  # 차트 밖) + paddleocr-lines(드라이버만). GPU1 = vllm-vlm 전용.
-  deviceIds: "0"
+  # 쓸 GPU 장수(device plugin 모드 — 아래 deviceIds 가 비어 있을 때만 쓰인다). 기본 배치 전제:
+  # GPU0 = paddleocr-vl + harness bge-m3(이 차트 밖) + paddleocr-lines(드라이버만)가 한 장을
+  # 나눠 쓴다(device plugin time-slicing 필요). GPU1 = vllm-vlm 전용.
+  gpuCount: 1
+  # 쓸 GPU 카드 번호(쉼표 구분, 노드의 물리 번호). **비우면(기본) device plugin 이 유휴 카드를
+  # 골라 위 gpuCount 장을 준다.** 값을 넣으면 device plugin 을 우회해 그 번호의 카드를 직접
+  # 붙인다(장수는 개수로 정해지고 gpuCount 는 쓰이지 않는다) — 이때는 gpu.nodeSelector 로 노드를
+  # 직접 지정해야 한다(비우면 렌더링이 멈춘다).
+  deviceIds: ""
   # GPU 전체 메모리 대비 비율. compose 기본값 0.6 은 L4 24GB(약 14.4GB) 기준이다. 고객 환경(L40S
   # 48GB)에서는 같은 절대량이면 0.3 이지만, harness bge-m3·paddleocr-lines 와 카드를 나눠 쓰므로
-  # 여유를 더 둬 0.25 를 기본값으로 한다 — 실측 후 조정한다(미확정, 아래 uncertain 참고).
+  # 여유를 더 둬 0.25 를 기본값으로 한다 — 실측 후 조정한다(미확정, 아래 uncertain 참고). 카드를
+  # 나눠 쓸 때는(time-slicing 포함) GPU 메모리가 격리되지 않으므로 함께 쓰는 컴포넌트의 비율
+  # 합이 카드 하나에 들어와야 한다.
   gpuMemoryUtilization: 0.25
   maxNumSeqs: 32
   maxNumBatchedTokens: 16384
@@ -189,8 +206,12 @@ paddleocrLines:
   # cpu(기본) | gpu:0 등 — paddlex --serve --device 값. CPU 를 써도 이미지가 paddlepaddle-gpu 라
   # libcuda 로딩에 GPU 가시성이 필요하다(없으면 ImportError, compose 주석과 동일 이유).
   device: cpu
-  # GPU0 에 드라이버만 얹는다(연산은 하지 않는다) — paddleocrVl 과 같은 카드를 공유한다.
-  deviceIds: "0"
+  # 드라이버만 얹을 GPU 장수(device plugin 모드 — 아래 deviceIds 가 비어 있을 때만 쓰인다).
+  gpuCount: 1
+  # GPU0 에 드라이버만 얹는다(연산은 하지 않는다) — paddleocrVl 과 같은 카드를 공유하는 예.
+  # **비우면(기본) device plugin 이 위 gpuCount 장을 준다.** 값을 넣으면 device plugin 을
+  # 우회해 그 번호의 카드를 직접 붙인다.
+  deviceIds: ""
   resources:
     requests: { cpu: "1", memory: 2Gi }
     limits:   { memory: 4Gi }
@@ -213,10 +234,15 @@ vllmVlm:
   # models.volume.hostPath(또는 existingClaim) 아래 서브디렉터리 — 반입 번들이 채운다.
   # 기본은 FP8 양자화판(미확정 실제 배포 모델 ID, 아래 uncertain 참고).
   modelDir: "Qwen3-VL-32B-Instruct-FP8"
-  # 쓸 GPU 카드 번호(쉼표 구분). 장수는 여기 개수로 정해진다 — --tensor-parallel-size 에 그대로
-  # 들어간다. BF16 + 텐서 병렬로 바꾸려면 modelDir 을 BF16 가중치로, deviceIds 를 "1,2" 처럼
-  # 두 장으로 바꾼다(gpuMemoryUtilization·maxModelLen 은 그대로 두거나 같이 조정).
-  deviceIds: "1"
+  # 쓸 GPU 장수. --tensor-parallel-size 에 그대로 들어간다(device plugin 모드 — 아래 deviceIds
+  # 가 비어 있을 때만 쓰인다). BF16 + 텐서 병렬로 바꾸려면 modelDir 을 BF16 가중치로, 이 값을
+  # 2로(또는 deviceIds 를 "1,2" 처럼 두 장으로) 바꾼다(gpuMemoryUtilization·maxModelLen 은
+  # 그대로 두거나 같이 조정).
+  gpuCount: 1
+  # 쓸 GPU 카드 번호(쉼표 구분). **비우면(기본) device plugin 이 위 gpuCount 장을 준다.** 값을
+  # 넣으면 device plugin 을 우회해 그 번호의 카드를 직접 붙인다 — 장수는 개수로 정해지고
+  # gpuCount 는 쓰이지 않는다(harness-v2 embedding 모델과 같은 패턴).
+  deviceIds: ""
   # GPU 전체 메모리 대비 비율. L40S 48GB에 FP8 32B(가중치 약 32GB) + KV cache 여유.
   gpuMemoryUtilization: 0.90
   maxModelLen: 32768

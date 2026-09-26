@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [GPU 할당 방식 이원화: 카드 지정 모드 + device plugin 자원 모드](2026-09-26-GPU-할당-방식.md) - helm/docraft 차트의 paddleocrVl·paddleocrLines·vllmVlm 에 harness-v2 embedding 차트와 같은 nvidia.com/gpu 요청 기반 device plugin 모드를 추가하고 기존 deviceIds 카드 지정 모드와 헬퍼를 통합
 * [OCR 엣지 케이스 개선 우선순위: 속도와 정확도](2026-09-25-edge-speed-accuracy-priorities.md) - 실측 지연·정확도와 102개 카탈로그를 함께 고려한 규칙 보완, 선택적 모델 호출, 룰 1차 추출, 교차검증의 실행 순서와 채택 기준
 * [보험 청구서류 7종 OCR 엣지 케이스 카탈로그 대응 점검](2026-09-25-ocr-edge-catalog-audit.md) - 카탈로그 102개 ID와 검산식 11개를 현재 코드와 대조한 지원·부분·미지원 판정 및 우선 대응 순서
 * [하네스 표본 7종 e2e에서 드러난 /api/verify 수정](2026-09-24-verify-harness-e2e-fixes.md) - 진단서 계열 정의 밖 key(사고발생일자) 502, `_balance` 가 Docraft 항목명까지 가져오던 문제(이름 유지 짝 조건·합계 행·정의 밖 열), 하네스 서식 재분류의 값 없는 AO 요청은 Judge 없이 Docraft 추출값 사용

@@ -1,8 +1,7 @@
 {{- if .Values.vllmVlm.enabled }}
-{{- include "dft.requireGpuNode" . }}
 {{- $fn := include "dft.fullname" . -}}
 {{- $v := .Values.vllmVlm -}}
-{{- $count := len (splitList "," (toString $v.deviceIds)) -}}
+{{- include "dft.requireGpuNode" (dict "ctx" . "gpu" $v) }}
 # =============================================================================
 # vLLM OpenAI 서버 — Qwen3-VL-32B-Instruct(FP8 기본, hostPath 가중치, 폐쇄망 반입 번들).
 # backend 의 AI_BASE_URL/AI_VLM_MODEL 은 templates/config.yaml 에서 이 Service 로 연결한다.
@@ -41,7 +40,7 @@ spec:
       # (harness-v2 deploy/models/README.md 와 같은 전제).
       securityContext: { seccompProfile: { type: RuntimeDefault } }
       initContainers:
-        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "vllm")) "deviceIds" $v.deviceIds "count" $count) | nindent 8 }}
+        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "vllm")) "gpu" $v) | nindent 8 }}
       containers:
         - name: vllm
           image: {{ include "dft.image" (dict "ctx" . "name" "vllm") }}
@@ -50,9 +49,9 @@ spec:
           args:
             - /models/vlm
             - --served-model-name={{ $v.servedModelName }}
-            # deviceIds 개수가 곧 텐서 병렬 장수다 — BF16+TP 전환 시 deviceIds 를 "1,2"처럼 늘리면
-            # 여기도 함께 늘어난다(harness 와 같은 패턴, gpuCount 를 따로 두지 않는다).
-            - --tensor-parallel-size={{ $count }}
+            # 텐서 병렬 장수 — device plugin 모드는 gpuCount, 카드 지정 모드는 deviceIds 개수다
+            # (dft.gpuCount, harness-v2 embedding 모델과 같은 패턴).
+            - --tensor-parallel-size={{ include "dft.gpuCount" $v }}
             - --gpu-memory-utilization={{ $v.gpuMemoryUtilization }}
             {{- with $v.maxModelLen }}
             - --max-model-len={{ . }}
@@ -72,7 +71,7 @@ spec:
             - { name: TRANSFORMERS_OFFLINE, value: "1" }
             - { name: VLLM_NO_USAGE_STATS, value: "1" }
             - { name: DO_NOT_TRACK, value: "1" }
-            {{- include "dft.gpuEnv" $v.deviceIds | nindent 12 }}
+            {{- include "dft.gpuEnv" $v | nindent 12 }}
           ports: [{ name: http, containerPort: 8000 }]
           securityContext: { allowPrivilegeEscalation: false }
           # 32B 가중치 로딩 + 컴파일까지 여유를 넉넉히 둔다(최대 20분).
@@ -82,7 +81,7 @@ spec:
             failureThreshold: 120
           readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 10, timeoutSeconds: 5 }
           livenessProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3 }
-          resources: {{- toYaml $v.resources | nindent 12 }}
+          resources: {{- include "dft.gpuResources" (dict "res" $v.resources "gpu" $v) | nindent 12 }}
           volumeMounts:
             - name: models
               mountPath: /models/vlm
