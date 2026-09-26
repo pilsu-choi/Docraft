@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [필수 필드 오독 교정 확대](2026-09-26-misread-correction.md) - 진료비영수증 항목명 오독 교정을 세 글자 이하까지 자모 하나 차이로 넓히고('진칠료'→'진찰료'), 날짜의 숫자에 붙은 O·I·l을 0·1로 읽게 함. 라벨 오독 매칭은 실제 낱말 오매칭('발생일'→'발행일')으로 보류
 * [GPU 할당 방식 이원화: 카드 지정 모드 + device plugin 자원 모드](2026-09-26-GPU-할당-방식.md) - helm/docraft 차트의 paddleocrVl·paddleocrLines·vllmVlm 에 harness-v2 embedding 차트와 같은 nvidia.com/gpu 요청 기반 device plugin 모드를 추가하고 기존 deviceIds 카드 지정 모드와 헬퍼를 통합
 * [OCR 엣지 케이스 개선 우선순위: 속도와 정확도](2026-09-25-edge-speed-accuracy-priorities.md) - 실측 지연·정확도와 102개 카탈로그를 함께 고려한 규칙 보완, 선택적 모델 호출, 룰 1차 추출, 교차검증의 실행 순서와 채택 기준
 * [보험 청구서류 7종 OCR 엣지 케이스 카탈로그 대응 점검](2026-09-25-ocr-edge-catalog-audit.md) - 카탈로그 102개 ID와 검산식 11개를 현재 코드와 대조한 지원·부분·미지원 판정 및 우선 대응 순서

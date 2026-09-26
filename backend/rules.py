@@ -28,6 +28,7 @@
 import logging
 import math
 import re
+import unicodedata
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -121,6 +122,7 @@ _DATE = re.compile(
     r"|(?<!\d)(\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})\s*일?"
     r"|(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)"
     r"|(?<!\d)(\d{2})(\d{2})(\d{2})(?!\d)")
+_DATE_MISREAD = re.compile(r"(?<=\d)[OoIl]+|[OoIl]+(?=\d)")  # 숫자에 붙은 O·I·l은 0·1을 잘못 읽은 것('2O25.O1.l2'). '|'는 날짜 사이 구분이라 뺀다
 _CODE = re.compile(r"[A-Za-z01][0-9]{2,5}(?:\.[0-9]{1,2})?")
 _CODE_IN_TEXT = re.compile(r"[(\[{]?\s*[A-Za-z]\d{2,5}(?:\.\d{1,2})?\s*[)\]}]?")
 _LICENSE = re.compile(r"\(?\s*(제)?\s*\d{4,6}\s*(호)?\s*\)?")
@@ -156,6 +158,7 @@ def _calendar(parts):
 
 def _dates_in(text):
     found = []
+    text = _DATE_MISREAD.sub(lambda match: match[0].translate(OCR_DIGITS), text)
     for match in _DATE.finditer(text):
         value = _calendar([group for group in match.groups() if group is not None])
         if value and value not in found:
@@ -955,14 +958,23 @@ def item(name) -> str | None:
     text = re.sub(r"[^0-9A-Za-z가-힣]", "", str(name or ""))
     bare = _alias(_ITEM_GROUP.sub("", text, count=1))
     name = bare if bare in RECEIPT_ITEM_NAMES else _alias(text)
-    return name if name in RECEIPT_ITEM_NAMES or name is None or len(name) < 4 else _misread(name)
+    return name if name in RECEIPT_ITEM_NAMES or name is None or len(name) < 2 else _misread(name)
 
 
 def _misread(name):
-    """표준 항목명과 한 글자만 다르고(바뀜·빠짐·더해짐) 그런 이름이 하나뿐이면 OCR 오독으로 보고 표준 이름을
-    돌려준다('시행및처치료'→'시술및처치료', '치료재대'→'치료재료대'). 세 글자 이하는 다른 항목과 헷갈리기 쉬워 보지 않는다."""
-    hits = [known for known in RECEIPT_ITEM_NAMES if len(known) >= 4 and _one_off(known, name)]
+    """표준 항목명 가운데 name과 가까운 이름이 하나뿐이면 OCR 오독으로 보고 그 이름을, 아니면 name을 돌려준다.
+
+    가깝다는 것은 글자 수가 같고 자모 하나만 다르거나(바뀜·빠짐·더해짐 — '진칠료'→'진찰료', '식데'→'식대'),
+    네 글자 이상에서 한 글자만 다른 것이다('시행및처치료'→'시술및처치료', '치료재대'→'치료재료대').
+    짧은 이름은 글자 하나를 통째로 바꾸면 다른 항목이 되므로('주사료'·'검사료') 자모 하나까지만 본다.
+    서식 라벨에는 쓰지 않는다 — 라벨은 닫힌 목록이 아니라 '발생일'이 '발행일'로, '종료일자'가 '진료일자'로 붙는다."""
+    hits = [other for other in RECEIPT_ITEM_NAMES if len(other) == len(name) and _one_off(_jamo(other), _jamo(name))
+            or len(other) >= 4 and _one_off(other, name)]
     return hits[0] if len(hits) == 1 else name
+
+
+def _jamo(text):
+    return unicodedata.normalize("NFD", text)  # 한글 음절을 초성·중성·종성으로 푼다
 
 
 def _one_off(a, b):
