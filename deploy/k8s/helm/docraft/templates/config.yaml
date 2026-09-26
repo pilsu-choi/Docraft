@@ -23,6 +23,7 @@ data:
   AI_VLM_MODEL: {{ include "dft.aiVlmModel" . | quote }}
   AI_VISION: {{ .Values.backend.aiVision | quote }}
   AI_REASONING: {{ .Values.backend.aiReasoning | quote }}
+  AI_TIMEOUT: {{ .Values.backend.aiTimeout | default 90 | quote }}
   TABLE_REFINE: {{ .Values.backend.tableRefine | quote }}
   # paddleocrVl 을 껐으면 library 파서(스캔 이미지 OCR 없이 텍스트 레이어만) 로 대체된다.
   PARSE_PROVIDER: {{ ternary "paddle" "library" .Values.paddleocrVl.enabled | quote }}

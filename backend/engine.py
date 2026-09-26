@@ -3,6 +3,7 @@ import difflib
 import html
 import json
 import logging
+import os
 import re
 import time
 from collections import Counter
@@ -79,7 +80,10 @@ def _user(text, images):
     return {"role": "user", "content": [*({"type": "image_url", "image_url": {"url": url}} for url in images), {"type": "text", "text": text}]}
 
 
-def _provider(messages, timeout=90):
+def _provider(messages, timeout=None):
+    # 호출마다 준 값과 AI_TIMEOUT(기본 90초) 중 큰 값 — 느린 GPU(L40S 요청당 약 16 tok/s)에서는 긴 응답(스키마 생성·
+    # 행 많은 표)이 90초를 넘는다.
+    timeout = max(timeout or 0, float(os.getenv("AI_TIMEOUT", "90")))
     settings = ai_settings()
     if not settings["configured"] or settings["mode"] == "local":
         raise ProviderConfigurationError("AI provider가 설정되지 않았습니다. AI_BASE_URL, AI_API_KEY, AI_VLM_MODEL을 확인해 주세요.")

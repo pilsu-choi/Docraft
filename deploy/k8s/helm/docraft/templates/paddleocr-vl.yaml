@@ -101,7 +101,7 @@ metadata:
   name: {{ $fn }}-paddleocr-vl-api
   labels: {{- include "dft.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ $p.apiReplicas | default 1 }}
   strategy: { type: Recreate }
   selector:
     matchLabels: {{- include "dft.selector" (dict "ctx" . "component" "paddleocr-vl-api") | nindent 6 }}
