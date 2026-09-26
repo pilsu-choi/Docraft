@@ -1,8 +1,7 @@
 {{- if .Values.paddleocrVl.enabled }}
-{{- include "dft.requireGpuNode" . }}
 {{- $fn := include "dft.fullname" . -}}
 {{- $p := .Values.paddleocrVl -}}
-{{- $count := len (splitList "," (toString $p.deviceIds)) -}}
+{{- include "dft.requireGpuNode" (dict "ctx" . "gpu" $p) }}
 # =============================================================================
 # PaddleOCR-VL 레이아웃 파서 — vlm-server(vLLM 백엔드, 실제 추론) + api(paddlex serve, HTTP 앞단).
 # compose(paddleocr-vlm-server·paddleocr-vl-api)와 같은 이미지·명령이다.
@@ -58,14 +57,14 @@ spec:
       # 이미지가 root 를 전제로 한다(compose user: root) — 벤더 이미지라 비 root 전환은 검증 전.
       securityContext: { seccompProfile: { type: RuntimeDefault } }
       initContainers:
-        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "paddleocrVlmServer")) "deviceIds" $p.deviceIds "count" $count) | nindent 8 }}
+        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "paddleocrVlmServer")) "gpu" $p) | nindent 8 }}
       containers:
         - name: vlm-server
           image: {{ include "dft.image" (dict "ctx" . "name" "paddleocrVlmServer") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["paddleocr", "genai_server", "--model_name", {{ $p.model | quote }}, "--host", "0.0.0.0", "--port", "8080", "--backend", "vllm", "--backend_config", "/home/paddleocr/vlm_server_config.yaml"]
           env:
-            {{- include "dft.gpuEnv" $p.deviceIds | nindent 12 }}
+            {{- include "dft.gpuEnv" $p | nindent 12 }}
           ports: [{ name: http, containerPort: 8080 }]
           securityContext: { allowPrivilegeEscalation: false }
           # 모델 로딩이 오래 걸린다(compose start_period 300s와 같은 여유).
@@ -75,7 +74,7 @@ spec:
             failureThreshold: 60
           readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 10, timeoutSeconds: 5 }
           livenessProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3 }
-          resources: {{- toYaml $p.resources.vlmServer | nindent 12 }}
+          resources: {{- include "dft.gpuResources" (dict "res" $p.resources.vlmServer "gpu" $p) | nindent 12 }}
           volumeMounts:
             - { name: config, mountPath: /home/paddleocr/vlm_server_config.yaml, subPath: vllm_config.yaml }
             - { name: shm, mountPath: /dev/shm }
@@ -116,7 +115,7 @@ spec:
       {{- end }}
       securityContext: { seccompProfile: { type: RuntimeDefault } }
       initContainers:
-        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "paddleocrVl")) "deviceIds" $p.deviceIds "count" $count) | nindent 8 }}
+        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "paddleocrVl")) "gpu" $p) | nindent 8 }}
         # compose 의 depends_on condition:service_healthy 에 해당한다 — vlm-server 준비 전에
         # paddlex --serve 가 뜨면 첫 요청에서 바로 실패한다.
         - name: wait-for-vlm-server
@@ -134,13 +133,13 @@ spec:
           # compose 와 같은 sed — model_name 만 값으로 바꾼다.
           command: ["/bin/bash", "-c", "sed 's/model_name: PaddleOCR-VL.*/model_name: {{ $p.model }}/' /home/paddleocr/pipeline_config_vllm.yaml > /tmp/pipeline.yaml && exec paddlex --serve --pipeline /tmp/pipeline.yaml"]
           env:
-            {{- include "dft.gpuEnv" $p.deviceIds | nindent 12 }}
+            {{- include "dft.gpuEnv" $p | nindent 12 }}
           ports: [{ name: http, containerPort: 8080 }]
           securityContext: { allowPrivilegeEscalation: false }
           startupProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 10, failureThreshold: 30 }
           readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 10, timeoutSeconds: 5 }
           livenessProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3 }
-          resources: {{- toYaml $p.resources.api | nindent 12 }}
+          resources: {{- include "dft.gpuResources" (dict "res" $p.resources.api "gpu" $p) | nindent 12 }}
           volumeMounts:
             - { name: shm, mountPath: /dev/shm }
       volumes:

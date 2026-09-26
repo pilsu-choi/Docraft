@@ -89,6 +89,11 @@ device plugin 병행 모드는 두지 않고 **deviceIds 우회 단일 모드**�
 deviceIds"를 명시했고, 코드 간결성 지침과도 맞다) — `gpu.nodeSelector`가 비어 있으면
 `dft.requireGpuNode`가 `helm template` 단계에서 바로 멈춘다(harness의 같은 가드와 동일 원리).
 
+> **[2026-09-26 갱신]** 이 "단일 모드" 결정은 [GPU-할당-방식](2026-09-26-GPU-할당-방식.md)에서
+> 뒤집혔다 — harness-v2 embedding 차트와 같은 `gpuCount`(device plugin) 모드를 추가해 `deviceIds`
+> 를 비우면 기본으로 그 모드를 쓴다. `gpu.nodeSelector` 필수 여부도 카드 지정 모드일 때만으로
+> 좁혀졌다. 아래 GPU 배치 서술은 카드 지정 모드를 쓸 때만 유효하다.
+
 ## 보안 컨텍스트
 
 backend·worker·smoke 테스트는 harness와 같은 `restricted` 수준(`runAsNonRoot`, uid 10001,

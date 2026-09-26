@@ -23,12 +23,23 @@ helm template docraft deploy/k8s/helm/docraft \
   --set externalDatabase.url=postgresql://docraft:<pw>@<host>:5432/docraft
 ```
 
-GPU 컴포넌트를 켜려면 `gpu.nodeSelector`가 필수다(비우면 렌더링이 멈춘다 — 아래 이유):
+GPU 컴포넌트는 기본(device plugin 모드, 아래 「GPU 배치」)으로는 `gpu.nodeSelector` 없이도 뜬다 —
+`nvidia.com/gpu`를 요청해 스케줄러가 알아서 GPU 노드를 고른다:
+
+```bash
+helm template docraft deploy/k8s/helm/docraft \
+  --set externalDatabase.url=postgresql://docraft:<pw>@<host>:5432/docraft \
+  --set paddleocrVl.enabled=true --set paddleocrLines.enabled=true --set vllmVlm.enabled=true
+```
+
+카드 번호를 직접 지정하는 모드(`deviceIds`를 채움)로 바꾸면 `gpu.nodeSelector`가 필수다(비우면
+렌더링이 멈춘다 — 아래 「GPU 배치」 이유):
 
 ```bash
 helm template docraft deploy/k8s/helm/docraft \
   --set externalDatabase.url=postgresql://docraft:<pw>@<host>:5432/docraft \
   --set paddleocrVl.enabled=true --set paddleocrLines.enabled=true --set vllmVlm.enabled=true \
+  --set paddleocrVl.deviceIds=0 --set paddleocrLines.deviceIds=0 --set vllmVlm.deviceIds=1 \
   --set gpu.nodeSelector.kubernetes\.io/hostname=<GPU노드>
 ```
 
@@ -58,9 +69,24 @@ harness-installer 우산 차트(`charts/mlife-ocr`)의 `docraft.auth.aiApiKey`�
 
 ## GPU 배치 (기본값: L40S 2장)
 
-deviceIds로 device plugin을 우회한다(harness-v2 `deploy/k8s/INSTALL.md` §11과 같은 방식) — 노드의
-`nvidia-container-toolkit`이 `accept-nvidia-visible-devices-envvar-when-unprivileged=true`여야 하고,
-`nvidia.com/gpu`를 요청하지 않으므로 `gpu.nodeSelector`로 노드를 직접 지정해야 한다.
+`paddleocrVl`·`paddleocrLines`·`vllmVlm` 세 컴포넌트 모두 두 방식 중 하나로 GPU를 할당한다
+(harness-v2 `mlife-harness` 차트의 `models.embedding.gpuCount`/`deviceIds`와 같은 패턴):
+
+- **device plugin 모드(기본, `deviceIds` 비움)** — `nvidia.com/gpu`를 `gpuCount`장 요청한다.
+  스케줄러가 유휴 카드를 골라 주므로 `gpu.nodeSelector`가 없어도 된다. 한 카드를 여러 파드가
+  나눠 쓰려면(아래 기본 배치처럼 `paddleocrVl`과 `paddleocrLines`가 GPU0을 공유) device plugin
+  time-slicing 설정이 있어야 한다 — GPU 메모리는 격리되지 않으므로 함께 쓰는 컴포넌트의
+  `gpuMemoryUtilization` 비율 합이 카드 하나에 들어와야 한다.
+- **카드 지정 모드(`deviceIds`를 채움)** — device plugin을 우회한다(harness-v2
+  `deploy/k8s/INSTALL.md` §11과 같은 방식). 노드의 `nvidia-container-toolkit`이
+  `accept-nvidia-visible-devices-envvar-when-unprivileged=true`여야 하고, `nvidia.com/gpu`를
+  요청하지 않으므로 `gpu.nodeSelector`로 노드를 직접 지정해야 한다(비우면 렌더링이 멈춘다).
+
+두 모드 모두 `gpu-check` init 컨테이너가 실제로 보이는 GPU 장수를 확인하고 다르면 멈춘다 — 카드
+지정 모드는 toolkit 설정 문제를, device plugin 모드는 time-slicing으로 같은 카드의 복제본만 받은
+경우를 짚어 준다(텐서 병렬에서 특히 중요하다).
+
+기본 배치(카드 지정 모드로 예시):
 
 | GPU | 컴포넌트 | 비고 |
 | --- | --- | --- |
@@ -73,8 +99,9 @@ deviceIds로 device plugin을 우회한다(harness-v2 `deploy/k8s/INSTALL.md` §
 실측 후 조정 필요(미확정). `vllmVlm.gpuMemoryUtilization` 기본 0.90은 FP8 32B 가중치(약 32GB) + KV cache
 여유를 감안한 값이다.
 
-BF16 + 텐서 병렬로 바꾸려면 `vllmVlm.modelDir`을 BF16 가중치 서브디렉터리로, `deviceIds`를 `"1,2"`처럼 카드
-두 장으로 바꾼다 — `--tensor-parallel-size`는 `deviceIds` 개수로 자동 정해진다(값을 따로 두지 않는다).
+BF16 + 텐서 병렬로 바꾸려면 `vllmVlm.modelDir`을 BF16 가중치 서브디렉터리로, `gpuCount`를 2로(카드 지정
+모드면 `deviceIds`를 `"1,2"`처럼 카드 두 장으로) 바꾼다 — `--tensor-parallel-size`는 이 값(또는 `deviceIds`
+개수)으로 자동 정해진다(값을 따로 두지 않는다).
 
 ## hostPath 모델 디렉터리 구조 (반입 번들이 채운다)
 

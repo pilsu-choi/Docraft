@@ -1,5 +1,10 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-26
+* **Creation**: `deploy/k8s/helm/docraft` 차트의 `paddleocrVl`·`paddleocrLines`·`vllmVlm` GPU 컴포넌트에, harness-v2 `mlife-harness` 임베딩 차트와 같은 `gpuCount`/`deviceIds` 패턴으로 device plugin(`nvidia.com/gpu`) 자원 모드를 추가하고 기존 카드 지정 모드와 `_helpers.tpl` 헬퍼(`dft.gpuCount`·`dft.gpuEnv`·`dft.gpuResources`·`dft.gpuCheck`·`dft.requireGpuNode`)를 통합한 작업을 [GPU-할당-방식](2026-09-26-GPU-할당-방식.md)에 기록했다(`helm lint --strict` 통과, `helm template` 4케이스 검증 — 기본 device plugin 모드 nvidia.com/gpu 16곳, gpuCount=2 시 TP=2, 카드 지정 모드는 변경 전과 내용 동일, 카드 지정+nodeSelector 없음은 렌더링 실패). 브랜치 `feat/gpu-alloc`, 워크트리 `.worktrees/gpu-alloc`.
+* **Update**: [index](index.md)에 새 문서를 연결했다.
+* **Update**: [k8s-helm-chart](2026-09-23-k8s-helm-chart.md)의 "deviceIds 우회 단일 모드로 단순화" 결정이 뒤집혔음을 [GPU-할당-방식](2026-09-26-GPU-할당-방식.md) 링크와 함께 적었다.
+
 ## 2026-09-25 (3)
 * **Update**: [edge-speed-accuracy-priorities](2026-09-25-edge-speed-accuracy-priorities.md)에 사용자 후속 질문에 대한 룰 전용 후보(표 헤더·항목명, 괄호 음수, 납부금액 검산, 입원일수/발병일, 청구 건 비교)를 자동 보정과 검출 전용으로 나눠 보강했다. 브랜치 `docs/rule-only-priorities`, 워크트리 `.worktrees/rule-only-priorities`.
 
