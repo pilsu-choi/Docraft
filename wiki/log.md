@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-27
+* **Creation**: [request-id-logging](2026-09-27-request-id-logging.md)에 모든 로그 줄에 요청 ID(`[rid]`)를 붙이고 하네스가 보낸 `X-Request-ID`(job.txn.doc)로 두 시스템 로그를 잇게 한 작업, 4xx 사유·AI provider HTTP 오류 본문 기록, k8s 로그 보관 현황을 기록했다. 브랜치 `feat/0927-logging`, 워크트리 `.worktrees/logging`.
+* **Update**: [index](index.md)에 새 문서를 연결했다.
+
 ## 2026-09-26 (2)
 * **Creation**: [misread-correction](2026-09-26-misread-correction.md)에 진료비영수증 항목명 자모 한 개 오독 교정(세 글자 이하 포함)과 날짜 O·I·l 오독 교정, 라벨 오독 매칭을 넣지 않은 근거(낱말 25,021개 오매칭 검사)를 기록했다. 브랜치 `feat/misread-correction`, 워크트리 `.worktrees/misread-correction`.
 * **Update**: [index](index.md)에 새 문서를 연결했다.
