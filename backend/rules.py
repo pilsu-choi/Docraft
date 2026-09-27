@@ -745,6 +745,15 @@ def _receipt_column(cells):
     return None
 
 
+def _receipt_header_column(cells):
+    """병합된 상위 제목보다 본문에 가까운 실제 금액 열 머리글을 믿는다."""
+    for cell in reversed(cells):
+        column = _receipt_column([cell])
+        if column in {"본인부담금", "공단부담금", "전액본인부담", "선택진료료", "선택진료료외"}:
+            return column
+    return _receipt_column(cells)
+
+
 def _receipt_item(values):
     """항목이 여러 병합 칸으로 나뉜 행에서 실제 항목명만 조합한다."""
     values = [str(value).strip() for value in values if str(value or "").strip()]
@@ -780,7 +789,7 @@ def _receipt_rows(blocks):
                                            for column in item_columns])), None)
             if body is None:
                 continue
-            columns = {index: _receipt_column([row[index] if index < len(row) else "" for row in rows[start:body]])
+            columns = {index: _receipt_header_column([row[index] if index < len(row) else "" for row in rows[start:body]])
                        for index in range(len(header))}
             leaves = {}
             for index, column in columns.items():
