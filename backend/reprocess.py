@@ -44,6 +44,73 @@ def _quality(result, schema, blocks):
     return engine.assess(result, schema, blocks, grounds), grounds
 
 
+def _escape(part):
+    return str(part).replace("~", "~0").replace("/", "~1")
+
+
+def _rule_targets(flags, fields, quality):
+    """Only a named leaf is a direct violation; broad flags rank existing review leaves."""
+    direct, broad = {}, set()
+    for flag in flags:
+        key = flag.get("key")
+        if not isinstance(key, str) or key not in fields:
+            continue
+        root = _escape(key)
+        rows = fields[key]
+        row, column = flag.get("row"), flag.get("column")
+        if isinstance(rows, list):
+            if isinstance(row, int) and 0 <= row < len(rows) and isinstance(rows[row], dict):
+                path = f"{root}/{row}/{_escape(column)}" if isinstance(column, str) else None
+                if path in quality:
+                    direct.setdefault(path, []).append(flag)
+                elif column is None:
+                    broad.update(path for path in quality if path.startswith(f"{root}/{row}/"))
+            elif row is None:
+                if isinstance(column, str):
+                    broad.update(f"{root}/{index}/{_escape(column)}" for index in range(len(rows))
+                                 if f"{root}/{index}/{_escape(column)}" in quality)
+                elif column is None:
+                    broad.update(path for path in quality if path.startswith(f"{root}/"))
+        elif row is None and column is None and not isinstance(rows, dict) and root in quality:
+            direct.setdefault(root, []).append(flag)
+    return direct, broad
+
+
+def _mark_rules(quality, direct):
+    for path, flags in direct.items():
+        item = quality[path]
+        item["issue_codes"] = list(dict.fromkeys([*item.get("issue_codes", []), *(flag["code"] for flag in flags)]))
+        if item["status"] in {"PASS", "CORRECTED"}:
+            item.update(status="SUSPICIOUS", action="RECHECK", stage="rule")
+
+
+def _positioned(item, blocks, path):
+    source = item.get("provenance") or {}
+    match = source.get("match")
+    if match not in {"exact", "approximate", "contained"} or not source.get("source_text"):
+        return 0
+    if set(item.get("issue_codes", [])) & {"invalid_geometry", "distant_label", "ambiguous_source", "row_conflict", "row_mismatch"}:
+        return 0
+    page, box, size = (source.get(key) for key in ("page", "bbox", "page_size"))
+    if not isinstance(page, int) or page < 1 or not isinstance(box, (list, tuple)) or len(box) != 4 or not isinstance(size, (list, tuple)) or len(size) != 2:
+        return 0
+    try:
+        if not (0 <= box[0] < box[2] <= size[0] and 0 <= box[1] < box[3] <= size[1]):
+            return 0
+    except TypeError:
+        return 0
+    parts = path.split("/")
+    if (len(parts) == 3 and parts[1].isdigit()
+            and not all(isinstance(source.get(key), int) for key in ("row", "column"))):
+        return 0
+    needle = engine._normalized(source["source_text"])
+    if not needle:
+        return 0
+    aligned = any(block.get("page") == page and line.get("bbox") == box and needle in engine._normalized(line.get("text", ""))
+                  for block in blocks for line in block.get("lines") or [])
+    return (2 if match == "exact" else 1) if aligned else 0
+
+
 def _value(result, path):
     node = result
     for part in path.split("/"):
@@ -182,7 +249,16 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
         quality = engine.assess(fields, schema, blocks, groundings, require_geometry=False)
         return finished("non_visual")
     seen = {repr(fields)}
+    initial_flags = check_rules(fields, blocks) if check_rules else []
+    direct, broad = _rule_targets(initial_flags, fields, quality)
+    _mark_rules(quality, direct)
     targets = [path for path, item in quality.items() if item["status"] not in {"PASS", "CORRECTED"}]
+    def priority(path):
+        located = _positioned(quality[path], blocks, path)
+        related = path in direct or path in broad
+        return (0 if located == 2 and related else 1 if located == 2 else 2 if located == 1
+                else 3 if related else 4)
+    targets.sort(key=priority)
     if not targets:
         return finished("pass")
     for path in targets:
@@ -208,6 +284,13 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
             record("select", "unsupported_path", quality[path]["status"])
             continue
         before = quality[path]
+        located = _positioned(before, blocks, path)
+        selection = ("located_rule_violation" if path in direct and located == 2 else
+                     "located_rule_related" if path in broad and located == 2 else
+                     "located_source" if located == 2 else
+                     "aligned_approximate_source" if located == 1 else
+                     "rule_violation" if path in direct else "rule_related" if path in broad else "fallback")
+        record("select", selection, before["status"])
         region = _box(before, blocks, root, schema)
         if not region:
             record("roi_parse", "no_geometry", before["status"])
@@ -264,6 +347,10 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                         continue
                     candidate = _patch(fields, path, value)
                     proposed_quality, proposed_groundings = _quality(candidate, schema, evidence)
+                    old_flags = initial_flags if fields == result else (check_rules(fields, blocks) if check_rules else [])
+                    new_flags = check_rules(candidate, evidence) if check_rules else []
+                    proposed_direct, _ = _rule_targets(new_flags, candidate, proposed_quality)
+                    _mark_rules(proposed_quality, proposed_direct)
                     after = proposed_quality.get(path, {})
                     old_rank = {"PASS": 0, "CORRECTED": 0, "SUSPICIOUS": 1, "UNRESOLVED": 2}.get(before["status"], 2)
                     new_rank = {"PASS": 0, "CORRECTED": 0, "SUSPICIOUS": 1, "UNRESOLVED": 2}.get(after.get("status"), 2)
@@ -279,9 +366,7 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                     rule_clean = True
                     if check_rules is not None:
                         signature = lambda flag: json.dumps(flag, ensure_ascii=False, sort_keys=True, default=str)
-                        old_flags = {signature(flag) for flag in check_rules(fields, blocks)}
-                        new_flags = {signature(flag) for flag in check_rules(candidate, evidence)}
-                        rule_clean = not (new_flags - old_flags)
+                        rule_clean = not ({signature(flag) for flag in new_flags} - {signature(flag) for flag in old_flags})
                     proven = exact and semantic and rule_clean
                     improved = new_rank < old_rank or (candidate != fields and old_rank == 0 and new_rank == 0)
                     if proven and improved and not regression and (candidate == fields or repr(candidate) not in seen):

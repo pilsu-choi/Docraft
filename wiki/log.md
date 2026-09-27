@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-27 (재처리 우선순위)
+* **Creation**: [자동 재처리의 근거·규칙 우선순위](2026-09-27-reprocess-priority.md)에 OCR 줄 위치·직접 규칙 위반·행/표 범위 플래그의 선택 정책과 채택 경계를 기록했다. 브랜치 `feat/reprocess-priority`, 워크트리 `.worktrees/reprocess-priority`.
+* **Update**: [index](index.md)와 [README](../README.md)에 재처리 선택 순서를 연결했다.
+
 ## 2026-09-27 (자동 재처리 루프)
 * **Creation**: [근거 기반 자동 재처리 루프](2026-09-27-auto-reprocess.md)에 공통 컨트롤러, ROI 재파싱·재판독, 후보 채택·거절, 예산·취소·감사 이력과 남은 한계를 기록했다. 브랜치 `feat/auto-reprocess`, 워크트리 `.worktrees/auto-reprocess`.
 * **Update**: [index](index.md)와 README의 API 예산·응답 계약을 갱신했다.
