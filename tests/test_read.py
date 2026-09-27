@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
-from backend import engine, verify
+from backend import engine, rules, verify
 from backend.main import app
 from test_verify import DOCRAFT, _image, hinted_stub, stub
 
@@ -73,6 +73,48 @@ def test_read_without_only_uses_the_full_schema(monkeypatch):
     assert set(schemas[0]["properties"]) == {"진단일", "진단명", "병원명", "면허번호", "환자명", "병명내역"}
 
 
+def test_read_groundings_keep_normalized_scalar_and_drop_changed_value():
+    source = {"page": 1, "bbox": [10, 20, 90, 40], "source_text": "2026.09.27", "confidence": 1.0}
+    raw = {"진단일": "2026.09.27", "병원명": "원래 병원"}
+    final = {"진단일": "20260927", "병원명": "바뀐 병원"}
+    grounds = {key: source for key in raw}
+
+    result = verify._read_groundings("진단서", raw, final, grounds)
+
+    assert result == {"진단일": {**source, "basis": "image_pixel"}}
+
+
+def test_read_groundings_match_reordered_rows_and_leave_derived_or_duplicate_rows_empty():
+    def source(index):
+        return {"page": 1, "bbox": [index * 10, 1, index * 10 + 9, 8],
+                "source_text": f"질병 {index}", "confidence": 1.0}
+
+    raw = {"병명내역": [
+        {"병명코드": "A01.0", "병명": "첫째"},
+        {"병명코드": "B02.1", "병명": "둘째"},
+        {"병명코드": "D04.2", "병명": "중복"},
+        {"병명코드": "D04.2", "병명": "중복"},
+    ]}
+    grounds = {"병명내역": {str(i): {"병명코드": source(i), "병명": source(i)} for i in range(4)}}
+    final = {"병명내역": [{"병명코드": "B021", "병명": "둘째"}, {"병명코드": "C030", "병명": "추가"},
+                           {"병명코드": "A010", "병명": "첫째"}, {"병명코드": "D042", "병명": "중복"}]}
+
+    rows = verify._read_groundings("진단서", raw, final, grounds)["병명내역"]
+
+    assert [row.get("병명코드", {}).get("bbox") for row in rows] == [[10, 1, 19, 8], None, [0, 1, 9, 8], None]
+
+
+def test_read_groundings_drop_modified_and_low_confidence_cells():
+    source = {"page": 1, "bbox": [1, 2, 3, 4], "source_text": "원문", "confidence": 1.0}
+    raw = {"병명내역": [{"병명코드": "A1", "병명": "원래"}]}
+    grounds = {"병명내역": {"0": {"병명코드": source, "병명": source}}}
+    changed = {"병명내역": [{"병명코드": "A1", "병명": "교정됨"}]}
+
+    assert verify._read_groundings("진단서", raw, changed, grounds) == {"병명내역": [{}]}
+    assert verify._read_groundings("진단서", {"병원명": "원문"}, {"병원명": "원문"},
+                                   {"병원명": {**source, "confidence": 0.5}}) == {}
+
+
 def test_read_stops_before_extract_once_cancelled(monkeypatch):
     import threading
 
@@ -111,10 +153,24 @@ def test_read_route_returns_the_contract_shape_with_all_fields_when_keys_is_omit
     body = response.json()
 
     assert response.status_code == 200
-    assert set(body) == {"doc_type", "fields", "elapsed_ms"}
+    assert set(body) == {"doc_type", "fields", "groundings", "elapsed_ms"}
     assert body["doc_type"] == "진단서"
     assert isinstance(body["elapsed_ms"], int)
     assert body["fields"] == DOCRAFT  # 스텁의 고정 docraft(전체 필드), AO 비교·판정 정보 없음
+    assert body["groundings"] == {"병명내역": [{}, {}]}
+
+
+def test_read_route_returns_verified_grounding_for_requested_key(monkeypatch, tmp_path):
+    hinted_stub(monkeypatch)
+    source = {"page": 1, "bbox": [10, 20, 90, 40], "source_text": "원본 병원", "confidence": 0.9}
+    monkeypatch.setattr(engine, "extract", lambda *a, **k: ({"병원명": "원본 병원"}, {"병원명": source}))
+    monkeypatch.setattr(rules, "apply", lambda *a, **k: {"병원명": "원본 병원", "진단일": "추론값"})
+
+    response = post_read(_image(tmp_path), keys=json.dumps(["병원명"]))
+
+    assert response.status_code == 200
+    assert response.json()["fields"] == {"병원명": "원본 병원"}
+    assert response.json()["groundings"] == {"병원명": {**source, "basis": "image_pixel"}}
 
 
 def test_read_route_restricts_fields_to_the_requested_keys(monkeypatch, tmp_path):
@@ -148,7 +204,7 @@ def test_read_route_rejects_a_non_list_keys(tmp_path):
 def test_read_route_returns_no_fields_when_no_key_is_defined_for_the_doc_type(tmp_path):
     response = post_read(_image(tmp_path), doc_type="진단서", keys=json.dumps(["사고발생일자"]))
 
-    assert response.status_code == 200 and response.json() == {"doc_type": "진단서", "fields": {}, "elapsed_ms": 0}
+    assert response.status_code == 200 and response.json() == {"doc_type": "진단서", "fields": {}, "groundings": {}, "elapsed_ms": 0}
 
 
 def test_read_route_rejects_a_non_image_upload(tmp_path):
@@ -171,7 +227,7 @@ def test_read_route_rejects_a_multi_page_tif(monkeypatch, tmp_path):
 
 
 def test_read_route_cancels_the_run_when_the_client_disconnects(monkeypatch, tmp_path):
-    def fake_read(path, doc_type, only, cancel=None):
+    def fake_read(path, doc_type, only, cancel=None, with_groundings=False):
         assert cancel.wait(5)
         raise verify.Cancelled
 
@@ -195,7 +251,7 @@ def test_read_route_shares_the_inflight_counter_with_verify(monkeypatch, tmp_pat
     """/api/health의 verify_inflight는 이름은 그대로지만 /api/verify·/api/read 처리 중 요청을 함께 센다."""
     import backend.main as main
     assert main.INFLIGHT == 0
-    monkeypatch.setattr(verify, "read", lambda *a, **k: ("진단서", {}, []))
+    monkeypatch.setattr(verify, "read", lambda *a, **k: ("진단서", {}, [], {}))
 
     response = post_read(_image(tmp_path))
 

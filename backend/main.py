@@ -838,13 +838,14 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
     try:
         only = verify.resolve_keys(doc_type, wanted, label="keys")
     except ValueError:
-        return {"doc_type": doc_type, "fields": {}, "elapsed_ms": 0}
+        return {"doc_type": doc_type, "fields": {}, "groundings": {}, "elapsed_ms": 0}
 
     def run_read(path, cancel=None):
-        return verify.read(path, doc_type, only, cancel=cancel)[1]
+        _, fields, _, groundings = verify.read(path, doc_type, only, cancel=cancel, with_groundings=True)
+        return fields, groundings
 
     try:
-        fields, filename, started = await process_image(request, image, run_read)
+        (fields, groundings), filename, started = await process_image(request, image, run_read)
     except verify.Cancelled as exc:
         return cancelled_response(exc, "read", doc_type)
     except HTTPException:  # process_image가 낸 415·413·422(다중 페이지)는 그대로 올린다
@@ -856,9 +857,10 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
         raise HTTPException(502, f"읽기에 실패했습니다: {exc}") from exc
     if only is not None:
         fields = {key: value for key, value in fields.items() if key in only}
+        groundings = {key: value for key, value in groundings.items() if key in only}
     elapsed_ms = round((time.monotonic() - started) * 1000)
     logger.info("read finished: filename=%s doc_type=%s fields=%d elapsed_ms=%d", filename, doc_type, len(fields), elapsed_ms)
-    return {"doc_type": doc_type, "fields": fields, "elapsed_ms": elapsed_ms}
+    return {"doc_type": doc_type, "fields": fields, "groundings": groundings, "elapsed_ms": elapsed_ms}
 
 
 @app.post("/api/admin/cancel-all", dependencies=[Depends(auth)])

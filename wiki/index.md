@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [/api/read 최종 값의 원문 좌표 반환](2026-09-27-read-groundings.md) - 규칙 적용 뒤 값·행이 유일하게 대응하는 근거만 `groundings`로 제공
 * [Harness와 Docraft의 key-value 추출 흐름 점검](2026-09-27-harness-docraft-kv-pipeline-review.md) - OCR·스키마 추출·검증·근거·사람 검토의 구현 범위와 통합 경로의 한계
 * [임시 맥락·피드백 문서 Git 추적 해제](2026-09-27-untrack-context-feedback.md) - 정제 전 `context.md`·`feedback.md`를 Git 추적 대상에서 제거하고 루트 `.gitignore`에 등록해 재추가를 방지
 * [운영자 긴급 중지: 문서 잡·in-flight 호출 취소 API](2026-09-27-작업-중지-API.md) - 대기·실행 중인 문서 잡 단건 취소(`POST /api/documents/{id}/cancel`)와 전체 취소(`POST /api/admin/cancel-all?confirm=true`). queued는 즉시 canceled, 실행 중은 documents.cancel_requested로 다음 단계 경계에서 협조적 취소, cancel-all은 진행 중인 모든 /api/verify·/api/read 호출도 함께 끊어 409로 마무리(클라이언트 연결 끊김 499와 구분)
