@@ -19,7 +19,7 @@ from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 
-from . import doctypes, engine, rules
+from . import doctypes, engine, reprocess, rules
 from .parsers import parse
 
 logger = logging.getLogger(__name__)
@@ -149,11 +149,20 @@ def _describe(doc_type, key, entry):
     return entry
 
 
-def judge(image: str, doc_type: str, disputes: dict) -> dict:
+def judge(image: str, doc_type: str, disputes: dict, deadline=None) -> dict:
     """어긋난 값들을 이미지 1장과 함께 한 번의 LLM 호출로 판정한다. key → 판정 dict."""
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("verify deadline exceeded")
     described = {key: _describe(doc_type, key, entry) for key, entry in disputes.items()}
     prompt = JUDGE_PROMPT.format(doc_type=doc_type) + json.dumps(described, ensure_ascii=False)
-    reply = engine._provider([engine._user(prompt, engine._page_images(image, [1]))], timeout=300)
+    messages = [engine._user(prompt, engine._page_images(image, [1]))]
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("verify deadline exceeded")
+        reply = engine._provider(messages, timeout=300, timeout_cap=remaining)
+    else:
+        reply = engine._provider(messages, timeout=300)
     if not isinstance(reply, dict):
         raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
     return {key: reply[key] for key in disputes if isinstance(reply.get(key), dict)}
@@ -459,22 +468,85 @@ def _read_groundings(doc_type: str, raw: dict, final: dict, groundings: dict) ->
     return result
 
 
+def _merge_recovered_groundings(original, recovered, trace, fields):
+    """Copy only accepted leaf coordinates; never replace unrelated normalized evidence."""
+    for step in trace:
+        if not step.get("adopted"):
+            continue
+        parts = [part.replace("~1", "/").replace("~0", "~") for part in step["field"].split("/")]
+        source = recovered
+        for part in parts:
+            source = source.get(part, {}) if isinstance(source, dict) else {}
+        if not isinstance(source, dict) or source.get("confidence", 0) < 0.7 or not source.get("source_text"):
+            continue
+        if not isinstance(source.get("page"), int) or not isinstance(source.get("bbox"), (list, tuple)) or len(source["bbox"]) != 4:
+            continue
+        leaf = {key: source.get(key) for key in ("page", "bbox", "source_text", "confidence")}
+        leaf["basis"] = "image_pixel"
+        if len(parts) == 1:
+            original[parts[0]] = leaf
+        elif len(parts) == 3 and parts[1].isdigit() and isinstance(fields.get(parts[0]), list):
+            rows = original.setdefault(parts[0], [{} for _ in fields[parts[0]]])
+            if int(parts[1]) < len(rows):
+                rows[int(parts[1])][parts[2]] = leaf
+    return original
+
+
 def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
-         with_groundings: bool = False) -> tuple:
+         with_groundings: bool = False, with_reprocess: bool = False,
+         deadline=None, auto_reprocess=None) -> tuple:
     """이미지를 파싱하고 유형 스키마(``only``가 있으면 그 key로 좁힌다)로 추출해 ``rules.apply``까지 거친
     Docraft 읽기 결과를 돌려준다: ``(doc_type, docraft_fields, blocks)``. AO 비교·교정·Judge는 하지 않는다 —
     ``/api/read``와 ``run``이 함께 쓰는 공용 부분이다. ``cancel``이 세워지면 추출 직전에 ``Cancelled``로 멈춘다.
     """
-    _, blocks = parse(image, Path(image).name, "", {"provider": "paddle"})
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("read deadline exceeded")
+    _, blocks = parse(image, Path(image).name, "", {"provider": "paddle",
+                                                   **({"timeout": max(0.1, deadline - time.monotonic()), "deadline": deadline}
+                                                      if deadline is not None else {})})
     _check(cancel)
-    result, groundings = engine.extract(_restrict(doctypes.schema(doc_type), only), blocks, source=image)
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("read deadline exceeded")
+    schema = _restrict(doctypes.schema(doc_type), only)
+    if deadline is None:
+        result, groundings = engine.extract(schema, blocks, source=image)
+    else:
+        initial_calls = 0
+        def count_initial():
+            nonlocal initial_calls
+            initial_calls += 1
+        result, groundings = engine.extract(schema, blocks, source=image, deadline=deadline, cancel=cancel,
+                                            on_call=count_initial)
+    _check(cancel)
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("read deadline exceeded")
     fields = rules.apply(doc_type, result, blocks)
+    recovered = None
+    recovered_quality = None
+    if auto_reprocess is not False and Path(image).is_file() and schema.get("properties"):
+        fields, recovery_groundings, recovered_quality, recovered = reprocess.run(
+            image, schema, blocks, fields, normalize=lambda values, evidence: rules.apply(doc_type, values, evidence),
+            check_rules=lambda values, evidence: rules.check(doc_type, values, values, evidence),
+            cancel=cancel, deadline=deadline, enabled=auto_reprocess)
+    if recovered is None and with_reprocess:
+        recovered = {"attempts": 0, "model_calls": 0, "stop_reason": "disabled" if auto_reprocess is False else "no_schema",
+                     "elapsed_ms": 0, "trace": []}
+    if recovered is not None:
+        recovered["initial_extract_model_calls"] = initial_calls if deadline is not None else None
+        recovered["extra_model_calls"] = recovered["model_calls"]
     if with_groundings:
-        return doc_type, fields, blocks, _read_groundings(doc_type, result or {}, fields, groundings or {})
+        final_groundings = _read_groundings(doc_type, result or {}, fields, groundings or {})
+        if recovered and any(item.get("reason") == "verified" for item in recovered["trace"]):
+            final_groundings = _merge_recovered_groundings(final_groundings, recovery_groundings,
+                                                            recovered["trace"], fields)
+        return (doc_type, fields, blocks, final_groundings, recovered_quality, recovered) if with_reprocess else (doc_type, fields, blocks, final_groundings)
+    if with_reprocess:
+        return doc_type, fields, blocks, recovered
     return doc_type, fields, blocks
 
 
-def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str] | None = None, cancel=None) -> dict:
+def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str] | None = None, cancel=None,
+        deadline=None, auto_reprocess=None) -> dict:
     """이미지와 AO 응답(API·UI 형식)을 받아 교정된 AO JSON을 돌려준다. 유형을 모르면 ValueError.
 
     ``hint_paths``를 주면(비어 있지 않은 목록) 그 key(필드·표 key)만 비교·Judge 대상으로 삼고, 추출
@@ -488,7 +560,8 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
     doc_type = resolve_doc_type(doc_type or given.get("doc_type") or given.get("predicted_doc_type"))
     only = resolve_keys(doc_type, hint_paths)
     started = time.monotonic()
-    doc_type, docraft, blocks = read(image, doc_type, only, cancel)
+    doc_type, docraft, blocks, recovery = read(image, doc_type, only, cancel, with_reprocess=True,
+                                               deadline=deadline, auto_reprocess=auto_reprocess)
 
     output = deepcopy(ao)
     target = document(output)
@@ -525,10 +598,15 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
                              **({"diff": diff} if diff else {}),
                              **({"hint": " ".join(hints[key])} if key in hints else {})}
     _check(cancel)
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("verify deadline exceeded")
     if blank:
         verdicts = {key: {"source": "docraft", "reason": BLANK_AO} for key in disputes}
     else:
-        verdicts = judge(image, doc_type, disputes) if disputes else {}
+        verdicts = (judge(image, doc_type, disputes, deadline=deadline) if deadline is not None else judge(image, doc_type, disputes)) if disputes else {}
+    _check(cancel)
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("verify deadline exceeded")
 
     def resolve(key, value, field="value"):
         """판정·룰 교정을 합쳐 ``(최종값, source, reason)``. 룰이 고친 값을 Judge가 받아들이면 corrected로 남긴다."""
@@ -600,7 +678,7 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
                     cell["review"] = True
                 elif item and item["action"] == "RECHECK":
                     cell["recheck"] = True
-    target["verify"] = {"doc_type": doc_type, "docraft": docraft, "counts": counts, "checks": checks,
+    target["verify"] = {"doc_type": doc_type, "docraft": docraft, "reprocess": recovery, "counts": counts, "checks": checks,
                         "checks_after": checks_after, "trace": trace,
                         "review": mark_review(doc_type, target, checks_after, only), "field_quality": quality}
     logger.info("verify: doc_type=%s fields=%d disputes=%d checks=%d counts=%s elapsed=%.2fs",

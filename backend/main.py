@@ -27,13 +27,13 @@ from jsonschema.exceptions import SchemaError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import bind_request, new_request_id, public_ai_settings
-from . import engine, jobs, master, verify
+from . import engine, jobs, master, reprocess, verify
 from .db import FILES, audit, connect, decode, init_db, now
 from .parsers import ParseError, parse
 
 logger = logging.getLogger(__name__)
 
-JSON_FIELDS = ("blocks", "result", "groundings", "validation", "parse_options")
+JSON_FIELDS = ("blocks", "result", "groundings", "validation", "parse_options", "reprocess")
 PAGE_RANGE_RE = re.compile(r"^\d+(-\d+)?(,\d+(-\d+)?)*$")
 ALLOWED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".docx", ".xlsx", ".csv", ".txt", ".md", ".html", ".htm"}
 IMAGES = engine.VISION_SUFFIXES - {".pdf"}  # 페이지 이미지를 가진 형식 중 단일 이미지 파일
@@ -398,7 +398,7 @@ def retry_parse(document_id: str, data: ParseOptions | None = None):
     with connect() as db:
         current = one(db, "SELECT parse_options FROM documents WHERE id=?", (document_id,), json_fields=("parse_options",))
         options = data.model_dump() if data is not None else current["parse_options"]
-        db.execute("UPDATE documents SET status='queued',error=NULL,markdown=NULL,blocks='[]',result=NULL,groundings='{}',validation='[]',schema_id=NULL,approved_at=NULL,parse_options=?,updated_at=? WHERE id=?", (json.dumps(options, ensure_ascii=False), now(), document_id))
+        db.execute("UPDATE documents SET status='queued',error=NULL,markdown=NULL,blocks='[]',result=NULL,groundings='{}',validation='[]',reprocess='{}',schema_id=NULL,approved_at=NULL,parse_options=?,updated_at=? WHERE id=?", (json.dumps(options, ensure_ascii=False), now(), document_id))
     dispatch(document_id, "parse")
     return {"id": document_id, "status": "queued"}
 
@@ -513,6 +513,13 @@ def run_extract(document_id, schema_id):
                 logger.info("status transition: document=%s status=canceled (extract)", document_id)
                 return
             db.execute("UPDATE documents SET status='validating',result=?,groundings=?,updated_at=? WHERE id=?", (json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), now(), document_id))
+        class JobCancel:
+            def is_set(self):
+                with connect() as connection:
+                    return bool(one(connection, "SELECT cancel_requested FROM documents WHERE id=?", (document_id,))["cancel_requested"])
+        with heartbeat(document_id):
+            result, groundings, quality, recovery = reprocess.run(
+                doc["file_path"], schema["json_schema"], doc["blocks"], result, cancel=JobCancel())
         quality = engine.assess(result, schema["json_schema"], doc["blocks"], groundings,
                                 require_geometry=Path(doc["file_path"]).suffix.lower() in engine.VISION_SUFFIXES)
         engine.annotate_groundings(groundings, quality)
@@ -525,12 +532,14 @@ def run_extract(document_id, schema_id):
             if check_cancel(db, document_id):
                 logger.info("status transition: document=%s status=canceled (validate)", document_id)
                 return
-            db.execute("UPDATE documents SET status=?,groundings=?,validation=?,updated_at=? WHERE id=?", (status, json.dumps(groundings, ensure_ascii=False), json.dumps(issues, ensure_ascii=False), now(), document_id))
+            db.execute("UPDATE documents SET status=?,result=?,groundings=?,validation=?,reprocess=?,updated_at=? WHERE id=?", (status, json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), json.dumps(issues, ensure_ascii=False), json.dumps(recovery, ensure_ascii=False), now(), document_id))
             audit(db, doc["project_id"], "extract", "document", document_id, {"schema_id": schema_id, "issues": len(issues)})
         logger.info("extract finished: document=%s status=%s issues=%d elapsed=%.2fs", document_id, status, len(issues), time.monotonic() - started)
     except Exception as exc:
         logger.exception("extract failed: document=%s elapsed=%.2fs", document_id, time.monotonic() - started)
-        with connect() as db: db.execute("UPDATE documents SET status='failed',error=?,updated_at=? WHERE id=?", (f"추출 실패: {exc}", now(), document_id))
+        with connect() as db:
+            if not check_cancel(db, document_id):
+                db.execute("UPDATE documents SET status='failed',error=?,updated_at=? WHERE id=?", (f"추출 실패: {exc}", now(), document_id))
 
 
 EXTRACTABLE_STATUSES = {"parsed", "needs_review", "completed"}
@@ -546,7 +555,7 @@ def extract_reason(doc, project_id, mismatch):
 
 def mark_queued(db, document_id, schema_id):
     """Queue an extract; schema_id is stored now so recover() can re-enqueue it."""
-    db.execute("UPDATE documents SET status='queued',error=NULL,schema_id=?,updated_at=? WHERE id=?", (schema_id, now(), document_id))
+    db.execute("UPDATE documents SET status='queued',error=NULL,reprocess='{}',schema_id=?,updated_at=? WHERE id=?", (schema_id, now(), document_id))
 
 
 @app.post("/api/documents/{document_id}/extract", status_code=202, dependencies=[Depends(auth)])
@@ -786,7 +795,8 @@ async def process_image(request: Request, image: UploadFile, fn, *args):
 
 @app.post("/api/verify", dependencies=[Depends(auth)])
 async def verify_result(request: Request, image: UploadFile = File(...), ao_result: str = Form(...), doc_type: str | None = Form(None),
-                        hint_paths: str | None = Form(None)):
+                        hint_paths: str | None = Form(None), remaining_ms: int | None = Form(None),
+                        auto_reprocess: bool = Form(True)):
     """AO 결과 JSON(API·UI 형식)과 원본 이미지를 받아 필드별로 교차검증·교정한 JSON을 돌려준다.
 
     ``hint_paths``(JSON 배열 문자열, 예: ``["병원명", "항목내역"]``)를 주면 그 key만 비교·판정하고
@@ -808,14 +818,22 @@ async def verify_result(request: Request, image: UploadFile = File(...), ao_resu
             raise HTTPException(422, "hint_paths를 JSON으로 해석할 수 없습니다.") from exc
         if not isinstance(hints, list) or not all(isinstance(key, str) for key in hints):
             raise HTTPException(422, "hint_paths는 문자열 배열이어야 합니다.")
+    deadline = reprocess.deadline_for(remaining_ms)
+    if time.monotonic() >= deadline:
+        raise HTTPException(408, "요청 처리 예산이 만료되었습니다.")
+    def run_verify(path, cancel=None):
+        return verify.run(path, ao, doc_type, hints, cancel=cancel, deadline=deadline,
+                          auto_reprocess=auto_reprocess)
     try:
-        result, filename, started = await process_image(request, image, verify.run, ao, doc_type, hints)
+        result, filename, started = await process_image(request, image, run_verify)
     except verify.Cancelled as exc:
         return cancelled_response(exc, "verify", doc_type)
     except HTTPException:  # process_image가 낸 415·413·422(다중 페이지)는 그대로 올린다
         raise
     except ValueError as exc:  # ParseError 포함
         raise HTTPException(422, str(exc)) from exc
+    except TimeoutError as exc:
+        raise HTTPException(408, str(exc)) from exc
     except Exception as exc:
         logger.exception("verify failed: doc_type=%s", doc_type)
         raise HTTPException(502, f"교차검증에 실패했습니다: {exc}") from exc
@@ -824,7 +842,8 @@ async def verify_result(request: Request, image: UploadFile = File(...), ao_resu
 
 
 @app.post("/api/read", dependencies=[Depends(auth)])
-async def read_document(request: Request, image: UploadFile = File(...), doc_type: str = Form(...), keys: str | None = Form(None)):
+async def read_document(request: Request, image: UploadFile = File(...), doc_type: str = Form(...), keys: str | None = Form(None),
+                        remaining_ms: int | None = Form(None), auto_reprocess: bool = Form(True)):
     """이미지에서 Docraft 자체 추출 결과만 돌려준다 — AO 비교·교정·Judge는 하지 않는다. 하네스의 재읽기,
     크롭 재추출(자기 교정), 폴백에 쓰는 순수 읽기 경로다.
 
@@ -833,6 +852,9 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
     ``fields``를 돌려준다 — 하네스 검토 칸이 모두 Docraft 정의 밖(사고발생일자 등)일 때 오류가 아니라 "읽을 것 없음"이다.
     생략하면 유형의 전체 필드를 돌려준다.
     """
+    deadline = reprocess.deadline_for(remaining_ms)
+    if time.monotonic() >= deadline:
+        raise HTTPException(408, "요청 처리 예산이 만료되었습니다.")
     try:
         doc_type = verify.resolve_doc_type(doc_type)
         wanted = json.loads(keys) if keys else None
@@ -845,21 +867,26 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
     try:
         only = verify.resolve_keys(doc_type, wanted, label="keys")
     except ValueError:
-        return {"doc_type": doc_type, "fields": {}, "groundings": {}, "field_quality": {}, "elapsed_ms": 0}
+        return {"doc_type": doc_type, "fields": {}, "groundings": {}, "field_quality": {}, "elapsed_ms": 0,
+                "reprocess": {"attempts": 0, "model_calls": 0, "stop_reason": "no_keys", "elapsed_ms": 0, "trace": []}}
 
     def run_read(path, cancel=None):
-        _, fields, blocks, groundings = verify.read(path, doc_type, only, cancel=cancel, with_groundings=True)
-        quality = engine.assess(fields, verify._restrict(verify.doctypes.schema(doc_type), only), blocks)
-        return fields, groundings, quality
+        _, fields, blocks, groundings, recovered_quality, recovery = verify.read(path, doc_type, only, cancel=cancel,
+                                                              with_groundings=True, with_reprocess=True,
+                                                              deadline=deadline, auto_reprocess=auto_reprocess)
+        quality = recovered_quality or engine.assess(fields, verify._restrict(verify.doctypes.schema(doc_type), only), blocks)
+        return fields, groundings, quality, recovery
 
     try:
-        (fields, groundings, quality), filename, started = await process_image(request, image, run_read)
+        (fields, groundings, quality, recovery), filename, started = await process_image(request, image, run_read)
     except verify.Cancelled as exc:
         return cancelled_response(exc, "read", doc_type)
     except HTTPException:  # process_image가 낸 415·413·422(다중 페이지)는 그대로 올린다
         raise
     except ValueError as exc:  # ParseError 포함
         raise HTTPException(422, str(exc)) from exc
+    except TimeoutError as exc:
+        raise HTTPException(408, str(exc)) from exc
     except Exception as exc:
         logger.exception("read failed: doc_type=%s", doc_type)
         raise HTTPException(502, f"읽기에 실패했습니다: {exc}") from exc
@@ -869,7 +896,8 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
         quality = {key: value for key, value in quality.items() if key.split("/")[0] in only}
     elapsed_ms = round((time.monotonic() - started) * 1000)
     logger.info("read finished: filename=%s doc_type=%s fields=%d elapsed_ms=%d", filename, doc_type, len(fields), elapsed_ms)
-    return {"doc_type": doc_type, "fields": fields, "groundings": groundings, "field_quality": quality, "elapsed_ms": elapsed_ms}
+    return {"doc_type": doc_type, "fields": fields, "groundings": groundings, "field_quality": quality,
+            "elapsed_ms": elapsed_ms, "reprocess": recovery}
 
 
 @app.post("/api/admin/cancel-all", dependencies=[Depends(auth)])

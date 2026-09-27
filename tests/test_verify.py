@@ -3,6 +3,7 @@
 import glob
 import json
 import threading
+import time
 from copy import deepcopy
 from pathlib import Path
 
@@ -17,6 +18,19 @@ from test_ai_provider import FakeClient, configure, install_response
 
 
 client = TestClient(app)
+
+
+def test_judge_caps_provider_call_to_the_remaining_request_budget(monkeypatch):
+    seen = []
+    monkeypatch.setattr(engine, "_page_images", lambda *a: [])
+    monkeypatch.setattr(engine, "_provider", lambda messages, **kwargs: seen.append(kwargs) or {})
+
+    assert verify.judge("scan.png", "진단서", {}, deadline=time.monotonic() + 5) == {}
+    assert seen[0]["timeout"] == 300 and 0 < seen[0]["timeout_cap"] <= 5
+
+    with pytest.raises(TimeoutError):
+        verify.judge("scan.png", "진단서", {}, deadline=time.monotonic() - 1)
+    assert len(seen) == 1
 SAMPLES = "/home/pilsu/projects/mirae-assets/harness-v2/docs/agentic-ocr-2.0.1-results"
 
 AO = {
@@ -72,8 +86,8 @@ def stub(monkeypatch, judged=VERDICTS, docraft=DOCRAFT):
     # blocks가 있으면(추출 단계) 고정된 docraft를, 없으면(_decide의 판정값 정규화) 입력을 그대로 돌려준다.
     monkeypatch.setattr(rules, "apply", lambda doc_type, result, blocks: deepcopy(docraft) if blocks else deepcopy(result))
     monkeypatch.setattr(verify, "parse", lambda *args, **kwargs: ("md", [{"text": "x"}]))
-    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None: ({}, {}))
-    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes: calls.append((image, doc_type, disputes)) or deepcopy(judged))
+    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None, **kwargs: ({}, {}))
+    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes, **kwargs: calls.append((image, doc_type, disputes)) or deepcopy(judged))
     return calls
 
 
@@ -278,7 +292,7 @@ def hinted_stub(monkeypatch, judged=VERDICTS, docraft=DOCRAFT):
     monkeypatch.setattr(doctypes, "schema", lambda doc_type: {
         "type": "object", "properties": dict.fromkeys([*fields, *tables], {}), "required": [*fields, *tables]})
     schemas = []
-    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None: (schemas.append(schema) or {}, {}))
+    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None, **kwargs: (schemas.append(schema) or {}, {}))
     return calls, schemas
 
 
@@ -344,7 +358,7 @@ def test_run_with_empty_hint_paths_behaves_as_before(monkeypatch):
 
 def test_verify_route_forwards_parsed_hint_paths(monkeypatch, tmp_path):
     seen = []
-    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None, cancel=None: seen.append(hint_paths) or {
+    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None, cancel=None, **kwargs: seen.append(hint_paths) or {
         "documents": [{"verify": {"counts": {}}}]})
 
     response = post(_image(tmp_path), hint_paths=json.dumps(["병원명"]))
@@ -385,7 +399,7 @@ def real_stub(monkeypatch, docraft, verdicts, blocks=None):
     monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None: ({}, {}))
     monkeypatch.setattr(rules, "apply",
                          lambda doc_type, result, blocks: deepcopy(docraft) if blocks else real_apply(doc_type, result, blocks))
-    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes: deepcopy(verdicts))
+    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes, **kwargs: deepcopy(verdicts))
 
 
 def test_run_reclassifies_a_format_only_corrected_verdict_to_ao(monkeypatch):
@@ -515,7 +529,7 @@ def post(path, ao_result=None, **data):
 
 def test_verify_route_returns_the_corrected_result(monkeypatch, tmp_path):
     seen = []
-    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None, cancel=None: seen.append((image, doc_type)) or {
+    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None, cancel=None, **kwargs: seen.append((image, doc_type)) or {
         "documents": [{"verify": {"counts": {"agree": 1, "ao": 0, "docraft": 0, "corrected": 0}}}]})
 
     response = post(_image(tmp_path), doc_type="진단서")
@@ -552,7 +566,7 @@ def test_verify_route_reports_an_unsupported_document_type(monkeypatch, tmp_path
 
 
 def test_verify_route_cancels_the_run_when_the_client_disconnects(monkeypatch, tmp_path):
-    def run(image, ao, doc_type=None, hint_paths=None, cancel=None):
+    def run(image, ao, doc_type=None, hint_paths=None, cancel=None, **kwargs):
         assert cancel.wait(5)
         raise verify.Cancelled
 
@@ -689,7 +703,7 @@ def test_run_reports_the_checks_and_hands_the_judge_a_hint(monkeypatch):
     # 머리글에 급여가 묶음 제목으로만 있는 실제 서식을 흉내 낸 파싱 블록.
     real_stub(monkeypatch, docraft, {}, blocks=[{"type": "table", "rows": [
         ["항 목", "급 여", "", "비급여④"], ["일부", "본인부담", "전액본인"], ["본인부담금①", "공단부담금②", "부담③"]]}])
-    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes: calls.append(disputes) or {})
+    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes, **kwargs: calls.append(disputes) or {})
 
     result = verify.run("scan.png", ao, doc_type="진료비영수증")["result"]
 
@@ -728,7 +742,7 @@ def test_run_sends_a_still_missing_required_field_to_judge_and_marks_it_for_revi
                                  "rows": [[{"key": "수술일자", "value": None}, {"key": "수술명", "value": "봉합술"}]]}]}}
     real_stub(monkeypatch, {"수술내역": [{"수술일자": None, "수술명": "봉합술"}]}, {})
     calls = []
-    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes: calls.append(disputes) or {})
+    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes, **kwargs: calls.append(disputes) or {})
 
     result = verify.run("scan.png", ao, hint_paths=["발급일", "수술내역"])["result"]
 
@@ -760,7 +774,7 @@ def test_run_computes_checks_after_over_every_field_even_with_hint_paths(monkeyp
 
 
 def test_verify_route_accepts_the_ui_result_format(monkeypatch, tmp_path):
-    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None, cancel=None: {"result": {"verify": {"counts": {}}}})
+    monkeypatch.setattr(verify, "run", lambda image, ao, doc_type=None, hint_paths=None, cancel=None, **kwargs: {"result": {"verify": {"counts": {}}}})
 
     response = post(_image(tmp_path), ao_result=json.dumps(UI), doc_type="진료비영수증")
 
@@ -870,7 +884,7 @@ def test_run_keeps_the_printed_subtotal_rows_of_a_detail_table(monkeypatch):
                         {"항목": "검사료", "EDI코드": "B1010", "EDI명칭": "일반혈액검사", "총액": "990"}]}
     seen = []
     real_stub(monkeypatch, docraft, {"항목내역": {"source": "docraft", "reason": "이미지"}})
-    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes: seen.append(disputes) or
+    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes, **kwargs: seen.append(disputes) or
                         {"항목내역": {"source": "docraft", "reason": "이미지"}})
 
     table = verify.run("scan.png", ao, doc_type="세부내역서")["documents"][0]["extracted_tables"][0]
@@ -963,7 +977,7 @@ def test_run_keeps_keys_outside_the_spec_out_of_the_judge(monkeypatch):
                          "extracted_groups": [{"key": "진단", "fields": [{"key": "사고발생일자", "value": "20220501"}]}]}]}
     real_stub(monkeypatch, {"발급일": "20220517"}, {})
     seen = []
-    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes: seen.append(set(disputes)) or {})
+    monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes, **kwargs: seen.append(set(disputes)) or {})
 
     document = verify.run("scan.png", ao)["documents"][0]
 
@@ -977,7 +991,7 @@ def test_run_takes_docraft_values_without_the_judge_when_ao_is_blank(monkeypatch
     ao = {"documents": [{"doc_type": "진단서", "extracted_fields": [], "extracted_groups": [], "extracted_tables": []}]}
     docraft = {"발급일": "20220517", "병명내역": [{"병명코드": "R634", "병명": "이상체중감소"}]}
     real_stub(monkeypatch, docraft, {})
-    monkeypatch.setattr(verify, "judge", lambda *args: (_ for _ in ()).throw(AssertionError("Judge 를 부르면 안 된다")))
+    monkeypatch.setattr(verify, "judge", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Judge 를 부르면 안 된다")))
 
     document = verify.run("scan.png", ao)["documents"][0]
 

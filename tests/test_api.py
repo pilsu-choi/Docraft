@@ -68,6 +68,8 @@ def test_upload_parse_extract_grounding_and_export():
     response = client.post(f"/api/documents/{document_id}/extract", json={"schema_id": schema_id})
     assert response.status_code == 202
     result = wait_for(document_id, "completed")
+    assert result["reprocess"]["stop_reason"] == "non_visual"
+    assert result["reprocess"]["model_calls"] == 0
     assert result["result"] == {"hospital": "ABC Hospital", "total_amount": 120000.0}
     grounding = next(item for item in result["groundings"] if item["path"] == "hospital")
     assert grounding["text"]

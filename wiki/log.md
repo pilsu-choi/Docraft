@@ -1,5 +1,10 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-27 (자동 재처리 루프)
+* **Creation**: [근거 기반 자동 재처리 루프](2026-09-27-auto-reprocess.md)에 공통 컨트롤러, ROI 재파싱·재판독, 후보 채택·거절, 예산·취소·감사 이력과 남은 한계를 기록했다. 브랜치 `feat/auto-reprocess`, 워크트리 `.worktrees/auto-reprocess`.
+* **Update**: [index](index.md)와 README의 API 예산·응답 계약을 갱신했다.
+* **Update**: [Parse·Extract 근거와 검토 상태 보강](2026-09-27-parse-extract-quality.md)의 자동 재판독 미구현 표현에 현재 구현 링크를 달고, 570개 회귀·자연 3건·의도적 오독 2건 재생 결과와 미확정 한계를 기록했다.
+
 ## 2026-09-27 (Parse·Extract 품질 상태)
 * **Creation**: [Parse·Extract 근거와 검토 상태 보강](2026-09-27-parse-extract-quality.md)에 OCR 원문 출처·상태 계약·76건 캐시 평가 및 남은 정확도 한계를 기록했다. 브랜치 `feat/parse-extract-quality`, 워크트리 `.worktrees/parse-extract-quality`.
 * **Update**: [index](index.md)에 구현 기록을 연결했다.

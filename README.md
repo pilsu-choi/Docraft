@@ -1,6 +1,6 @@
 # Docraft
 
-Docraft는 문서를 파싱하고 JSON Schema에 맞춰 값을 추출한 뒤, 원문 근거와 검토 결과를 제공하는 웹 앱입니다. 별도의 `POST /api/verify`는 Agentic OCR 2.0(AO)의 의료 문서 결과를 독립 추출 결과와 비교해 교정합니다.
+Docraft는 문서를 파싱하고 JSON Schema에 맞춰 값을 추출한 뒤, 원문 근거와 검토 결과를 제공하는 웹 앱입니다. 미확정 필드는 예산 안에서 원본 좌표의 재파싱·재추출을 자동 시도하고 다시 검증합니다. 별도의 `POST /api/verify`는 Agentic OCR 2.0(AO)의 의료 문서 결과를 독립 추출 결과와 비교해 교정합니다.
 
 하네스(harness-v2)와의 역할 분담은 "판단은 하네스, 읽기는 Docraft"입니다. `POST /api/read`는 Docraft 자신의 추출 결과만(AO 비교·교정·Judge 없이) 돌려주는 순수 읽기 API로, 하네스가 **두 경우에만** 씁니다 — 서식이 잘못 분류됐을 때의 전체 재추출과, 결과가 애매한 문서의 검토 칸 재조회(한 건에 최대 2번, 2026-09-27). 하네스는 더 이상 `/api/verify`를 부르지 않으며, `POST /api/verify`는 Docraft 단독 사용·화면에만 남아 있습니다(하네스가 부르던 예전 경로였던 이력은 있으나 지금은 호출하지 않습니다). 두 경로 모두 파싱과 스키마 추출은 같은 코드(`verify.read`)를 공유합니다.
 
@@ -95,13 +95,15 @@ flowchart TD
 
 ## 하네스용 읽기 전용 API
 
-`POST /api/read`는 Docraft를 하네스(harness-v2)의 **읽기 서비스**로 쓰는 경로입니다 — 판단(비교·재분류·최종 채택)은 하네스가 하고, Docraft는 이미지를 읽어 값과 확인된 원문 좌표를 돌려줍니다. AO 비교·교정·`rules.run`·Judge는 전혀 거치지 않습니다. 하네스는 이 경로를 **두 경우에만** 부릅니다 — 재분류 재추출(제목 줄로 본 서식이 AO 분류와 스키마 계열부터 다를 때, `keys` 없이 전체)과 검토 칸 재조회(문서 등급이 애매·미해결일 때 검토 칸만, 예전에는 `/api/verify`가 하던 역할). 문서마다 부르던 재읽기와 bbox 크롭 자기 교정도 한때 이 경로로 연결했지만, AWS 실측에서 느리고(한 번 13~37초, 큰 표 100~180초) 크롭 교정이 해결한 칸이 없어(8칸 중 0) 하네스 쪽에서 껐습니다 — 하네스 설정으로 다시 켤 수 있어 크롭 이미지도 계속 받습니다. 이미지가 실린 비동기 경로(`/v2/jobs`)에서만 쓰며, 동기·배치 경로는 Docraft를 부르지 않습니다.
+`POST /api/read`는 Docraft를 하네스(harness-v2)의 **읽기 서비스**로 쓰는 경로입니다. AO 비교·Judge는 하지 않고, 원문 좌표와 필드별 근거 상태를 반환합니다. 하네스는 서식 재분류의 전체 재추출 또는 검토 칸 재조회에 이 경로를 쓰며, 이미지가 실린 비동기 경로(`/v2/jobs`)에서 호출합니다. 예전 하네스 자체의 반복 crop 재조회는 비용과 낮은 실측 효과 때문에 기본 비활성화했지만, Docraft 내부의 예산 제한 자동 ROI 재처리는 이제 기본 활성화되어 한 번의 읽기 요청 안에서 실행됩니다.
 
 - `image`: 단일 페이지 이미지 파일. `/api/verify`와 같은 허용 확장자·다중 페이지 검사(422)를 씁니다. 페이지의 일부를 잘라낸 크롭 이미지도 받습니다.
 - `doc_type`: 필수 문자열. `/api/verify`와 같은 별칭(`doctypes.ALIASES`)으로 정규화하며, 모르는 유형이면 422입니다.
 - `keys`: 선택 JSON 배열 문자열(예: `["병원명", "항목내역"]`). 그 유형의 필드·표 key만 추출합니다(추출 스키마도 그만큼 좁혀 비용을 줄입니다). 정의에 없는 key는 무시하고 한 번 경고 로그를 남기며, 유효한 key가 하나도 없으면 읽지 않고 빈 `fields`(200)를 돌려줍니다 — 하네스 검토 칸이 모두 Docraft 정의 밖일 때(사고발생일자 등)입니다. 생략하면 유형의 전체 필드를 돌려줍니다.
+- `remaining_ms`: 선택 정수. 최초 Parse·Extract와 추가 재처리의 전체 시한입니다. 0이면 초기 OCR·모델 호출 없이 408입니다. 서버 `READ_MAX_MS`가 상한입니다.
+- `auto_reprocess`: 선택 불리언, 기본 `true`. `false`면 최초 읽기만 수행합니다. 서버 `REPROCESS_ENABLED=false`가 우선합니다.
 
-응답은 `{"doc_type": "<정규화된 유형>", "fields": {...}, "groundings": {...}, "field_quality": {...}, "elapsed_ms": <정수>}`입니다. `fields`는 `verify.run`이 쓰는 것과 같은 파싱→추출(요청한 key로 좁힌 스키마)→`rules.apply`를 거친 Docraft의 읽기 그대로이며(요청한 key가 있으면 그 key만), AO 비교·판정 정보(`source`·`reason` 등)는 붙지 않습니다. 클라이언트 연결이 끊기면 `/api/verify`와 같은 방식으로 추출 전에 멈추고 499를 돌려주며, `/api/health`의 `verify_inflight`가 `/api/verify`·`/api/read` 처리 중 요청 수를 함께 셉니다. 오류는 `/api/verify`와 같이 `ValueError`(파싱 오류 포함)는 422, 그 외는 502입니다.
+응답은 `{"doc_type": "<정규화된 유형>", "fields": {...}, "groundings": {...}, "field_quality": {...}, "reprocess": {...}, "elapsed_ms": <정수>}`입니다. `fields`는 파싱→추출→`rules.apply`와 안전하게 재검증된 leaf 교정을 거친 Docraft 값입니다. `reprocess`는 `status`, `attempts`, `extra_model_calls`, `stop_reason`, `trace`를 포함합니다. trace에는 이전·제안·채택 값과 근거가 있어 개인정보로 취급해야 합니다. 연결이 끊기면 다음 단계에서 중단하고 499, 운영자 취소는 409, 예산 만료는 408입니다. `/api/health`의 `verify_inflight`는 두 읽기 경로를 합산합니다. 자세한 상한과 채택 규칙은 [자동 재처리 기록](wiki/2026-09-27-auto-reprocess.md)을 보세요.
 
 `/api/read` 응답에는 기존 `fields`와 함께 `groundings`가 있습니다. 필드 근거는 `{ "page": 1, "bbox": [x1, y1, x2, y2], "source_text": "OCR 원문", "confidence": 1.0, "basis": "image_pixel" }` 형태입니다. `page`는 1부터 시작하며 `bbox`는 요청 이미지의 픽셀 좌표입니다. 표 근거는 최종 `fields`의 행 순서와 같은 목록이며 각 행은 열 이름에서 근거로 이어지는 객체입니다. 규칙이 만든 값, 추출값과 대응하지 않는 값, 중복되어 어느 원본 행인지 알 수 없는 값은 근거를 생략합니다. 표 행은 모든 정규화된 셀이 원본 행과 유일하게 맞을 때만 근거를 전달하므로 한 셀이 교정된 행은 다른 셀의 근거도 생략될 수 있습니다. `source_text`는 대응한 OCR 줄·표 셀·블록 원문이고 OCR 일치만으로 이미지 픽셀의 정확성을 보장하지 않습니다. `field_quality`의 경로별 `{status, issue_codes, action, stage, provenance}`는 검사 범위와 미확정 사유를 담습니다. [측정과 한계](wiki/2026-09-27-parse-extract-quality.md)를 함께 보세요.
 
