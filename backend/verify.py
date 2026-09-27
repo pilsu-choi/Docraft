@@ -413,15 +413,65 @@ def resolve_keys(doc_type: str, keys: list[str] | None, *, label: str = "hint_pa
     return only
 
 
-def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None) -> tuple[str, dict, list[dict]]:
+def _read_groundings(doc_type: str, raw: dict, final: dict, groundings: dict) -> dict:
+    """Keep coordinates only when the final value can be tied to one extracted value."""
+    def leaf(key, before, after, source, table=None):
+        if (before is None or after is None or not isinstance(source, dict)
+                or source.get("confidence", 0) < 0.7 or not source.get("source_text")
+                or not isinstance(source.get("page"), int)
+                or not isinstance(source.get("bbox"), (list, tuple))
+                or len(source["bbox"]) != 4
+                or not all(isinstance(n, (int, float)) for n in source["bbox"])):
+            return None
+        # _value is the first rules.apply transformation. Later corrections may change
+        # the value; those cells cannot inherit the extracted coordinate.
+        if rules._value(doc_type, key, before, table) != after:
+            return None
+        return {name: source.get(name) for name in ("page", "bbox", "source_text", "confidence")} | {"basis": "image_pixel"}
+
+    result = {}
+    for key, value in final.items():
+        if isinstance(value, list):
+            original = raw.get(key) or []
+            source_rows = groundings.get(key) or {}
+            if not isinstance(original, list) or not isinstance(source_rows, dict):
+                continue
+            # Match complete normalized rows, never their positions. Duplicate rows
+            # have no unique provenance even if their displayed values agree.
+            signatures = [tuple(sorted((column, rules._value(doc_type, column, cell, key))
+                                       for column, cell in row.items())) if isinstance(row, dict) else None
+                          for row in original]
+            rows = []
+            for row in value:
+                signature = tuple(sorted(row.items())) if isinstance(row, dict) else None
+                matches = [index for index, candidate in enumerate(signatures) if signature is not None and candidate == signature]
+                index = matches[0] if len(matches) == 1 else None
+                source_row = source_rows.get(str(index), {}) if index is not None else {}
+                rows.append({column: grounded for column, cell in row.items()
+                             if (grounded := leaf(column, original[index].get(column), cell,
+                                                  source_row.get(column), key)) is not None}
+                            if index is not None and isinstance(source_row, dict) else {})
+            result[key] = rows
+        else:
+            grounded = leaf(key, raw.get(key), value, groundings.get(key))
+            if grounded is not None:
+                result[key] = grounded
+    return result
+
+
+def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
+         with_groundings: bool = False) -> tuple:
     """이미지를 파싱하고 유형 스키마(``only``가 있으면 그 key로 좁힌다)로 추출해 ``rules.apply``까지 거친
     Docraft 읽기 결과를 돌려준다: ``(doc_type, docraft_fields, blocks)``. AO 비교·교정·Judge는 하지 않는다 —
     ``/api/read``와 ``run``이 함께 쓰는 공용 부분이다. ``cancel``이 세워지면 추출 직전에 ``Cancelled``로 멈춘다.
     """
     _, blocks = parse(image, Path(image).name, "", {"provider": "paddle"})
     _check(cancel)
-    result, _ = engine.extract(_restrict(doctypes.schema(doc_type), only), blocks, source=image)
-    return doc_type, rules.apply(doc_type, result, blocks), blocks
+    result, groundings = engine.extract(_restrict(doctypes.schema(doc_type), only), blocks, source=image)
+    fields = rules.apply(doc_type, result, blocks)
+    if with_groundings:
+        return doc_type, fields, blocks, _read_groundings(doc_type, result or {}, fields, groundings or {})
+    return doc_type, fields, blocks
 
 
 def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str] | None = None, cancel=None) -> dict:

@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-27 (/api/read 원문 좌표)
+* **Creation**: [read-groundings](2026-09-27-read-groundings.md)에 최종 값과 추출 근거의 안전한 대응, 표 행 재정렬·중복 처리, API 계약과 제한을 기록했다. 브랜치 `feat/read-groundings`, 워크트리 `.worktrees/read-groundings`.
+* **Update**: [index](index.md)에 구현 기록을 연결하고 README의 `/api/read` 계약에 `groundings`를 추가했다.
+
 ## 2026-09-27 (key-value 추출 흐름 점검)
 * **Creation**: [Harness와 Docraft의 key-value 추출 흐름 점검](2026-09-27-harness-docraft-kv-pipeline-review.md)에 구현 단계, 통합 경로의 한계, 기존 평가 수치의 적용 범위를 기록했다. 브랜치 `docs/kv-pipeline-review`, 워크트리 `.worktrees/kv-pipeline-review`.
 * **Update**: [index](index.md)에 점검 문서를 연결했다.
