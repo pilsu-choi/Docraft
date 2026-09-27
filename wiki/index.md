@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [Parse·Extract 근거와 검토 상태 보강](2026-09-27-parse-extract-quality.md) - OCR 원문·행/열·페이지 좌표 기반 품질 신호와 API 계약, 76건 캐시 평가 및 97% 목표의 남은 한계
 * [/api/read 최종 값의 원문 좌표 반환](2026-09-27-read-groundings.md) - 규칙 적용 뒤 값·행이 유일하게 대응하는 근거만 `groundings`로 제공
 * [Harness와 Docraft의 key-value 추출 흐름 점검](2026-09-27-harness-docraft-kv-pipeline-review.md) - OCR·스키마 추출·검증·근거·사람 검토의 구현 범위와 통합 경로의 한계
 * [임시 맥락·피드백 문서 Git 추적 해제](2026-09-27-untrack-context-feedback.md) - 정제 전 `context.md`·`feedback.md`를 Git 추적 대상에서 제거하고 루트 `.gitignore`에 등록해 재추가를 방지

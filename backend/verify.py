@@ -570,14 +570,39 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
     counts = {**{name: counts[name] for name in SOURCES}, "added": added}
     _, (checks_after,), last = rules.run(doc_type, {**ao_flat, **final}, docraft, blocks, rounds=0)
     trace += [{**entry, "round": "final"} for entry in last]
+    quality = engine.assess(final, _restrict(doctypes.schema(doc_type), only), blocks)
+    for key, item in quality.items():
+        root = key.split("/")[0]
+        related = [flag["code"] for flag in checks_after if flag["key"] == root]
+        item["issue_codes"] = list(dict.fromkeys([*item["issue_codes"], *related]))
+        if related and item["status"] == "PASS":
+            item["status"] = "SUSPICIOUS"
+            item["action"] = "RECHECK"
+        if root in chosen and chosen[root][1] == "corrected" and item["status"] == "PASS":
+            item["status"] = "CORRECTED"
+        item["stage"] = "undetermined" if item["issue_codes"] else None
     escalate = {entry["rule"] for entry in last if entry["action"] == "ESCALATE"}
     review = {flag["key"] for flag in checks_after if flag["rule"] in escalate and (only is None or flag["key"] in only)}
-    for key, element in (*_scalars(target), *_tables(target)):  # 최종값에도 남은 ESCALATE 이상은 사람이 본다
-        if key in review:
+    quality_review = {path.split("/")[0] for path, item in quality.items() if item["action"] == "REVIEW"
+                      and (only is None or path.split("/")[0] in only)}
+    quality_recheck = {path.split("/")[0] for path, item in quality.items() if item["action"] == "RECHECK"
+                       and (only is None or path.split("/")[0] in only)}
+    for key, element in (*_scalars(target), *_tables(target)):  # 근거가 약하거나 최종 룰 이상이 남은 값은 사람이 본다
+        if key in review or key in quality_review:
             element["review"] = True
+        elif key in quality_recheck:
+            element["recheck"] = True
+    for key, table in _tables(target):
+        for index, row in enumerate(table.get("rows") or []):
+            for column, cell in _cells(table, row):
+                item = quality.get(f"{key}/{index}/{column}")
+                if item and item["action"] == "REVIEW":
+                    cell["review"] = True
+                elif item and item["action"] == "RECHECK":
+                    cell["recheck"] = True
     target["verify"] = {"doc_type": doc_type, "docraft": docraft, "counts": counts, "checks": checks,
                         "checks_after": checks_after, "trace": trace,
-                        "review": mark_review(doc_type, target, checks_after, only)}
+                        "review": mark_review(doc_type, target, checks_after, only), "field_quality": quality}
     logger.info("verify: doc_type=%s fields=%d disputes=%d checks=%d counts=%s elapsed=%.2fs",
                 doc_type, len(ao_flat), len(disputes), len(checks), counts, time.monotonic() - started)
     return output
