@@ -5,6 +5,7 @@
 * **Update**: [index](index.md)에 구현 기록을 연결했다.
 * **Update**: README의 `/api/read` 응답 계약과 OCR 근거의 한계를 현재 코드에 맞게 갱신했다.
 * **Update**: [Parse·Extract 근거와 검토 상태 보강](2026-09-27-parse-extract-quality.md)에 17개 요구의 구현·미구현 범위, 실제 이미지 형식 불일치 수정, 35건 독립 silver 라벨과 선행 15건 raw→rules 거짓 값 증가 원인 13건을 기록했다.
+* **Update**: [Parse·Extract 근거와 검토 상태 보강](2026-09-27-parse-extract-quality.md)에 영수증 병합 머리글 공통 수정의 35건 캐시 +28개 정답, 기존 76건 무회귀, 그룹 제목 null/0 계약 차이와 551개 테스트 결과를 기록했다.
 
 ## 2026-09-27 (/api/read 원문 좌표)
 * **Creation**: [read-groundings](2026-09-27-read-groundings.md)에 최종 값과 추출 근거의 안전한 대응, 표 행 재정렬·중복 처리, API 계약과 제한을 기록했다. 브랜치 `feat/read-groundings`, 워크트리 `.worktrees/read-groundings`.
