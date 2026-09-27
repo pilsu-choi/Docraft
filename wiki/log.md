@@ -5,6 +5,8 @@
 * **Update**: [index](index.md)에 새 문서를 연결했다.
 * **Creation**: [read-api](2026-09-27-read-api.md)에 하네스용 읽기 전용 `POST /api/read` 구현을 기록했다. `verify.run`에서 `resolve_doc_type`·`resolve_keys`·`verify.read`(parse→extract→rules.apply)를 뽑아 공용화하고, `main.py`의 업로드·임시파일·취소·in-flight 보일러플레이트를 `process_image` 헬퍼로 `/api/verify`와 공유했다. `verify_inflight`는 이름을 유지한 채 두 경로 합계를 센다. `tests/test_read.py` 신규(20건), 516 passed(기존 496 + 신규 20, 회귀 없음). README에 하네스 역할 분담과 계약을 추가했다.
 * **Update**: [index](index.md)에 새 문서를 연결했다.
+* **Update**: 문서 동기화. README의 "하네스는 더 이상 `/api/verify`를 부르지 않는다" 서술을 세 곳(도입부·읽기 API 절·AO 교차검증 절 경계)에서 명확히 하고, `/api/read`의 실제 네 가지 용도(재읽기·자기 교정·검토 칸 재조회·재분류 재추출, 비동기 `/v2/jobs` 경로 한정)를 나열했다. 진료비영수증 항목명 별칭 표(`item_aliases`·`receipt_item_names`·`swaps`)가 `rules.yaml`이 아니라 `backend/rulesets/shared/receipt_items.yaml`(하네스와 바이트 동일 공유)에 있다는 사실로 고쳤다. `deploy/aws/README.md`의 배포 잠금 설명을 `verify_inflight`가 `/api/verify`·`/api/read` 합계라는 사실에 맞춰 고쳤다.
+* **Update**: 하네스가 `/api/verify`를 부르는 것을 현재 설계로 서술하던 세 문서에 새 설계([read-api](2026-09-27-read-api.md))를 가리키는 참고 한 줄을 얹었다: [rule-engine-design](2026-09-23-rule-engine-design.md)(ESCALATE·`hint_paths` 호출 절), [verify-hint-paths](2026-09-23-verify-hint-paths.md)(`hint_paths` 자체는 `/api/verify`에 남아 있으나 호출자가 바뀜), [verify-harness-e2e-fixes](2026-09-24-verify-harness-e2e-fixes.md)(과거 하네스↔`/api/verify` e2e 결함 기록). 세 문서 모두 나머지 내용(Docraft 자체 룰 엔진, `hint_paths` 기능, 코드에 남은 버그 수정)이 여전히 유효해 `status`는 바꾸지 않았다.
 
 ## 2026-09-26 (2)
 * **Creation**: [misread-correction](2026-09-26-misread-correction.md)에 진료비영수증 항목명 자모 한 개 오독 교정(세 글자 이하 포함)과 날짜 O·I·l 오독 교정, 라벨 오독 매칭을 넣지 않은 근거(낱말 25,021개 오매칭 검사)를 기록했다. 브랜치 `feat/misread-correction`, 워크트리 `.worktrees/misread-correction`.

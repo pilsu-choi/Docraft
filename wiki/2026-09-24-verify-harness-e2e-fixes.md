@@ -9,6 +9,8 @@ status: stable
 
 # 하네스 표본 7종 e2e에서 드러난 /api/verify 수정
 
+> **참고(2026-09-27)**: 이 문서가 다루는 하네스↔`/api/verify` 연동은 이후 [Docraft를 하네스 읽기 서비스로 만드는 POST /api/read](2026-09-27-read-api.md)로 대체됐다. 하네스는 더 이상 `/api/verify`를 부르지 않으며, 아래 결함들은 이미 코드에 반영된 과거 기록이다.
+
 - 날짜: 2026-09-24
 - 브랜치: `fix/0924-verify-e2e-sample` (`b68da80`, `df5af1c`), main 미병합, AWS 배포 `df5af1c`
 - 짝 문서: harness-v2 `wiki/2026-09-24-표본-7종-e2e-서식재분류-정규화.md`
