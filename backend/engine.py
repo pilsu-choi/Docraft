@@ -101,7 +101,7 @@ def _provider(messages, timeout=None):
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            logger.error("provider HTTP error: status=%s elapsed=%.2fs", response.status_code, elapsed)
+            logger.error("provider HTTP error: status=%s elapsed=%.2fs body=%s", response.status_code, elapsed, _truncate(response.text))
             raise RuntimeError(f"AI provider 요청 실패 (HTTP {response.status_code})") from exc
         try:
             choice = response.json()["choices"][0]

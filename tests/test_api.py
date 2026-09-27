@@ -253,3 +253,29 @@ def test_document_delete_removes_row_and_file_but_not_while_busy():
     assert deleted.status_code == 204
     assert client.get(f"/api/documents/{document_id}").status_code == 404
     assert client.get(f"/api/documents/{document_id}/file").status_code == 404
+
+
+def test_request_id_is_echoed_and_tags_every_log_line():
+    """X-Request-ID(하네스가 job·doc id 를 싣는다)가 그 요청의 모든 로그 줄 [rid] 와 응답 헤더에 남는다."""
+    import logging
+
+    from backend.config import _RequestIdFilter
+
+    records = []
+    collect = logging.Handler()
+    collect.emit = records.append
+    collect.addFilter(_RequestIdFilter())
+    backend_logger = logging.getLogger("backend")
+    backend_logger.addHandler(collect)
+    try:
+        response = client.get("/api/projects/nope/documents", headers={"X-Request-ID": "J1.T 9;.d1"})
+        assert response.status_code == 404
+        assert response.headers["X-Request-ID"] == "J1.T9.d1"  # 로그에 못 싣는 글자는 뺀다
+        tagged = [r for r in records if r.rid == "J1.T9.d1"]
+        assert any("리소스를 찾을 수 없습니다" in r.getMessage() for r in tagged)  # 4xx 사유가 남는다
+        assert any("-> 404" in r.getMessage() for r in tagged)
+
+        generated = client.get("/api/health").headers["X-Request-ID"]
+        assert len(generated) == 12 and generated != "J1.T9.d1"
+    finally:
+        backend_logger.removeHandler(collect)

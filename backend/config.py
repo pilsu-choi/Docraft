@@ -1,7 +1,11 @@
 """Runtime configuration loaded without exposing secrets."""
 
+import contextvars
 import logging
 import os
+import re
+import uuid
+from contextlib import contextmanager
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from urllib.parse import urlparse
@@ -45,6 +49,37 @@ def load_env() -> Path | None:
     return None
 
 
+# 로그 한 줄이 어느 요청·작업의 것인지. /api/verify 가 동시에 여러 건 돌면 이것 없이는 중간 줄(LLM 호출 등)을 가를 수 없다.
+_request_id: contextvars.ContextVar[str] = contextvars.ContextVar("docraft_request_id", default="-")
+_UNSAFE = re.compile(r"[^A-Za-z0-9._:/=-]")
+
+
+def request_id() -> str:
+    return _request_id.get()
+
+
+def new_request_id(incoming: str | None = None) -> str:
+    """호출자가 준 X-Request-ID(하네스는 job·doc id)를 로그에 안전한 모양으로, 없으면 새로 만든다."""
+    cleaned = _UNSAFE.sub("", incoming or "")[:64]
+    return cleaned or uuid.uuid4().hex[:12]
+
+
+@contextmanager
+def bind_request(rid: str):
+    """이 블록(과 asyncio.to_thread 로 넘긴 작업)의 모든 로그 줄에 [rid] 를 붙인다."""
+    token = _request_id.set(rid)
+    try:
+        yield rid
+    finally:
+        _request_id.reset(token)
+
+
+class _RequestIdFilter(logging.Filter):
+    def filter(self, record):
+        record.rid = _request_id.get()
+        return True
+
+
 def setup_logging() -> None:
     """Configure the `backend` package logger once; all modules use logging.getLogger(__name__)."""
     logger = logging.getLogger("backend")
@@ -58,7 +93,8 @@ def setup_logging() -> None:
         Path(log_file).parent.mkdir(parents=True, exist_ok=True)
         handlers.append(RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8"))
     for handler in handlers:
-        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s [%(rid)s] %(message)s"))
+        handler.addFilter(_RequestIdFilter())
         logger.addHandler(handler)
     for noisy in ("httpx", "httpcore", "fitz"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
