@@ -1,9 +1,11 @@
 import base64
+import io
 import json
 
 import fitz
 import httpx
 import pytest
+from PIL import Image
 
 from backend import doctypes, engine, parsers
 from backend.main import app
@@ -94,6 +96,28 @@ def test_remote_paddle_layout_contract(monkeypatch, tmp_path):
     assert seen["json"]["fileType"] == 1
     assert seen["headers"] == {"Authorization": "Bearer ocr-secret"}
     assert blocks == [{"type": "text", "page": 1, "bbox": None, "text": "환자명: 홍길동", "source": "paddleocr_remote"}]
+
+
+def test_image_named_tif_with_gif_bytes_is_sent_as_png(monkeypatch, tmp_path):
+    source = tmp_path / "scan.TIF"
+    Image.new("P", (9, 7), color=1).save(source, format="GIF")
+    monkeypatch.setenv("PADDLEOCR_BASE_URL", "https://ocr.example")
+    monkeypatch.setenv("PARSE_PROVIDER", "paddle")
+    monkeypatch.setenv("PADDLEOCR_LINES_URL", "")
+    seen = {}
+
+    def post(url, **kwargs):
+        seen["bytes"] = base64.b64decode(kwargs["json"]["file"])
+        seen["file_type"] = kwargs["json"]["fileType"]
+        return httpx.Response(200, json={"result": {"layoutParsingResults": [
+            {"markdown": {"text": "문서"}}]}}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(parsers.httpx, "post", post)
+    assert parsers.parse_image(source)[0]["text"] == "문서"
+    assert seen["file_type"] == 1
+    assert seen["bytes"].startswith(b"\x89PNG\r\n\x1a\n")
+    with Image.open(io.BytesIO(seen["bytes"])) as sent:
+        assert sent.size == (9, 7)
 
 
 def test_remote_paddle_region_bboxes(monkeypatch, tmp_path):
