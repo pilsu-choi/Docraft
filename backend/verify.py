@@ -422,21 +422,32 @@ def resolve_keys(doc_type: str, keys: list[str] | None, *, label: str = "hint_pa
     return only
 
 
+def _exposed_grounding(source, value):
+    typed = reprocess._typed(source, value)
+    if source.get("match") in {"typed", "blank"} and not typed:
+        return None
+    if (source.get("confidence", 0) < 0.7 or not isinstance(source.get("page"), int)
+            or not isinstance(source.get("bbox"), (list, tuple)) or len(source["bbox"]) != 4
+            or not all(isinstance(n, (int, float)) for n in source["bbox"])
+            or (not source.get("source_text") and not typed)):
+        return None
+    names = ("page", "bbox", "page_size", "source_text", "confidence", "match", "evidence_type",
+             "transform", "role", "label", "geometry_scope", "normalized_value", "verified", "row", "column", "table")
+    return {name: source[name] for name in names if name in source} | {
+        "basis": "image_cell_blank" if source.get("match") == "blank" else "ocr_typed" if typed else "image_pixel"}
+
+
 def _read_groundings(doc_type: str, raw: dict, final: dict, groundings: dict) -> dict:
     """Keep coordinates only when the final value can be tied to one extracted value."""
+
     def leaf(key, before, after, source, table=None):
-        if (before is None or after is None or not isinstance(source, dict)
-                or source.get("confidence", 0) < 0.7 or not source.get("source_text")
-                or not isinstance(source.get("page"), int)
-                or not isinstance(source.get("bbox"), (list, tuple))
-                or len(source["bbox"]) != 4
-                or not all(isinstance(n, (int, float)) for n in source["bbox"])):
+        if not isinstance(source, dict) or ((before is None or after is None) and not reprocess._typed(source, after)):
             return None
         # _value is the first rules.apply transformation. Later corrections may change
         # the value; those cells cannot inherit the extracted coordinate.
         if rules._value(doc_type, key, before, table) != after:
             return None
-        return {name: source.get(name) for name in ("page", "bbox", "source_text", "confidence")} | {"basis": "image_pixel"}
+        return _exposed_grounding(source, after)
 
     result = {}
     for key, value in final.items():
@@ -477,12 +488,14 @@ def _merge_recovered_groundings(original, recovered, trace, fields):
         source = recovered
         for part in parts:
             source = source.get(part, {}) if isinstance(source, dict) else {}
-        if not isinstance(source, dict) or source.get("confidence", 0) < 0.7 or not source.get("source_text"):
+        if not isinstance(source, dict):
             continue
-        if not isinstance(source.get("page"), int) or not isinstance(source.get("bbox"), (list, tuple)) or len(source["bbox"]) != 4:
+        value = fields.get(parts[0]) if len(parts) == 1 else (
+            fields[parts[0]][int(parts[1])].get(parts[2]) if len(parts) == 3 and parts[1].isdigit()
+            and isinstance(fields.get(parts[0]), list) and int(parts[1]) < len(fields[parts[0]]) else None)
+        leaf = _exposed_grounding(source, value)
+        if leaf is None:
             continue
-        leaf = {key: source.get(key) for key in ("page", "bbox", "source_text", "confidence")}
-        leaf["basis"] = "image_pixel"
         if len(parts) == 1:
             original[parts[0]] = leaf
         elif len(parts) == 3 and parts[1].isdigit() and isinstance(fields.get(parts[0]), list):

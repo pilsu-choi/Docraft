@@ -109,6 +109,8 @@ flowchart TD
 
 여기서 쓰는 VLM은 `/api/verify`·일반 추출과 같은 `engine.extract` 설정(`AI_BASE_URL` 등)을 그대로 씁니다 — 하네스는 VLM을 직접 부르지 않고 항상 이 API를 거칩니다. AWS 개발 서버는 OpenRouter(`qwen/qwen3-vl-32b-instruct`)를, 고객사 온프레미스 k8s는 같은 추출 모델을 자체 호스팅한 Qwen3-VL(vLLM)을 씁니다.
 
+날짜 표기·진료기간의 시작/종료·체크 기호와 물리 표 셀은 [유형별 원문 근거](wiki/2026-09-27-typed-evidence.md)가 확인된 경우에만 `groundings`와 `field_quality.provenance`에 `match`, `evidence_type`, `transform`, `role`, `label`, `normalized_value`, `verified`, `geometry_scope`를 함께 남깁니다. 검증된 빈 셀은 `source_text: ""`, `match: "blank"`, `basis: "image_cell_blank"`로 `null`과 연결하며 숫자 0과 구분합니다. 좌표·라벨·행열 관계가 불분명하면 검토 대상으로 남깁니다.
+
 ```bash
 curl -X POST http://127.0.0.1:8000/api/read \
   -F 'image=@crop.png' \

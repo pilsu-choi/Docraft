@@ -171,12 +171,13 @@ def _ruled_tables(blocks, path, file_type, page_map):
                 else:
                     image = source.convert("L").resize((round(width), round(height)))
                 for table in (b for b in tables if b["page"] == page_no):
-                    grid = ruled_table(image, table["bbox"], table["lines"])
+                    grid = ruled_table(image, table["bbox"], table["lines"], with_geometry=True)
                     # Faint rules found only in part collapse many rows into a few; the VLM rows are then the better guess.
                     if grid and len(grid[0]) * 2 >= len(table.get("rows") or []):
-                        rows, spans = grid
+                        rows, spans, cells = grid
                         table.pop("spans", None)
                         table.update(rows=rows, structure="ruled", **({"spans": spans} if spans else {}))
+                        table["cells"] = [{**cell, "page": page_no, "page_size": table["page_size"]} for cell in cells]
                         table["text"] = _markdown(table, "html")
     except (OSError, ValueError, RuntimeError) as exc:
         logger.warning("ruled table grid skipped, keeping VLM table structure: %s", exc)
@@ -378,6 +379,8 @@ def parse(path, filename, media_type, options=None):
     for item in blocks:
         text = refine_table(item, path, options.get("deadline")) if options.get("refine_tables", True) and item["type"] == "table" and item.get("source") == "paddleocr_remote" else None
         if text:
+            # Refinement edits HTML cell text without updating OCR cell witnesses; do not reuse stale typed proof.
+            item.pop("cells", None)
             item.update(text=text, **_html_table(text))
     separator = "\n" if suffix in {".pdf", ".txt", ".md"} else "\n\n"
     markdown = separator.join(_markdown(item, table_format) for item in blocks)

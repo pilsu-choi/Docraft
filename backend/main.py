@@ -520,8 +520,6 @@ def run_extract(document_id, schema_id):
         with heartbeat(document_id):
             result, groundings, quality, recovery = reprocess.run(
                 doc["file_path"], schema["json_schema"], doc["blocks"], result, cancel=JobCancel())
-        quality = engine.assess(result, schema["json_schema"], doc["blocks"], groundings,
-                                require_geometry=Path(doc["file_path"]).suffix.lower() in engine.VISION_SUFFIXES)
         engine.annotate_groundings(groundings, quality)
         issues = engine.validate(result, schema["json_schema"], groundings)
         issues.extend({"path": "/" + path, "code": "low_confidence", "message": "원문 근거를 확인할 수 없습니다."}

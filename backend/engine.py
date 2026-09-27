@@ -412,7 +412,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         results.append(result)
     merged = _merge_chunk_results(results, schema)
     _drop_null_optionals(merged, schema)
-    return merged, _grounding_tree(merged, [(block, _block_rows(block)) for block in blocks], schema)
+    return merged, ground(merged, schema, blocks)
 
 
 def _normalized(text):
@@ -512,9 +512,11 @@ def _band(candidates):
     return centers[len(centers) // 2] if centers else None
 
 
-def _labels(key, schema):
-    """Normalized label texts of a field: its key and schema title."""
-    return {label for label in (_normalized(str(text).replace("_", "")) for text in (key, schema.get("title", ""))) if len(label) >= 2}
+def _labels(key, schema, aliases=True):
+    """Normalized label texts, including the existing rule registry's aliases."""
+    from .rules import LABELS
+    return {label for label in (_normalized(str(text).replace("_", ""))
+                          for text in (key, schema.get("title", ""), *(LABELS.get(key, ()) if aliases else ()))) if len(label) >= 2}
 
 
 def _labelled(lines, anchors, reach):
@@ -603,6 +605,12 @@ def _grounding_tree(value, sources, schema, taken=None, strict=False):
     return _leaf(value, _hits(value, sources), None, False, sources)
 
 
+def ground(result, schema, blocks):
+    from .typed_evidence import augment
+    return augment(result, schema, blocks,
+                   _grounding_tree(result, [(block, _block_rows(block)) for block in blocks], schema))
+
+
 def validate(result, schema, groundings):
     issues = []
     for error in Draft202012Validator(schema).iter_errors(result):
@@ -625,8 +633,7 @@ def assess(result, schema, blocks, groundings=None, require_geometry=True):
     An OCR match establishes where a value was read, not whether the pixels were read correctly.
     Missing or approximate evidence is sent to review; a schema violation is unresolved.
     """
-    evidence = groundings if groundings is not None else _grounding_tree(
-        result, [(block, _block_rows(block)) for block in blocks], schema)
+    evidence = groundings if groundings is not None else ground(result, schema, blocks)
     problems = validate(result, schema, evidence)
     by_path = {}
     for issue in problems:
@@ -650,7 +657,7 @@ def assess(result, schema, blocks, groundings=None, require_geometry=True):
         parts = path.strip("/").split("/")
         if len(parts) != 1:
             return False
-        labels = _labels(parts[0], schema.get("properties", {}).get(parts[0], {}))
+        labels = _labels(parts[0], schema.get("properties", {}).get(parts[0], {}), aliases=False)
         for block in blocks:
             text = _normalized(block.get("text", ""))
             for label in labels:
@@ -677,9 +684,12 @@ def assess(result, schema, blocks, groundings=None, require_geometry=True):
                 walk(child, source.get(str(index), {}) if isinstance(source, dict) else {}, spec.get("items", {}), f"{path}/{index}")
         else:
             codes = list(dict.fromkeys(by_path.get(path, [])))
+            from .typed_evidence import valid as valid_typed
+            if isinstance(source, dict) and source.get("match") in {"typed", "blank"} and not valid_typed(source, value):
+                codes.append("invalid_typed_proof")
             if value is None:
                 codes = [code for code in codes if code != "low_confidence"]
-                if printed_label(path):
+                if printed_label(path) and not valid_typed(source, None):
                     codes.append("missing_value")
             if value is not None and not isinstance(value, bool):
                 if not isinstance(source, dict) or not source.get("source_text") or (require_geometry and (source.get("page") is None or not source.get("bbox"))):
@@ -706,7 +716,7 @@ def assess(result, schema, blocks, groundings=None, require_geometry=True):
             quality[path.lstrip("/")] = {"status": state, "issue_codes": codes,
                                            "stage": "undetermined" if codes else None,
                                            "action": "REVIEW" if state == "UNRESOLVED" else ("RECHECK" if codes else "ACCEPT"),
-                                           "provenance": {key: source.get(key) for key in ("page", "bbox", "page_size", "source_text", "block", "row", "column", "match") if key in source} if isinstance(source, dict) else {}}
+                                           "provenance": {key: source.get(key) for key in ("page", "bbox", "page_size", "source_text", "block", "row", "column", "table", "match", "evidence_type", "transform", "role", "label", "geometry_scope", "normalized_value", "verified", "basis") if key in source} if isinstance(source, dict) else {}}
 
     walk(result, evidence, schema)
     return quality

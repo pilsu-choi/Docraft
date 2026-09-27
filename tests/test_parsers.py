@@ -162,6 +162,23 @@ def test_ruled_table_reads_structure_from_rules_and_splits_lines_joined_across_a
     assert spans == [[0, 1, 1, 2]]
 
 
+def test_ruled_cell_geometry_only_certifies_a_visually_empty_closed_cell():
+    lines = [line for line in FORM_LINES if line["text"] != "2,000"]
+    rows, spans, cells = ruled_table(_ruled_form(), [0, 0, 400, 200], lines, with_geometry=True)
+    empty = next(cell for cell in cells if (cell["row"], cell["column"]) == (1, 2))
+    merged = next(cell for cell in cells if (cell["row"], cell["column"]) == (0, 1))
+    assert rows[1][2] == "" and spans == [[0, 1, 1, 2]]
+    assert empty["bbox"] == [260, 70, 388, 130] and empty["verified"] and empty["blank"]
+    assert (merged["rowspan"], merged["colspan"]) == (1, 2) and merged["verified"] and not merged["blank"]
+    assert not any(cell["row"] == 0 and cell["column"] == 2 for cell in cells)  # 물리적 병합셀을 중복하지 않는다.
+
+    for ink, position in ((0, (275, 90)), (225, (264, 74))):
+        image = _ruled_form()
+        ImageDraw.Draw(image).text(position, "missed", fill=ink)
+        assert not next(cell for cell in ruled_table(image, [0, 0, 400, 200], lines, with_geometry=True)[2]
+                        if (cell["row"], cell["column"]) == (1, 2))["blank"]
+
+
 def test_ruled_table_is_none_without_rules():
     assert ruled_table(Image.new("L", (400, 200), 255), [0, 0, 400, 200], FORM_LINES) is None
 
@@ -184,6 +201,13 @@ def test_ruled_table_straightens_a_tilted_scan():
     image, lines = _turned(_ruled_form(), FORM_LINES, 2.0)
     assert ruled_table(image, [0, 0, 400, 200], lines) == (
         [["항목", "금액", "금액"], ["진찰료", "1,000", "2,000"], ["합계", "10", "20"]], [[0, 1, 1, 2]])
+    _, _, cells = ruled_table(image, [0, 0, 400, 200], lines, with_geometry=True)
+    value = next(cell for cell in cells if cell["text"] == "2,000")
+    source = next(line["bbox"] for line in lines if line["text"] == "2,000")
+    cx, cy = (source[0] + source[2]) / 2, (source[1] + source[3]) / 2
+    x0, y0, x1, y1 = value["bbox"]
+    assert x0 <= cx <= x1 and y0 <= cy <= y1
+    assert value["bbox"] != [0, 0, 400, 200] and not any(cell["blank"] for cell in cells)
 
 
 def test_ruled_table_reads_a_low_resolution_form():
@@ -227,12 +251,16 @@ def test_paddle_table_takes_the_ruled_grid_over_the_vlm_html(tmp_path, monkeypat
     assert table["structure"] == "ruled"
     assert table["rows"][2] == ["합계", "10", "20"] and table["spans"] == [[0, 1, 1, 2]]
     assert table["text"].startswith('<table><tr><td>항목</td><td colspan="2">금액</td>')
+    assert next(cell for cell in table["cells"] if (cell["row"], cell["column"]) == (1, 1)) == {
+        "row": 1, "column": 1, "rowspan": 1, "colspan": 1, "text": "1,000", "bbox": [130, 70, 260, 130],
+        "blank": False, "verified": True, "page": 1, "page_size": [400, 200],
+    }
 
 
 def test_paddle_table_keeps_vlm_rows_when_the_grid_has_fewer_than_half(tmp_path, monkeypatch):
     vlm_html = "<table>" + "<tr><td>행</td></tr>" * 7 + "</table>"
     table = _paddle_form(tmp_path, monkeypatch, vlm_html)
-    assert "structure" not in table and len(table["rows"]) == 7 and table["text"] == vlm_html
+    assert "structure" not in table and "cells" not in table and len(table["rows"]) == 7 and table["text"] == vlm_html
 
 
 def test_paddle_table_keeps_merged_cell_spans(tmp_path, monkeypatch):
@@ -244,6 +272,22 @@ def test_paddle_table_keeps_merged_cell_spans(tmp_path, monkeypatch):
     monkeypatch.setattr(parsers.httpx, "post", lambda url, **_: httpx.Response(200, json=response, request=httpx.Request("POST", url)))
     _, blocks = parse(path, path.name, "image/png")
     assert blocks[0]["rows"] == [["급여", "급여"], ["본인", "공단"]] and blocks[0]["spans"] == [[0, 0, 1, 2]]
+    assert "cells" not in blocks[0]  # HTML td만으로는 셀 좌표나 빈칸 증거를 만들지 않는다.
+
+
+def test_table_refinement_discards_stale_ocr_cell_witnesses(tmp_path, monkeypatch):
+    path = tmp_path / "scan.png"
+    Image.new("RGB", (100, 100), "white").save(path)
+    original = "<table><tr><td>원문</td></tr></table>"
+    corrected = "<table><tr><td>교정</td></tr></table>"
+    parsed = parsers.block(original, "table", page=1, bbox=[0, 0, 100, 100], page_size=[100, 100],
+                           source="paddleocr_remote", rows=[["원문"]], cells=[{"row": 0, "column": 0, "text": "원문"}])
+    monkeypatch.setattr(parsers, "_remote_paddle", lambda *args, **kwargs: [parsed])
+    monkeypatch.setattr(parsers, "refine_table", lambda *args: corrected)
+
+    _, blocks = parse(path, path.name, "image/png", {"provider": "paddle"})
+
+    assert blocks[0]["rows"] == [["교정"]] and "cells" not in blocks[0]
 
 
 def test_table_refine_corrects_cell_text_but_never_the_grid(tmp_path, monkeypatch):

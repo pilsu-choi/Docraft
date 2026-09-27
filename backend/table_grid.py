@@ -119,10 +119,11 @@ def _split(box, x):
     return [x0, y0, x, y1, text[:best].strip()], [x, y0, x1, y1, text[best + 1:].strip()]
 
 
-def ruled_table(image, bbox, lines):
+def ruled_table(image, bbox, lines, with_geometry=False):
     """(rows, spans) of the table at `bbox` in `image` (PIL), or None if it is not a ruled grid.
 
-    `lines` are OCR {"text", "bbox"} boxes in the same coordinates; rows/spans follow the `_grid` convention."""
+    `lines` are OCR {"text", "bbox"} boxes in the same coordinates; rows/spans follow the `_grid` convention.
+    `with_geometry` additionally returns cells in page-local coordinates; the default return is unchanged."""
     x0, y0, x1, y1 = (round(v) for v in bbox)
     crop = image.crop((x0, y0, x1, y1)).convert("L")
     boxes = [[b[0] - x0, b[1] - y0, b[2] - x0, b[3] - y0, str(line["text"]).strip()] for line in lines for b in [line["bbox"]] if str(line["text"]).strip()]
@@ -216,13 +217,51 @@ def ruled_table(image, bbox, lines):
 
     keep_r, keep_c = kept(ys, 0, 2), kept(xs, 1, 3)
     grid, spans = [[""] * (len(keep_c) - 1) for _ in keep_r[:-1]], []
+    cells = []
+
+    def page_box(left, top, right, bottom):
+        if abs(angle) >= 0.1:
+            sin, cos = np.sin(np.radians(angle)), np.cos(np.radians(angle))
+            ox, oy, nx, ny = (x1 - x0) / 2, (y1 - y0) / 2, w / 2, h / 2
+            corners = [(ox + (x - nx) * cos - (y - ny) * sin,
+                        oy + (x - nx) * sin + (y - ny) * cos)
+                       for x in (left, right) for y in (top, bottom)]
+            left, top = min(x for x, _ in corners), min(y for _, y in corners)
+            right, bottom = max(x for x, _ in corners), max(y for _, y in corners)
+        return [max(x0, round(x0 + left)), max(y0, round(y0 + top)),
+                min(x1, round(x0 + right)), min(y1, round(y0 + bottom))]
+
+    def closed_cell(r0, c0, r1, c1):
+        left, right, top, bottom = xs[c0], xs[c1 + 1], ys[r0], ys[r1 + 1]
+        return bool(ruled(horizontal, top, left, right, 1) and ruled(horizontal, bottom, left, right, 1)
+                    and ruled(vertical, left, top, bottom, 0) and ruled(vertical, right, top, bottom, 0))
+
+    def image_blank(r0, c0, r1, c1, box_count, closed):
+        if box_count or not closed or abs(angle) >= 0.1:
+            return False  # rotated hulls overlap neighboring cells; never certify those as empty
+        left, right, top, bottom = xs[c0], xs[c1 + 1], ys[r0], ys[r1 + 1]
+        # Skip only the drawn border. A wider text-height margin can cut off a faint digit near a rule.
+        margin = 3
+        interior = np.asarray(crop)[top + margin:bottom - margin, left + margin:right - margin]
+        # JPEG noise can cause false negatives here; that is safer than declaring faint printing blank.
+        return interior.size > 0 and not np.any(interior < 245)
+
     for n, (r0, c0, r1, c1) in enumerate(rects):
         top, left, bottom, right = bisect_left(keep_r, r0), bisect_left(keep_c, c0), bisect_left(keep_r, r1 + 1), bisect_left(keep_c, c1 + 1)
         if top == bottom or left == right:
             continue  # an empty cell lying wholly inside a dropped sliver
         text = _reading(texts.get(n, []))
+        if with_geometry:
+            bbox_cell = page_box(xs[c0], ys[r0], xs[c1 + 1], ys[r1 + 1])
+            closed = (closed_cell(r0, c0, r1, c1)
+                      and bbox_cell[0] < bbox_cell[2] and bbox_cell[1] < bbox_cell[3])
+            blank = not text and image_blank(r0, c0, r1, c1, len(texts.get(n, [])), closed)
+            cells.append({"row": top, "column": left, "rowspan": bottom - top, "colspan": right - left,
+                          "text": text, "bbox": bbox_cell, "blank": bool(blank), "verified": closed})
         for r in range(top, bottom):
             grid[r][left:right] = [text] * (right - left)
         if bottom - top > 1 or right - left > 1:
             spans.append([top, left, bottom - top, right - left])
-    return (grid, sorted(spans)) if len(grid) > 1 and len(grid[0]) > 1 else None
+    if len(grid) <= 1 or len(grid[0]) <= 1:
+        return None
+    return (grid, sorted(spans), cells) if with_geometry else (grid, sorted(spans))
