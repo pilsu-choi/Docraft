@@ -145,10 +145,10 @@ def test_read_route_rejects_a_non_list_keys(tmp_path):
     assert response.status_code == 422 and "keys" in response.json()["detail"]
 
 
-def test_read_route_rejects_keys_with_no_key_defined_for_the_doc_type(tmp_path):
-    response = post_read(_image(tmp_path), doc_type="진단서", keys=json.dumps(["없는키"]))
+def test_read_route_returns_no_fields_when_no_key_is_defined_for_the_doc_type(tmp_path):
+    response = post_read(_image(tmp_path), doc_type="진단서", keys=json.dumps(["사고발생일자"]))
 
-    assert response.status_code == 422 and "keys" in response.json()["detail"]
+    assert response.status_code == 200 and response.json() == {"doc_type": "진단서", "fields": {}, "elapsed_ms": 0}
 
 
 def test_read_route_rejects_a_non_image_upload(tmp_path):

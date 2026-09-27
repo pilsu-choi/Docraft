@@ -795,7 +795,8 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
     크롭 재추출(자기 교정), 폴백에 쓰는 순수 읽기 경로다.
 
     ``keys``(JSON 배열 문자열, 예: ``["병원명", "항목내역"]``)를 주면 그 필드·표 key만 추출한다(추출 스키마도
-    그만큼 좁힌다). 정의에 없는 key는 무시하고 한 번 경고 로그를 남기며, 유효한 key가 하나도 없으면 422.
+    그만큼 좁힌다). 정의에 없는 key는 무시하고 한 번 경고 로그를 남기며, 유효한 key가 하나도 없으면 읽지 않고 빈
+    ``fields``를 돌려준다 — 하네스 검토 칸이 모두 Docraft 정의 밖(사고발생일자 등)일 때 오류가 아니라 "읽을 것 없음"이다.
     생략하면 유형의 전체 필드를 돌려준다.
     """
     try:
@@ -803,11 +804,14 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
         wanted = json.loads(keys) if keys else None
         if keys and (not isinstance(wanted, list) or not all(isinstance(key, str) for key in wanted)):
             raise ValueError("keys는 문자열 배열이어야 합니다.")
-        only = verify.resolve_keys(doc_type, wanted, label="keys")
     except json.JSONDecodeError as exc:
         raise HTTPException(422, "keys를 JSON으로 해석할 수 없습니다.") from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    try:
+        only = verify.resolve_keys(doc_type, wanted, label="keys")
+    except ValueError:
+        return {"doc_type": doc_type, "fields": {}, "elapsed_ms": 0}
 
     def run_read(path, cancel=None):
         return verify.read(path, doc_type, only, cancel=cancel)[1]
