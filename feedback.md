@@ -16,3 +16,40 @@
 - ~~스키마 내보내기~~
 - ~~작업 진행 중일 때 로딩바 노출~~
 - parse sample json 기반으로 extract만 다시 해보기..?
+- TODO
+  - harness-v2 통합
+    - 룰 검증하고.. status failed 인것들만 Docraft 태우기
+    - Docraft 태워서 extract 된 json과 Agentic OCR 2.0 ouput json을 LLM에게 비교 맡기고 선정하기?
+    - 선정해서 자동 교정 ?
+    - 그리고 결과 화면 확인 ? HITL ?
+  - 성능 고도화..
+    - parse
+      - 병합 셀
+      - 복합 테이블 추출
+    - extract
+      - key-value 오매핑..
+    - 
+  - - 2.Doccraft 태워서 parse-extract 된 json과 Agentic OCR 2.0 output json을 LLM에게 비교 맡기고 선정.
+      - request parameter는 Image, json 2개. response parameter는 json.
+        - \\wsl.localhost\Ubuntu-22.04\home\pilsu\projects\mirae-assets\harness-v2\docs\agentic-ocr-2.0.1-results
+        - request paramater는 agentic ocr 2.0 response임. 위 경로 참고하셈.
+      - twin reader plugin을 참고하여 rule-base schema를 적용.
+      - /home/pilsu/projects/mirae-assets/Docraft/refs/postprocess_schema_example/20260828_v1.1
+      - twin reader plugin schema를 더 확장한다. 더 많은 케이스를 탐지하도록..
+        - 더 다양한 데이터는 Downloads 경로 참고하도록.
+        - "C:\Users\user\Downloads\진료비영수증-20260806T005007Z-1-001"
+          "C:\Users\user\Downloads\진료비세부산정내역서-20260806T005053Z-1-001"
+          "C:\Users\user\Downloads\진단서-20260806T005106Z-1-001"
+          "C:\Users\user\Downloads\소견서-20260806T005158Z-1-001"
+        - /home/pilsu/projects/mirae-assets/Docraft/data/files
+        - 
+      - docraft에서 parse -> plugin schema 적용 -> extract -> 이후 Agentic OCR 2.0 output json과 비교(LLM as Judge) -> 결과 보정
+      - 선정해서 자동 교정된 버젼의 json return 하는 api
+      - \\wsl.localhost\Ubuntu-22.04\home\pilsu\projects\mirae-assets\harness-v2\docs\requirements\[진료비영수증]비급여_급여_오추출됨  - 이런 오류들을 하네스에서 검출하고 자동 교정 가능해야 함.. 저기 해당 경로의 [진료비영수증] 오류 케이스 3건 등등의 오류를 검출하고 자동 교정 필요함..
+      - TODO: 문서 3종 마저 구현하기. 수술확인서.. 등등
+      - UI 반영. 룰베이스 스키마 수정..?
+      - 하네스 통합 flow.. all in one으로 비즈니스 룰 엔진 실패시 자동으로 doccraft fallback 하여 자동 보정. 자동 보정 결과는 call_back_url 인자로 전달 받아 callback 활용 필요.. api 형태로 노출 시켜야함.
+      - 스키마 하드코딩 나중에 UI에서 수정 및 등록할 수 있도록 고도화 필요
+      - 진찰료가 진칠료 이렇게 오파싱된 것을 자동 교정해야 한다..
+        - 룰 검증 통해서 결정론적으로 자동 교정이 되었으면 좋겠음
+  - 09/25 오늘은 네비우스에서 qwen 3 vl instruct fp8 버젼으로 L40S + H200 에서 각각 속도 및 정확도 측정하는 날이다.
