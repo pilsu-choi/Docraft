@@ -381,8 +381,12 @@ class Cancelled(Exception):
 
 
 def _check(cancel):
-    """``cancel``이 세워졌으면 다음 단계(추출·Judge LLM 호출)로 넘어가지 않고 멈춘다."""
-    if cancel is not None and cancel.is_set(): raise Cancelled
+    """``cancel``이 세워졌으면 다음 단계(추출·Judge LLM 호출)로 넘어가지 않고 멈춘다.
+
+    ``cancel.reason``이 ``"operator"``이면(관리자의 cancel-all이 세운 경우) 그 값을 예외에 실어,
+    호출자가 클라이언트 연결 끊김(499)과 운영자 취소(409)를 구분할 수 있게 한다.
+    """
+    if cancel is not None and cancel.is_set(): raise Cancelled(getattr(cancel, "reason", None))
 
 
 def resolve_doc_type(doc_type: str | None) -> str:

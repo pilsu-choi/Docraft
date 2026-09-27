@@ -194,8 +194,17 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | 결과 내보내기 | `GET /api/documents/{document_id}/export`, `GET /api/projects/{project_id}/export` |
 | AO 교차검증 | `POST /api/verify` |
 | Docraft 읽기 전용(하네스) | `POST /api/read` |
+| 문서 잡 취소 | `POST /api/documents/{document_id}/cancel` |
+| 운영자 긴급 중지(전체 취소) | `POST /api/admin/cancel-all?confirm=true` |
 
-업로드·재파싱·추출은 `202`로 접수하며, 문서 조회의 상태(`queued`, `parsing`, `parsed`, `extracting`, `validating`, `needs_review`, `completed`, `failed`)에서 진행 상황을 확인합니다. 교차검증과 읽기 전용 API는 동기 응답입니다. 정확한 요청·응답은 실행 중인 `/docs`를 따릅니다.
+업로드·재파싱·추출은 `202`로 접수하며, 문서 조회의 상태(`queued`, `parsing`, `parsed`, `extracting`, `validating`, `needs_review`, `completed`, `failed`, `canceled`)에서 진행 상황을 확인합니다. 교차검증과 읽기 전용 API는 동기 응답입니다. 정확한 요청·응답은 실행 중인 `/docs`를 따릅니다.
+
+### 작업 중지
+
+운영자가 긴급하게 처리를 멈춰야 할 때 씁니다. 대기 중인 잡은 즉시 멈추고, 실행 중인 잡은 협조적으로(다음 단계 경계에서) 멈춥니다 — 파싱·추출 자체를 중간에 끊지는 않습니다.
+
+- `POST /api/documents/{document_id}/cancel`: 문서 하나의 잡을 취소합니다. `queued`면 바로 `canceled`로 바뀝니다. `parsing`·`extracting`·`validating`이면 취소 표시만 남기고(`status`는 그대로), 실행 중인 잡이 파싱 뒤·추출 뒤·검증 뒤 경계에서 이를 확인해 `canceled`로 스스로 멈춥니다(`POST /api/verify`·`/api/read`의 `cancel` `threading.Event`와 같은 협조적 취소 방식). Celery 모드면 아직 브로커 큐에 있는 잡은 함께 revoke합니다. 이미 끝났거나 취소된 문서(`parsed`·`needs_review`·`completed`·`failed`·`canceled`)는 취소할 잡이 없어 `409`, 없는 문서는 `404`입니다.
+- `POST /api/admin/cancel-all?confirm=true`: 대기·실행 중인 문서 잡을 모두 위와 같은 방식으로 취소하고, 그 순간 처리 중인 모든 `/api/verify`·`/api/read` 호출의 `cancel`도 함께 세웁니다. 이 호출들은 클라이언트가 연결을 끊었을 때의 `499`와 구분되는 `409`("운영자에 의해 작업이 취소되었습니다")를 돌려줍니다. `confirm=true` 없이 부르면 `422`이며, 응답은 `{"queued_canceled", "running_canceled", "inflight_canceled"}` 건수입니다.
 
 ## 설정과 운영
 

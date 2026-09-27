@@ -27,7 +27,16 @@ def task(name):
 
 
 def enqueue(name, *args):
-    backend()(name, args)
+    """작업을 큐에 넣고 백엔드의 결과(Celery면 AsyncResult, inline이면 Future)를 돌려준다 — 호출자가 취소용 id를 챙길 수 있게."""
+    return backend()(name, args)
+
+
+def revoke(task_id):
+    """Celery 모드에서 아직 시작하지 않은 작업을 브로커 큐에서 뺀다(최선 노력). 이미 실행 중인 작업은
+    documents.cancel_requested를 다음 단계 경계에서 확인해 스스로 멈춘다(backend/main.py의 check_cancel).
+    """
+    if task_id and os.getenv("QUEUE_BACKEND", "inline") == "celery":
+        celery_app().control.revoke(task_id)
 
 
 def backend():
@@ -44,11 +53,11 @@ def _inline(name, args):
     def run():
         try: TASKS[name](*args)
         except Exception: logger.exception("job failed: %s%s", name, args)
-    _pool.submit(run)
+    return _pool.submit(run)
 
 
 def _celery(name, args):
-    celery_app().send_task(f"{QUEUE_NAME}.{name}", args=args, queue=QUEUE_NAME)
+    return celery_app().send_task(f"{QUEUE_NAME}.{name}", args=args, queue=QUEUE_NAME)
 
 
 BACKENDS = {"inline": _inline, "celery": _celery}

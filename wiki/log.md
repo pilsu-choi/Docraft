@@ -1,6 +1,8 @@
 # Docraft wiki 변경 이력
 
 ## 2026-09-27
+* **Creation**: [작업-중지-API](2026-09-27-작업-중지-API.md)에 운영자 긴급 중지 구현을 기록했다. 문서 잡 단건 취소 `POST /api/documents/{id}/cancel`(queued→즉시 canceled, 실행 중→`documents.cancel_requested`를 세워 파싱·추출·검증 뒤 경계에서 `run_parse`/`run_extract`가 스스로 멈춤, Celery면 `jobs.revoke`)과 전체 취소 `POST /api/admin/cancel-all?confirm=true`(위와 같은 방식 + 진행 중인 모든 `/api/verify`·`/api/read` 호출의 `cancel` Event를 `INFLIGHT_EVENTS` 레지스트리로 함께 세움, 그 경우만 499 대신 409)를 추가했다. 프런트엔드 `Status`·`statusText`에 `canceled`(취소됨) 추가. `tests/test_cancel.py` 신규(13건), 529 passed(기존 516 + 신규 13, 회귀 없음). README에 API 표와 "작업 중지" 절을 추가했다.
+* **Update**: [index](index.md)에 새 문서를 연결했다.
 * **Creation**: [read-api](2026-09-27-read-api.md)에 하네스용 읽기 전용 `POST /api/read` 구현을 기록했다. `verify.run`에서 `resolve_doc_type`·`resolve_keys`·`verify.read`(parse→extract→rules.apply)를 뽑아 공용화하고, `main.py`의 업로드·임시파일·취소·in-flight 보일러플레이트를 `process_image` 헬퍼로 `/api/verify`와 공유했다. `verify_inflight`는 이름을 유지한 채 두 경로 합계를 센다. `tests/test_read.py` 신규(20건), 516 passed(기존 496 + 신규 20, 회귀 없음). README에 하네스 역할 분담과 계약을 추가했다.
 * **Update**: [index](index.md)에 새 문서를 연결했다.
 
