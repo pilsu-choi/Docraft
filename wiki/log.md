@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-27 (key-value 추출 흐름 점검)
+* **Creation**: [Harness와 Docraft의 key-value 추출 흐름 점검](2026-09-27-harness-docraft-kv-pipeline-review.md)에 구현 단계, 통합 경로의 한계, 기존 평가 수치의 적용 범위를 기록했다. 브랜치 `docs/kv-pipeline-review`, 워크트리 `.worktrees/kv-pipeline-review`.
+* **Update**: [index](index.md)에 점검 문서를 연결했다.
+
 ## 2026-09-27 (문서 동기화)
 * **Update**: README 의 하네스 `/api/read` 쓰임새를 실제와 맞췄다 — 재분류 재추출·검토 칸 재조회 두 경우에만(한 건에 최대 2번). 문서마다 재읽기·크롭 자기 교정은 AWS 실측(느림, 크롭 교정 0/8) 뒤 하네스 쪽에서 껐다. 브랜치 `docs/0927-read-usage`.
 
