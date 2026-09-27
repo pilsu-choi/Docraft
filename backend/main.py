@@ -181,7 +181,8 @@ def mark_corrected(values, path):
     target = values
     for part in parts[:-1]:
         target = target.setdefault(part, {})
-    target[parts[-1]] = {"confidence": 1, "page": None, "bbox": None, "source_text": None, "corrected_by": "human"}
+    target[parts[-1]] = {"confidence": 1, "page": None, "bbox": None, "source_text": None,
+                         "corrected_by": "human", "status": "CORRECTED", "issue_codes": []}
 
 
 def schema_row(row): return decode(row, ("json_schema",))
@@ -512,13 +513,19 @@ def run_extract(document_id, schema_id):
                 logger.info("status transition: document=%s status=canceled (extract)", document_id)
                 return
             db.execute("UPDATE documents SET status='validating',result=?,groundings=?,updated_at=? WHERE id=?", (json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), now(), document_id))
+        quality = engine.assess(result, schema["json_schema"], doc["blocks"], groundings,
+                                require_geometry=Path(doc["file_path"]).suffix.lower() in engine.VISION_SUFFIXES)
+        engine.annotate_groundings(groundings, quality)
         issues = engine.validate(result, schema["json_schema"], groundings)
-        status = "needs_review" if issues else "completed"
+        issues.extend({"path": "/" + path, "code": "low_confidence", "message": "원문 근거를 확인할 수 없습니다."}
+                      for path, item in quality.items() if item["status"] == "SUSPICIOUS"
+                      and not any(issue["path"] == "/" + path and issue["code"] == "low_confidence" for issue in issues))
+        status = "needs_review" if issues or any(item["action"] != "ACCEPT" for item in quality.values()) else "completed"
         with connect() as db:
             if check_cancel(db, document_id):
                 logger.info("status transition: document=%s status=canceled (validate)", document_id)
                 return
-            db.execute("UPDATE documents SET status=?,validation=?,updated_at=? WHERE id=?", (status, json.dumps(issues, ensure_ascii=False), now(), document_id))
+            db.execute("UPDATE documents SET status=?,groundings=?,validation=?,updated_at=? WHERE id=?", (status, json.dumps(groundings, ensure_ascii=False), json.dumps(issues, ensure_ascii=False), now(), document_id))
             audit(db, doc["project_id"], "extract", "document", document_id, {"schema_id": schema_id, "issues": len(issues)})
         logger.info("extract finished: document=%s status=%s issues=%d elapsed=%.2fs", document_id, status, len(issues), time.monotonic() - started)
     except Exception as exc:
@@ -838,14 +845,15 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
     try:
         only = verify.resolve_keys(doc_type, wanted, label="keys")
     except ValueError:
-        return {"doc_type": doc_type, "fields": {}, "groundings": {}, "elapsed_ms": 0}
+        return {"doc_type": doc_type, "fields": {}, "groundings": {}, "field_quality": {}, "elapsed_ms": 0}
 
     def run_read(path, cancel=None):
-        _, fields, _, groundings = verify.read(path, doc_type, only, cancel=cancel, with_groundings=True)
-        return fields, groundings
+        _, fields, blocks, groundings = verify.read(path, doc_type, only, cancel=cancel, with_groundings=True)
+        quality = engine.assess(fields, verify._restrict(verify.doctypes.schema(doc_type), only), blocks)
+        return fields, groundings, quality
 
     try:
-        (fields, groundings), filename, started = await process_image(request, image, run_read)
+        (fields, groundings, quality), filename, started = await process_image(request, image, run_read)
     except verify.Cancelled as exc:
         return cancelled_response(exc, "read", doc_type)
     except HTTPException:  # process_image가 낸 415·413·422(다중 페이지)는 그대로 올린다
@@ -858,9 +866,10 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
     if only is not None:
         fields = {key: value for key, value in fields.items() if key in only}
         groundings = {key: value for key, value in groundings.items() if key in only}
+        quality = {key: value for key, value in quality.items() if key.split("/")[0] in only}
     elapsed_ms = round((time.monotonic() - started) * 1000)
     logger.info("read finished: filename=%s doc_type=%s fields=%d elapsed_ms=%d", filename, doc_type, len(fields), elapsed_ms)
-    return {"doc_type": doc_type, "fields": fields, "groundings": groundings, "elapsed_ms": elapsed_ms}
+    return {"doc_type": doc_type, "fields": fields, "groundings": groundings, "field_quality": quality, "elapsed_ms": elapsed_ms}
 
 
 @app.post("/api/admin/cancel-all", dependencies=[Depends(auth)])

@@ -153,7 +153,7 @@ def test_read_route_returns_the_contract_shape_with_all_fields_when_keys_is_omit
     body = response.json()
 
     assert response.status_code == 200
-    assert set(body) == {"doc_type", "fields", "groundings", "elapsed_ms"}
+    assert set(body) == {"doc_type", "fields", "groundings", "field_quality", "elapsed_ms"}
     assert body["doc_type"] == "진단서"
     assert isinstance(body["elapsed_ms"], int)
     assert body["fields"] == DOCRAFT  # 스텁의 고정 docraft(전체 필드), AO 비교·판정 정보 없음
@@ -204,7 +204,7 @@ def test_read_route_rejects_a_non_list_keys(tmp_path):
 def test_read_route_returns_no_fields_when_no_key_is_defined_for_the_doc_type(tmp_path):
     response = post_read(_image(tmp_path), doc_type="진단서", keys=json.dumps(["사고발생일자"]))
 
-    assert response.status_code == 200 and response.json() == {"doc_type": "진단서", "fields": {}, "groundings": {}, "elapsed_ms": 0}
+    assert response.status_code == 200 and response.json() == {"doc_type": "진단서", "fields": {}, "groundings": {}, "field_quality": {}, "elapsed_ms": 0}
 
 
 def test_read_route_rejects_a_non_image_upload(tmp_path):

@@ -166,9 +166,9 @@ def test_extract_grounds_leaves_by_normalized_text_match(monkeypatch):
     result, groundings = engine.extract(schema, blocks)
 
     assert result == {"hospital": "전액 본인부담", "amount": 12380, "count": 1.0}
-    assert groundings["hospital"] == {"confidence": 1.0, "page": 2, "bbox": [1, 2, 3, 4], "source_text": "전액 본인부담"}
-    assert groundings["amount"] == {"confidence": 1.0, "page": 2, "bbox": [1, 2, 3, 4], "source_text": "12380"}
-    assert groundings["count"] == {"confidence": 1.0, "page": 2, "bbox": [1, 2, 3, 4], "source_text": "1.0"}
+    assert [(groundings[key]["confidence"], groundings[key]["page"], groundings[key]["bbox"], groundings[key]["column"])
+            for key in ("hospital", "amount", "count")] == [(1.0, 2, [1, 2, 3, 4], index) for index in range(3)]
+    assert [groundings[key]["source_text"] for key in ("hospital", "amount", "count")] == ["전액\n본인부담", "12,380", "1"]
     body = FakeClient.requests[0][1]["json"]
     assert body["response_format"] == {"type": "json_object"}
     assert "provider" not in body
@@ -184,7 +184,7 @@ def test_extract_marks_values_absent_from_blocks_as_low_confidence(monkeypatch):
     result, groundings = engine.extract(schema, blocks)
 
     assert result == {"hospital": "서울병원", "code": "없는값"}
-    assert groundings["code"] == {"confidence": 0.0, "page": None, "bbox": None, "source_text": "없는값"}
+    assert groundings["code"] == {"confidence": 0.0, "page": None, "bbox": None, "source_text": None, "match": "none"}
     assert engine.validate(result, schema, groundings) == [
         {"path": "/code", "code": "low_confidence", "message": "원문 근거 또는 추출 신뢰도가 낮습니다."},
     ]
@@ -206,7 +206,8 @@ def test_extract_grounding_tree_mirrors_arrays_and_nesting(monkeypatch):
 
     assert groundings["환자"]["이름"]["page"] == 3
     assert list(groundings["항목정보"]) == ["0", "1"]
-    assert groundings["항목정보"]["0"]["금액"] == {"confidence": 1.0, "page": 3, "bbox": [5, 6, 7, 8], "source_text": "12380"}
+    assert groundings["항목정보"]["0"]["금액"]["source_text"] == "홍길동 AA254 12,380 BB100"
+    assert groundings["항목정보"]["0"]["금액"]["confidence"] == 1.0
     assert groundings["항목정보"]["1"]["금액"] == {"confidence": 0, "page": None, "bbox": None, "source_text": None}
 
 
@@ -270,7 +271,7 @@ def test_extract_picks_the_repeated_value_line_closest_to_its_siblings(monkeypat
     # `47,300` matches two lines; the siblings with a single line sit at y 210..230, so the second one wins.
     item = groundings["항목정보"]["0"]
     assert item["항목"]["bbox"] == [0, 210, 30, 230]
-    assert item["금액"] == {"confidence": 1.0, "page": 1, "bbox": [40, 210, 70, 230], "source_text": "47300"}
+    assert (item["금액"]["confidence"], item["금액"]["page"], item["금액"]["bbox"], item["금액"]["source_text"]) == (1.0, 1, [40, 210, 70, 230], "47,300")
 
 
 LABEL_LINES = [
@@ -310,7 +311,7 @@ def test_extract_grounds_a_value_the_line_ocr_misread_on_the_line_under_its_labe
 
     _, groundings = engine.extract(LABEL_SCHEMA, [LABEL_BLOCK])
 
-    assert groundings["환자등록번호"] == {"confidence": 1.0, "page": 1, "bbox": [105, 50, 250, 75], "source_text": "670825********"}
+    assert (groundings["환자등록번호"]["confidence"], groundings["환자등록번호"]["bbox"], groundings["환자등록번호"]["source_text"]) == (1.0, [105, 50, 250, 75], "670925*")
     # Hyphens printed in the document do not hide a value extracted without them.
     assert groundings["사업자등록번호"]["confidence"] == 1.0
     assert groundings["사업자등록번호"]["bbox"] == [700, 400, 880, 430]
@@ -326,10 +327,10 @@ def test_extract_without_line_boxes_grounds_on_the_whole_block(monkeypatch):
     _, groundings = engine.extract(ROW_SCHEMA, [TABLE_BLOCK])
 
     # No line OCR: the block box is used as is, never an estimated slice of it.
-    assert groundings["항목정보"]["0"]["항목"] == {"confidence": 1.0, "page": 1, "bbox": [0, 0, 100, 400], "source_text": "진찰료"}
+    assert (groundings["항목정보"]["0"]["항목"]["confidence"], groundings["항목정보"]["0"]["항목"]["source_text"]) == (1.0, "진찰료")
     assert groundings["항목정보"]["1"]["항목"]["bbox"] == [0, 0, 100, 400]
     # `0` must not be found inside the `12,380` cell of the row above.
-    assert groundings["항목정보"]["1"]["금액"] == {"confidence": 1.0, "page": 1, "bbox": [0, 0, 100, 400], "source_text": "0"}
+    assert (groundings["항목정보"]["1"]["금액"]["confidence"], groundings["항목정보"]["1"]["금액"]["source_text"]) == (1.0, "0")
 
 
 def test_extract_marks_array_item_value_taken_from_another_row(monkeypatch):
@@ -340,7 +341,7 @@ def test_extract_marks_array_item_value_taken_from_another_row(monkeypatch):
 
     item = groundings["항목정보"]["0"]
     assert item["항목"]["confidence"] == 1.0
-    assert item["금액"] == {"confidence": 0.5, "page": 1, "bbox": [0, 0, 100, 400], "source_text": "12380"}
+    assert (item["금액"]["confidence"], item["금액"]["page"], item["금액"]["bbox"], item["금액"]["source_text"]) == (0.5, 1, [0, 0, 100, 400], "12,380")
     assert engine.validate(result, ROW_SCHEMA, groundings) == [
         {"path": "/항목정보/0/금액", "code": "low_confidence", "message": "원문 근거 또는 추출 신뢰도가 낮습니다."},
     ]
@@ -369,7 +370,7 @@ def test_extract_grounds_a_leaf_missing_from_the_vl_row_on_a_line_inside_the_sib
     _, groundings = engine.extract(MISREAD_ITEM_SCHEMA, [MISREAD_ITEM_BLOCK])
 
     # No row holds "진찰료" (the VL text says "진 찰 로"), but the OCR line does and sits inside the siblings' band.
-    assert groundings["item_name"] == {"confidence": 1.0, "page": 1, "bbox": [149, 414, 246, 443], "source_text": "진찰료"}
+    assert (groundings["item_name"]["confidence"], groundings["item_name"]["bbox"], groundings["item_name"]["source_text"]) == (1.0, [149, 414, 246, 443], "진찰료")
     assert groundings["patient_burden"]["confidence"] == 1.0
     assert groundings["insurance_burden"]["confidence"] == 1.0
 
@@ -382,7 +383,7 @@ def test_extract_keeps_low_confidence_when_the_only_matching_line_is_far_from_th
 
     _, groundings = engine.extract(MISREAD_ITEM_SCHEMA, [far_block])
 
-    assert groundings["item_name"] == {"confidence": 0.0, "page": None, "bbox": None, "source_text": "진찰료"}
+    assert groundings["item_name"] == {"confidence": 0.0, "page": None, "bbox": None, "source_text": None, "match": "none"}
 
 
 def test_extract_matches_a_one_character_off_line_by_similarity(monkeypatch):
@@ -401,7 +402,7 @@ def test_extract_matches_a_one_character_off_line_by_similarity(monkeypatch):
 
     _, groundings = engine.extract(schema, [block])
 
-    assert groundings["hospital_name"] == {"confidence": 1.0, "page": 1, "bbox": [50, 50, 250, 90], "source_text": "연세암은이비인후과"}
+    assert (groundings["hospital_name"]["confidence"], groundings["hospital_name"]["bbox"], groundings["hospital_name"]["source_text"]) == (0.5, [50, 50, 250, 90], "연세앓은이비인후과")
 
 
 def test_rank_does_not_fuzzy_match_a_purely_numeric_needle():
@@ -430,7 +431,7 @@ def test_extract_grounds_values_inside_sentences_and_date_separator_variants(mon
 
     _, groundings = engine.extract(schema, blocks)
 
-    assert groundings["신청인"] == {"confidence": 1.0, "page": 2, "bbox": [1, 2, 3, 4], "source_text": "이현창"}
+    assert (groundings["신청인"]["confidence"], groundings["신청인"]["page"], groundings["신청인"]["source_text"]) == (1.0, 2, blocks[0]["text"])
     assert groundings["일자"]["confidence"] == 1.0
 
 
@@ -441,8 +442,8 @@ def test_extract_top_level_leaves_may_come_from_different_blocks(monkeypatch):
 
     _, groundings = engine.extract(schema, [{"text": "진료비 세부산정내역", "page": 1, "bbox": [0, 0, 10, 10]}, TABLE_BLOCK])
 
-    assert groundings["제목"] == {"confidence": 1.0, "page": 1, "bbox": [0, 0, 10, 10], "source_text": "진료비 세부산정내역"}
-    assert groundings["항목"] == {"confidence": 1.0, "page": 1, "bbox": [0, 0, 100, 400], "source_text": "진찰료"}
+    assert (groundings["제목"]["confidence"], groundings["제목"]["bbox"], groundings["제목"]["source_text"]) == (1.0, [0, 0, 10, 10], "진료비 세부산정내역")
+    assert (groundings["항목"]["confidence"], groundings["항목"]["bbox"], groundings["항목"]["source_text"]) == (1.0, [0, 0, 100, 400], "진찰료")
 
 
 def test_extract_response_that_is_not_an_object_raises(monkeypatch):

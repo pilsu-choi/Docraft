@@ -410,11 +410,25 @@ def _normalized(text):
 
 def _block_rows(block):
     """Read a block as rows of normalized cells: table HTML `<tr>` (every row kept, so row indexes stay geometric), parsed table rows, or one row of the text and its tokens."""
-    text = block["text"]
+    text = block.get("text", "")
     rows = re.findall(r"<tr[^>]*>(.*?)</tr>", text, re.S) or ([text] if re.search(r"<t[dh][\s>]", text) else [])
     if rows: return [[_normalized(re.sub(r"<[^>]+>", "", cell)) for cell in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)] for row in rows]
     if block.get("rows"): return [[_normalized(cell) for cell in row] for row in block["rows"]]
     return [[_normalized(text), *(_normalized(token) for token in text.split())]]
+
+
+def _source_cell(block, row_no, value):
+    """Return the printed cell text when a table supplied it; otherwise the OCR block text."""
+    raw = block.get("rows")
+    if not raw:
+        content = block.get("text", "")
+        rows = re.findall(r"<tr[^>]*>(.*?)</tr>", content, re.S) or ([content] if re.search(r"<t[dh][\s>]", content) else [])
+        raw = [[html.unescape(re.sub(r"<[^>]+>", "", cell)) for cell in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)] for row in rows]
+    if row_no < len(raw):
+        needles = _needles(value)
+        return next((str(cell) for cell in raw[row_no] if _normalized(cell) in needles),
+                    next((str(cell) for cell in raw[row_no] if any(n in _normalized(cell) for n in needles)), block.get("text", "")))
+    return block.get("text", "")
 
 
 def _needles(value):
@@ -520,7 +534,11 @@ def _line_leaf(value, sources, band):
         candidates = [(block, line) for block, line in candidates if abs(_center(line["bbox"]) - band) <= line["bbox"][3] - line["bbox"][1]]
     if not candidates: return None
     block, line = candidates[0]
-    return {"confidence": 1.0, "page": block.get("page"), "bbox": line["bbox"], "source_text": str(value)}
+    seen = _normalized(line["text"])
+    exact = seen in _needles(value)
+    contained = any(needle in form for needle in _needles(value) for form in (seen, seen.replace("-", "")))
+    return {"confidence": 1.0 if contained else 0.5, "page": block.get("page"), "bbox": line["bbox"], "page_size": block.get("page_size"),
+            "source_text": line["text"], "match": "exact" if exact else ("contained" if contained else "approximate")}
 
 
 def _leaf(value, hits, agreed, strict, sources, band=None, labels=()):
@@ -531,15 +549,28 @@ def _leaf(value, hits, agreed, strict, sources, band=None, labels=()):
     if not confirmed:
         fallback = _line_leaf(value, sources, band)
         if fallback: return fallback
-    if position is None: return {"confidence": 0.0, "page": None, "bbox": None, "source_text": str(value)}
+    if position is None: return {"confidence": 0.0, "page": None, "bbox": None, "source_text": None, "match": "none"}
     block = sources[position[0]][0]
     anchors = [line for other, _ in sources if other.get("page") == block.get("page") for line in other.get("lines") or []
                if any(label in _normalized(line["text"]) for label in labels)]
+    row = sources[position[0]][1][position[1]]
+    exact = any(cell in _needles(value) for cell in row)
+    contained = any(needle in form for cell in row for form in (cell, cell.replace("-", "")) for needle in _needles(value))
+    bbox = _pick(value, _value_lines(value, hits, agreed, sources), band, block, anchors)
+    source_text = next((line["text"] for line in block.get("lines") or [] if line["bbox"] == bbox),
+                       _source_cell(block, position[1], value))
+    ambiguous = len(hits) > 1 and not strict and not anchors
     return {
-        "confidence": 1.0 if confirmed else 0.5,
+        "confidence": 1.0 if confirmed and contained and not ambiguous else 0.5,
         "page": block.get("page"),
-        "bbox": _pick(value, _value_lines(value, hits, agreed, sources), band, block, anchors),
-        "source_text": str(value),
+        "page_size": block.get("page_size"),
+        "bbox": bbox,
+        "source_text": source_text,
+        "match": "ambiguous" if ambiguous else ("exact" if exact else ("contained" if contained else "approximate")),
+        "block": position[0], "row": position[1],
+        "column": next((index for index, cell in enumerate(row) if cell in _needles(value)), None),
+        "row_mismatch": bool(strict and agreed is not None and position != agreed and block.get("structure") == "ruled"),
+        "row_conflict": bool(strict and agreed is not None and position != agreed and block.get("structure") != "ruled"),
     }
 
 
@@ -574,6 +605,115 @@ def validate(result, schema, groundings):
                 check_groundings(grounding, path)
     check_groundings(groundings)
     return issues
+
+
+def assess(result, schema, blocks, groundings=None, require_geometry=True):
+    """Describe per-field evidence without changing a value or treating OCR as image truth.
+
+    An OCR match establishes where a value was read, not whether the pixels were read correctly.
+    Missing or approximate evidence is sent to review; a schema violation is unresolved.
+    """
+    evidence = groundings if groundings is not None else _grounding_tree(
+        result, [(block, _block_rows(block)) for block in blocks], schema)
+    problems = validate(result, schema, evidence)
+    by_path = {}
+    for issue in problems:
+        by_path.setdefault(issue["path"], []).append(issue["code"])
+    quality = {}
+
+    def distant_label(path, source):
+        parts = path.strip("/").split("/")
+        if len(parts) != 1 or not source.get("bbox") or len(source["bbox"]) != 4:
+            return False
+        labels = _labels(parts[0], schema.get("properties", {}).get(parts[0], {}))
+        anchors = [line for block in blocks if block.get("page") == source.get("page")
+                   for line in block.get("lines") or []
+                   if any(label in _normalized(line["text"]) for label in labels)]
+        if not anchors:
+            return False
+        height = max(1, source["bbox"][3] - source["bbox"][1])
+        return min(abs(_center(source["bbox"]) - _center(line["bbox"])) for line in anchors) > 3 * height
+
+    def printed_label(path):
+        parts = path.strip("/").split("/")
+        if len(parts) != 1:
+            return False
+        labels = _labels(parts[0], schema.get("properties", {}).get(parts[0], {}))
+        for block in blocks:
+            text = _normalized(block.get("text", ""))
+            for label in labels:
+                if label in text and not re.match(r"[:：]?((미기재|해당없음|없음)|[-–—])(?:$|[<\n])", text.split(label, 1)[1]):
+                    return True
+        return False
+
+    def walk(value, source, spec, path=""):
+        if isinstance(value, dict):
+            for key in spec.get("required", []):
+                if key not in value:
+                    missing = f"{path}/{key.replace('~', '~0').replace('/', '~1')}".lstrip("/")
+                    quality[missing] = {"status": "UNRESOLVED", "issue_codes": ["required"],
+                                        "stage": "extract", "action": "REVIEW", "provenance": {}}
+            for key, child in value.items():
+                walk(child, source.get(key, {}) if isinstance(source, dict) else {}, spec.get("properties", {}).get(key, {}),
+                     f"{path}/{key.replace('~', '~0').replace('/', '~1')}")
+        elif isinstance(value, list):
+            cardinality = [code for code in by_path.get(path, []) if code in {"minItems", "maxItems"}]
+            if cardinality:
+                quality[path.lstrip("/")] = {"status": "UNRESOLVED", "issue_codes": cardinality,
+                                              "stage": "extract", "action": "REVIEW", "provenance": {}}
+            for index, child in enumerate(value):
+                walk(child, source.get(str(index), {}) if isinstance(source, dict) else {}, spec.get("items", {}), f"{path}/{index}")
+        else:
+            codes = list(dict.fromkeys(by_path.get(path, [])))
+            if value is None:
+                codes = [code for code in codes if code != "low_confidence"]
+                if printed_label(path):
+                    codes.append("missing_value")
+            if value is not None and not isinstance(value, bool):
+                if not isinstance(source, dict) or not source.get("source_text") or (require_geometry and (source.get("page") is None or not source.get("bbox"))):
+                    codes.append("no_source")
+                elif source.get("match") == "approximate":
+                    codes.append("approximate_source")
+                elif source.get("match") == "ambiguous":
+                    codes.append("ambiguous_source")
+                if isinstance(source, dict) and source.get("row_mismatch"):
+                    codes.append("row_mismatch")
+                if isinstance(source, dict) and source.get("row_conflict"):
+                    codes.append("row_conflict")
+                if isinstance(source, dict) and source.get("bbox") and source.get("page_size"):
+                    box, size = source["bbox"], source["page_size"]
+                    valid = (len(box) == 4 and len(size) == 2 and
+                             all(isinstance(number, (int, float)) for number in (*box, *size)))
+                    if not valid or not (0 <= box[0] < box[2] <= size[0] and 0 <= box[1] < box[3] <= size[1]):
+                        codes.append("invalid_geometry")
+                if isinstance(source, dict) and distant_label(path, source):
+                    codes.append("distant_label")
+            codes = list(dict.fromkeys(codes))
+            hard = {"row_mismatch", "invalid_geometry"}
+            state = "UNRESOLVED" if any(code in hard or code not in {"low_confidence", "no_source", "approximate_source", "ambiguous_source", "distant_label", "missing_value", "row_conflict"} for code in codes) else ("SUSPICIOUS" if codes else "PASS")
+            quality[path.lstrip("/")] = {"status": state, "issue_codes": codes,
+                                           "stage": "undetermined" if codes else None,
+                                           "action": "REVIEW" if state == "UNRESOLVED" else ("RECHECK" if codes else "ACCEPT"),
+                                           "provenance": {key: source.get(key) for key in ("page", "bbox", "page_size", "source_text", "block", "row", "column", "match") if key in source} if isinstance(source, dict) else {}}
+
+    walk(result, evidence, schema)
+    return quality
+
+
+def annotate_groundings(groundings, quality):
+    """Persist quality beside each leaf so document APIs can expose the assessment."""
+    for path, item in quality.items():
+        node = groundings
+        parts = [part.replace("~1", "/").replace("~0", "~") for part in path.split("/")]
+        for part in parts[:-1]:
+            node = node.setdefault(part, {}) if isinstance(node, dict) else None
+        if isinstance(node, dict):
+            node = node.setdefault(parts[-1], {"confidence": 0, "page": None, "bbox": None, "source_text": None})
+            if "confidence" not in node:
+                node = node.setdefault("_quality", {"confidence": 0, "page": None, "bbox": None, "source_text": None})
+        if isinstance(node, dict) and "confidence" in node:
+            node.update(status=item["status"], issue_codes=item["issue_codes"])
+    return groundings
 
 
 def set_pointer(document, pointer, value):

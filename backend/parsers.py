@@ -78,7 +78,7 @@ def parse_pdf(path, provider="auto", pages=None):
             raise ParseError("스캔 PDF OCR은 비활성화되어 있습니다. PARSE_PROVIDER=paddle과 원격 endpoint를 설정해 주세요.")
     subset = _page_pdf(path, selected) if pages else None
     try:
-        result = _remote_paddle(subset or path, 0, page_map=selected if subset else None)
+        result = _remote_paddle(subset or path, 0, page_map=selected if subset else None, expected_pages=len(selected))
     finally:
         if subset:
             subset.unlink(missing_ok=True)
@@ -90,7 +90,7 @@ def parse_pdf(path, provider="auto", pages=None):
 def parse_image(path, provider="auto"):
     if provider == "library" or (provider == "auto" and ocr_settings()["provider"] != "paddle"):
         raise ParseError("이미지 OCR은 비활성화되어 있습니다. PARSE_PROVIDER=paddle과 원격 endpoint를 설정해 주세요.")
-    return _remote_paddle(path, 1)
+    return _remote_paddle(path, 1, expected_pages=1)
 
 
 def _html_table(content):
@@ -166,7 +166,7 @@ def _ruled_tables(blocks, path, file_type, page_map):
     logger.debug("ruled tables: elapsed=%.2fs tables=%d ruled=%d", time.monotonic() - started, len(tables), sum(b.get("structure") == "ruled" for b in tables))
 
 
-def _remote_paddle(path, file_type, page_map=None):
+def _remote_paddle(path, file_type, page_map=None, expected_pages=None):
     settings = ocr_settings()
     if not settings["base_url"]:
         raise ParseError("PaddleOCR 원격 서비스가 설정되지 않았습니다. PADDLEOCR_BASE_URL을 설정해 주세요.")
@@ -188,6 +188,8 @@ def _remote_paddle(path, file_type, page_map=None):
         suffix = f" (HTTP {status})" if status else ""
         raise ParseError(f"PaddleOCR 원격 처리 실패{suffix}") from exc
     logger.debug("paddleocr response: elapsed=%.2fs pages=%d", time.monotonic() - started, len(pages))
+    if expected_pages is not None and len(pages) != expected_pages:
+        raise ParseError(f"PaddleOCR가 {expected_pages}페이지 중 {len(pages)}페이지를 반환했습니다.")
     blocks = []
     for index, page in enumerate(pages, 1):
         page_no = page_map[index - 1] if page_map else index

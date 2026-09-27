@@ -163,6 +163,19 @@ def test_run_skips_the_judge_when_every_field_agrees(monkeypatch):
         "agree": 6, "ao": 0, "docraft": 0, "corrected": 0, "unknown": 0, "added": 0}
 
 
+def test_final_quality_review_reaches_the_table_cell_and_review_count(monkeypatch):
+    agreeing = {**verify.flatten(AO["documents"][0])}
+    stub(monkeypatch, docraft=agreeing)
+    monkeypatch.setattr(engine, "assess", lambda *a, **kw: {
+        "병명내역/0/병명": {"status": "UNRESOLVED", "action": "REVIEW", "issue_codes": ["row_mismatch"], "stage": "extract", "provenance": {}}})
+
+    document = verify.run("scan.png", AO)["documents"][0]
+
+    cell = document["extracted_tables"][0]["rows"][0][1]
+    assert cell["review"] is True
+    assert document["verify"]["review"]["review"] >= 1
+
+
 def test_run_applies_every_verdict_source_and_keeps_the_original_values(monkeypatch):
     stub(monkeypatch)
 
