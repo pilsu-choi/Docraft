@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import time
@@ -16,7 +17,8 @@ from PIL import Image, ImageDraw, ImageFilter, ImageOps, ImageSequence
 VARIANTS = ("rotate", "blur", "occlude")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = REPO_ROOT.parents[1] / "data/verify/accuracy-20260922/manifest.json"
-CODE_FILES = ("backend/engine.py", "backend/parsers.py", "backend/rules.py", "scripts/verify_eval.py")
+CODE_FILES = ("backend/config.py", "backend/doctypes.py", "backend/engine.py", "backend/parsers.py",
+              "backend/rules.py", "scripts/verify_eval.py", "scripts/verify_label.py", "scripts/verify_perturb.py")
 
 
 def make_variant(source: Path, target: Path, name: str) -> dict:
@@ -52,9 +54,38 @@ def make_variant(source: Path, target: Path, name: str) -> dict:
     return {"kind": name, "pages": parameters}
 
 
+def expected_fields(label_path: str) -> int:
+    """Count legible non-empty truth cells for a failed document's denominator."""
+    label = json.loads(Path(label_path).read_text(encoding="utf-8"))
+    unknown = set(label.get("provenance", {}).get("unknown_fields", []))
+    total = 0
+    for key, value in label["fields"].items():
+        if isinstance(value, list):
+            for index, row in enumerate(value):
+                if isinstance(row, dict):
+                    total += sum(cell not in (None, "") and f"{key}.{index}.{column}" not in unknown
+                                 for column, cell in row.items())
+        elif key not in unknown and value not in (None, ""):
+            total += 1
+    return total
+
+
 def counts(entries: list[dict], stage: str) -> dict:
     fields = ("correct", "total", "fp", "strict_correct", "strict_total", "strict_fp")
-    return {key: sum((item.get("stages", {}).get(stage) or {}).get(key, 0) for item in entries) for key in fields}
+    result = {key: 0 for key in fields}
+    result.update(documents=len(entries), evaluated=0, errors=0, error_truth_fields=0)
+    for item in entries:
+        stat = item.get("stages", {}).get(stage)
+        if not isinstance(stat, dict) or stat.get("error"):
+            result["errors"] += 1
+            result["error_truth_fields"] += expected_fields(item["label"])
+            continue
+        result["evaluated"] += 1
+        for key in fields:
+            result[key] += stat.get(key, 0)
+    result["total_including_errors"] = result["total"] + result["error_truth_fields"]
+    result["strict_total_including_errors"] = result["strict_total"] + result["error_truth_fields"]
+    return result
 
 
 def code_fingerprint() -> dict:
@@ -62,6 +93,19 @@ def code_fingerprint() -> dict:
     digest = hashlib.sha256("".join(files[name] for name in CODE_FILES).encode()).hexdigest()
     return {"head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip(),
             "source_sha256": digest, "files": files}
+
+
+def cache_fingerprint(items: list[dict], code: dict) -> str:
+    """Invalidate extraction cache when input images, transforms, code, or runtime model settings change."""
+    image_hashes = {Path(item["image"]).name: hashlib.sha256(Path(item["image"]).read_bytes()).hexdigest()
+                    for item in items}
+    config_names = ("PARSE_PROVIDER", "PADDLEOCR_BASE_URL", "PADDLEOCR_LINES_URL", "PADDLEOCR_MODEL",
+                    "AI_BASE_URL", "AI_MODEL", "AI_VLM_MODEL", "AI_MODE", "AI_VISION", "AI_TABLE_REFINE",
+                    "AI_REASONING", "EXTRACT_CHUNK_CHARS")
+    payload = {"code": code["source_sha256"], "images": image_hashes,
+               "transforms": {Path(item["image"]).name: item["transform"] for item in items},
+               "settings": {name: os.getenv(name) for name in config_names}}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:20]
 
 
 def quality_counts(entries: list[dict], item_by_image: dict[str, dict], cache_root: Path) -> dict:
@@ -114,6 +158,10 @@ def main() -> int:
         original_image = Path(item["image"]).resolve()
         original_alias = image_root / f"case-{index:02d}-original{original_image.suffix.lower()}"
         original_alias.parent.mkdir(parents=True, exist_ok=True)
+        if original_alias.is_symlink():
+            original_alias.unlink()
+        elif original_alias.exists():
+            raise FileExistsError(f"생성한 원본 별칭이 아닌 파일: {original_alias}")
         original_alias.symlink_to(original_image)
         original_label_path = label_root / item["doc_type"] / f"case-{index:02d}-original.json"
         original_label_path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,21 +190,21 @@ def main() -> int:
     manifest_path = out / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    before = set((REPO_ROOT / "data/verify").glob("eval-*.json"))
-    cache_root = out / "cache"
+    fingerprint_before = code_fingerprint()
+    cache_root = out / "cache" / cache_fingerprint(items, fingerprint_before)
+    run_root = out / "runs" / str(time.time_ns())
+    run_root.mkdir(parents=True, exist_ok=True)
     command = [sys.executable, str(REPO_ROOT / "scripts/verify_eval.py"), "--manifest", str(manifest_path),
                "--grade", "gold", "--stage", "raw", "--stage", "rules", "--workers", str(args.workers),
-               "--cache-root", str(cache_root)]
-    fingerprint_before = code_fingerprint()
+               "--cache-root", str(cache_root), "--output-root", str(run_root)]
     started = time.monotonic()
     result = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True)
     elapsed = round(time.monotonic() - started, 1)
-    (out / "verify_eval.log").write_text(result.stdout + "\n" + result.stderr, encoding="utf-8")
-    generated = sorted(set((REPO_ROOT / "data/verify").glob("eval-*.json")) - before,
-                       key=lambda path: path.stat().st_mtime)
+    (run_root / "verify_eval.log").write_text(result.stdout + "\n" + result.stderr, encoding="utf-8")
+    generated = sorted(run_root.glob("eval-*.json"), key=lambda path: path.stat().st_mtime)
     if result.returncode or not generated:
         print(json.dumps({"exit": result.returncode, "elapsed_seconds": elapsed,
-                          "error": "verify_eval_failed", "log": str(out / "verify_eval.log")}, ensure_ascii=False))
+                          "error": "verify_eval_failed", "log": str(run_root / "verify_eval.log")}, ensure_ascii=False))
         return result.returncode or 1
 
     evaluation = json.loads(generated[-1].read_text(encoding="utf-8"))
@@ -178,7 +226,8 @@ def main() -> int:
               "code_before": fingerprint_before, "code_after": fingerprint_after,
               "code_unchanged_during_run": fingerprint_before["source_sha256"] == fingerprint_after["source_sha256"],
               "results": results, "quality_from_cached_parse_extract": quality,
-              "cache_root": str(cache_root), "manifest": str(manifest_path)}
+              "cache_root": str(cache_root), "manifest": str(manifest_path), "evaluation": str(generated[-1]),
+              "run_root": str(run_root)}
     report_path = out / "summary.json"
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({"exit": 0, "elapsed_seconds": elapsed, "report": str(report_path),

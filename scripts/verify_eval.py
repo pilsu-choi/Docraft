@@ -450,7 +450,7 @@ def strip_rows(entry: dict) -> dict:
 
 
 def main():
-    global CACHE_ROOT
+    global CACHE_ROOT, RESULTS_ROOT
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--doc-type", action="append", choices=DOC_TYPES)
     parser.add_argument("--grade", choices=["gold", "silver", "all"], default="all")
@@ -458,12 +458,16 @@ def main():
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--cache-root", type=Path, help="실험별 파싱·추출 캐시 경로 (기존 캐시와 격리)")
+    parser.add_argument("--output-root", type=Path, help="평가 JSON 출력 경로 (기본 data/verify)")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--manifest", type=Path, help="확장 매니페스트의 기존+holdout 라벨만 평가한다")
     parser.add_argument("--split", choices=["existing", "holdout", "all"], default="all", help="--manifest 평가 split (기본 all)")
     args = parser.parse_args()
     if args.cache_root:
         CACHE_ROOT = args.cache_root.resolve()
+    if args.output_root:
+        RESULTS_ROOT = args.output_root.resolve()
+        RESULTS_ROOT.mkdir(parents=True, exist_ok=True)
 
     doc_types = args.doc_type or DOC_TYPES
     stages = tuple(args.stage or STAGES)
@@ -537,7 +541,7 @@ def main():
         "generated_at": timestamp,
         "args": {"doc_type": doc_types, "grade": args.grade, "stage": list(stages), "workers": args.workers, "no_cache": args.no_cache,
                  "manifest": str(args.manifest.resolve()) if args.manifest else None,
-                 "cache_root": str(CACHE_ROOT.resolve())},
+                 "cache_root": str(CACHE_ROOT.resolve()), "output_root": str(RESULTS_ROOT.resolve())},
         "provenance": {"labels": [str(path.resolve()) for path in label_paths], "comparison": "legacy rules.same + strict rules.normalize exact"},
         "summary": summary,
         "split_summary": split_summary,
