@@ -1,5 +1,8 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-27 (문서 동기화)
+* **Update**: README 의 하네스 `/api/read` 쓰임새를 실제와 맞췄다 — 재분류 재추출·검토 칸 재조회 두 경우에만(한 건에 최대 2번). 문서마다 재읽기·크롭 자기 교정은 AWS 실측(느림, 크롭 교정 0/8) 뒤 하네스 쪽에서 껐다. 브랜치 `docs/0927-read-usage`.
+
 ## 2026-09-27
 * **Creation**: [request-id-logging](2026-09-27-request-id-logging.md)에 모든 로그 줄에 요청 ID(`[rid]`)를 붙이고 하네스가 보낸 `X-Request-ID`(job.txn.doc)로 두 시스템 로그를 잇게 한 작업, 4xx 사유·AI provider HTTP 오류 본문 기록, k8s 로그 보관 현황을 기록했다. 브랜치 `feat/0927-logging`, 워크트리 `.worktrees/logging`.
 * **Update**: [index](index.md)에 새 문서를 연결했다.
