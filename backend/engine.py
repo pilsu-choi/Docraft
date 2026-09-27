@@ -38,10 +38,6 @@ class ProviderConfigurationError(RuntimeError):
     pass
 
 
-def _truncate(text, limit=2000):
-    return text if len(text) <= limit * 2 else f"{text[:limit]}...<truncated>...{text[-limit:]}"
-
-
 def _message_text(content):
     """The text of a message; attached image data stays out of logs and character counts."""
     return "".join(part.get("text", "") for part in content) if isinstance(content, list) else content or ""
@@ -80,10 +76,12 @@ def _user(text, images):
     return {"role": "user", "content": [*({"type": "image_url", "image_url": {"url": url}} for url in images), {"type": "text", "text": text}]}
 
 
-def _provider(messages, timeout=None):
+def _provider(messages, timeout=None, timeout_cap=None):
     # 호출마다 준 값과 AI_TIMEOUT(기본 90초) 중 큰 값 — 느린 GPU(L40S 요청당 약 16 tok/s)에서는 긴 응답(스키마 생성·
     # 행 많은 표)이 90초를 넘는다.
     timeout = max(timeout or 0, float(os.getenv("AI_TIMEOUT", "90")))
+    if timeout_cap is not None:
+        timeout = min(timeout, max(0.1, timeout_cap))
     settings = ai_settings()
     if not settings["configured"] or settings["mode"] == "local":
         raise ProviderConfigurationError("AI provider가 설정되지 않았습니다. AI_BASE_URL, AI_API_KEY, AI_VLM_MODEL을 확인해 주세요.")
@@ -95,13 +93,13 @@ def _provider(messages, timeout=None):
     images = sum(1 for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url")
     logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", settings["model"], len(messages), images, prompt_chars)
     started = time.monotonic()
-    with httpx.Client(timeout=timeout, transport=httpx.HTTPTransport(retries=2)) as client:
+    with httpx.Client(timeout=timeout, transport=httpx.HTTPTransport(retries=0 if timeout_cap is not None else 2)) as client:
         response = client.post(f"{settings['base_url']}/chat/completions", headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body)
         elapsed = time.monotonic() - started
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            logger.error("provider HTTP error: status=%s elapsed=%.2fs body=%s", response.status_code, elapsed, _truncate(response.text))
+            logger.error("provider HTTP error: status=%s elapsed=%.2fs", response.status_code, elapsed)
             raise RuntimeError(f"AI provider 요청 실패 (HTTP {response.status_code})") from exc
         try:
             choice = response.json()["choices"][0]
@@ -113,13 +111,13 @@ def _provider(messages, timeout=None):
         except (KeyError, IndexError, TypeError, AttributeError) as exc:
             logger.error("provider response format error: %s elapsed=%.2fs", exc, elapsed)
             raise RuntimeError("AI provider 응답 형식을 해석할 수 없습니다.") from exc
-        logger.debug("provider response: elapsed=%.2fs finish_reason=%s len=%d content=%s", elapsed, finish_reason, len(content), _truncate(content))
+        logger.debug("provider response: elapsed=%.2fs finish_reason=%s len=%d", elapsed, finish_reason, len(content))
         if content.startswith("```"):
             content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.I)
         try:
             return json.loads(content)
         except json.JSONDecodeError:
-            logger.error("provider json decode failed: len=%d finish_reason=%s content=%s", len(content), finish_reason, _truncate(content))
+            logger.error("provider json decode failed: len=%d finish_reason=%s", len(content), finish_reason)
             raise
 
 
@@ -132,7 +130,7 @@ TABLE_REFINE_PROMPT = (
 )
 
 
-def refine_table(block, source):
+def refine_table(block, source, deadline=None):
     """Correct the cell text of an OCR table HTML block against the table region of the page image (`TABLE_REFINE`).
 
     The OCR model keeps a sound grid but misreads text; a larger VLM reads text well but loses the grid. So the model
@@ -150,7 +148,11 @@ def refine_table(block, source):
             scale = page.rect.width / block["page_size"][0]  # OCR image pixels -> page points
             clip = fitz.Rect([value * scale for value in block["bbox"]]) & page.rect
             image = _data_url(page, clip, max_zoom=1 / scale)  # no upscaling beyond the OCR image resolution
-        reply = _provider([_user(TABLE_REFINE_PROMPT + json.dumps(texts, ensure_ascii=False), [image])], timeout=300)
+        remaining = deadline - time.monotonic() if deadline is not None else None
+        if remaining is not None and remaining <= 0:
+            raise TimeoutError("table refinement deadline exceeded")
+        messages = [_user(TABLE_REFINE_PROMPT + json.dumps(texts, ensure_ascii=False), [image])]
+        reply = _provider(messages, timeout=300, timeout_cap=remaining) if remaining is not None else _provider(messages, timeout=300)
         reply = reply.get("corrections", reply)  # models also answer with the bare {cell number: text} object
         corrections = {index: str(reply[str(index)]) for index, text in texts.items() if str(index) in reply and _edit(text, str(reply[str(index)]))}
     except Exception as exc:
@@ -363,12 +365,14 @@ def _drop_null_optionals(value, schema):
     return value
 
 
-def extract(schema, blocks, source=None):
+def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=None):
     """`source` is the original document file path; its page images are attached to each chunk call when available."""
     if ai_settings()["mode"] == "local":
         logger.debug("extract: local mode blocks=%d", len(blocks))
         return _local_extract(schema, blocks)
     budget = ai_settings()["chunk_chars"]
+    if budget <= 0:
+        raise ValueError("EXTRACT_CHUNK_CHARS는 양수여야 합니다.")
     chunks = _page_chunks(blocks, budget) or [[]]
     logger.info("extract: provider mode blocks=%d chunks=%d budget=%d pages=%s", len(blocks), len(chunks), budget, [_page_range(chunk) for chunk in chunks])
     system = (
@@ -381,6 +385,11 @@ def extract(schema, blocks, source=None):
         system += TABLE_NOTE
     results = []
     for index, chunk in enumerate(chunks):
+        if cancel is not None and cancel.is_set():
+            raise RuntimeError("extraction cancelled")
+        remaining = deadline - time.monotonic() if deadline is not None else None
+        if remaining is not None and remaining <= 0:
+            raise TimeoutError("extraction deadline exceeded")
         page_range = _page_range(chunk)
         evidence = _chunk_text(chunk, budget)
         images = _page_images(source, _pages(chunk))
@@ -391,10 +400,13 @@ def extract(schema, blocks, source=None):
                 f" This is part {index + 1} of {len(chunks)} of the document, covering page(s) {page_range}; "
                 "return null/empty for fields not present in this part."
             )
-        result = _provider([
+        if on_call is not None:
+            on_call()
+        messages = [
             {"role": "system", "content": chunk_system},
             _user(f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks:\n{evidence}", images),
-        ])
+        ]
+        result = _provider(messages, timeout_cap=remaining) if remaining is not None else _provider(messages)
         if not isinstance(result, dict):
             raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
         results.append(result)

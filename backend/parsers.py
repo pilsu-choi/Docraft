@@ -57,7 +57,7 @@ def _page_pdf(path, pages):
     return target
 
 
-def parse_pdf(path, provider="auto", pages=None):
+def parse_pdf(path, provider="auto", pages=None, deadline=None):
     with fitz.open(path) as pdf:
         total = len(pdf)
     selected = _pages_from_range(pages, total) if pages else list(range(1, total + 1))
@@ -67,6 +67,8 @@ def parse_pdf(path, provider="auto", pages=None):
     if provider != "paddle":
         with fitz.open(path) as pdf:
             for number in selected:
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TimeoutError("PDF parse deadline exceeded")
                 page = pdf[number - 1]
                 for region in page.get_text("dict")["blocks"]:
                     for line in region.get("lines", []):
@@ -77,9 +79,15 @@ def parse_pdf(path, provider="auto", pages=None):
             return result
         if provider == "library" or ocr_settings()["provider"] != "paddle":
             raise ParseError("스캔 PDF OCR은 비활성화되어 있습니다. PARSE_PROVIDER=paddle과 원격 endpoint를 설정해 주세요.")
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("PDF parse deadline exceeded")
     subset = _page_pdf(path, selected) if pages else None
     try:
-        result = _remote_paddle(subset or path, 0, page_map=selected if subset else None, expected_pages=len(selected))
+        remaining = deadline - time.monotonic() if deadline is not None else None
+        if remaining is not None and remaining <= 0:
+            raise TimeoutError("PDF parse deadline exceeded")
+        result = _remote_paddle(subset or path, 0, page_map=selected if subset else None,
+                                expected_pages=len(selected), timeout=remaining, deadline=deadline)
     finally:
         if subset:
             subset.unlink(missing_ok=True)
@@ -88,7 +96,7 @@ def parse_pdf(path, provider="auto", pages=None):
     return result
 
 
-def parse_image(path, provider="auto"):
+def parse_image(path, provider="auto", timeout=None, deadline=None):
     if provider == "library" or (provider == "auto" and ocr_settings()["provider"] != "paddle"):
         raise ParseError("이미지 OCR은 비활성화되어 있습니다. PARSE_PROVIDER=paddle과 원격 endpoint를 설정해 주세요.")
     # 이름과 실제 바이트 형식이 다른 스캔도 있으므로 OCR과 표 좌표 계산에
@@ -97,10 +105,10 @@ def parse_image(path, provider="auto"):
         with Image.open(path) as source, tempfile.NamedTemporaryFile(suffix=".png") as normalized:
             ImageOps.exif_transpose(source).convert("RGB").save(normalized, format="PNG")
             normalized.flush()
-            return _remote_paddle(normalized.name, 1, expected_pages=1)
+            return _remote_paddle(normalized.name, 1, expected_pages=1, timeout=timeout, deadline=deadline)
     except UnidentifiedImageError:
         # OCR 자체가 지원하는 형식 및 기존 synthetic 호출 계약은 원격 오류에 맡긴다.
-        return _remote_paddle(path, 1, expected_pages=1)
+        return _remote_paddle(path, 1, expected_pages=1, timeout=timeout, deadline=deadline)
 
 
 def _html_table(content):
@@ -115,7 +123,7 @@ def _html_table(content):
     return {key: table[key] for key in ("rows", "spans") if key in table}
 
 
-def _attach_lines(blocks, encoded, file_type, settings, page_map):
+def _attach_lines(blocks, encoded, file_type, settings, page_map, timeout=None):
     """Add PP-OCRv5 text line boxes (`block["lines"]`) so grounding can point at a line instead of a whole block.
 
     The layout pipeline only returns block coordinates; this plain OCR pipeline returns one box per
@@ -124,7 +132,7 @@ def _attach_lines(blocks, encoded, file_type, settings, page_map):
     started = time.monotonic()
     headers = {"Authorization": f"Bearer {settings['token']}"} if settings["token"] else {}
     try:
-        response = httpx.post(f"{settings['lines_url']}/ocr", json={"file": encoded, "fileType": file_type, "visualize": False}, headers=headers, timeout=settings["timeout"])
+        response = httpx.post(f"{settings['lines_url']}/ocr", json={"file": encoded, "fileType": file_type, "visualize": False}, headers=headers, timeout=min(settings["timeout"], timeout) if timeout is not None else settings["timeout"])
         response.raise_for_status()
         pages = response.json()["result"]["ocrResults"]
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
@@ -176,7 +184,7 @@ def _ruled_tables(blocks, path, file_type, page_map):
     logger.debug("ruled tables: elapsed=%.2fs tables=%d ruled=%d", time.monotonic() - started, len(tables), sum(b.get("structure") == "ruled" for b in tables))
 
 
-def _remote_paddle(path, file_type, page_map=None, expected_pages=None):
+def _remote_paddle(path, file_type, page_map=None, expected_pages=None, timeout=None, deadline=None):
     settings = ocr_settings()
     if not settings["base_url"]:
         raise ParseError("PaddleOCR 원격 서비스가 설정되지 않았습니다. PADDLEOCR_BASE_URL을 설정해 주세요.")
@@ -189,7 +197,7 @@ def _remote_paddle(path, file_type, page_map=None, expected_pages=None):
     logger.debug("paddleocr request: endpoint=%s file_type=%s bytes=%d", endpoint, file_type, len(payload["file"]))
     started = time.monotonic()
     try:
-        response = httpx.post(endpoint, json=payload, headers=headers, timeout=settings["timeout"])
+        response = httpx.post(endpoint, json=payload, headers=headers, timeout=min(settings["timeout"], timeout) if timeout is not None else settings["timeout"])
         response.raise_for_status()
         pages = response.json()["result"]["layoutParsingResults"]
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
@@ -219,8 +227,9 @@ def _remote_paddle(path, file_type, page_map=None, expected_pages=None):
             blocks.append(block(text.strip(), "text", page=page_no, bbox=None, source="paddleocr_remote"))
     if not blocks:
         raise ParseError("PaddleOCR 원격 응답에서 텍스트를 찾지 못했습니다.")
-    if settings["lines_url"]:
-        _attach_lines(blocks, encoded, file_type, settings, page_map)
+    if settings["lines_url"] and (deadline is None or time.monotonic() < deadline):
+        remaining = deadline - time.monotonic() if deadline is not None else None
+        _attach_lines(blocks, encoded, file_type, settings, page_map, remaining)
         _ruled_tables(blocks, path, file_type, page_map)
     return blocks
 
@@ -349,9 +358,9 @@ def parse(path, filename, media_type, options=None):
     pages, provider, table_format = options.get("pages"), options.get("provider", "auto"), options.get("table_format", "markdown")
     suffix = Path(filename).suffix.lower()
     if suffix == ".pdf":
-        blocks = parse_pdf(path, provider, pages)
+        blocks = parse_pdf(path, provider, pages, options.get("deadline"))
     elif suffix in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}:
-        blocks = parse_image(path, provider)
+        blocks = parse_image(path, provider, options.get("timeout"), options.get("deadline"))
     elif suffix == ".docx":
         blocks = parse_docx(path)
     elif suffix == ".xlsx":
@@ -367,7 +376,7 @@ def parse(path, filename, media_type, options=None):
     if not blocks:
         raise ParseError("문서에서 내용을 찾지 못했습니다.")
     for item in blocks:
-        text = refine_table(item, path) if item["type"] == "table" and item.get("source") == "paddleocr_remote" else None
+        text = refine_table(item, path, options.get("deadline")) if options.get("refine_tables", True) and item["type"] == "table" and item.get("source") == "paddleocr_remote" else None
         if text:
             item.update(text=text, **_html_table(text))
     separator = "\n" if suffix in {".pdf", ".txt", ".md"} else "\n\n"

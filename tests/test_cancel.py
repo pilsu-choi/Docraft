@@ -169,7 +169,7 @@ def test_cancel_all_cancels_queued_and_flags_running_documents(monkeypatch):
 def test_cancel_all_sets_every_inflight_read_call_and_it_returns_409(monkeypatch, tmp_path):
     ready = threading.Event()
 
-    def fake_read(path, doc_type, only, cancel=None, with_groundings=False):
+    def fake_read(path, doc_type, only, cancel=None, with_groundings=False, **kwargs):
         ready.set()
         assert cancel.wait(5)
         raise verify.Cancelled(getattr(cancel, "reason", None))
