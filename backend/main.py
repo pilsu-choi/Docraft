@@ -158,7 +158,7 @@ def schema_row(row): return decode(row, ("json_schema",))
 
 
 @app.get("/api/health")
-def health(): return {"status": "ok", "ai": public_ai_settings(), "verify_inflight": VERIFY_INFLIGHT}
+def health(): return {"status": "ok", "ai": public_ai_settings(), "verify_inflight": INFLIGHT}
 
 
 @app.get("/api/ai/status", dependencies=[Depends(auth)])
@@ -649,7 +649,36 @@ def frames(path):
     except Exception: return 1
 
 
-VERIFY_INFLIGHT = 0  # 처리 중인 /api/verify 수. 배포 스크립트가 health로 보고 교체를 미룬다
+INFLIGHT = 0  # 처리 중인 /api/verify·/api/read 수(합계). health의 verify_inflight로 노출해 배포 스크립트가 교체를 미룬다
+
+
+async def process_image(request: Request, image: UploadFile, fn, *args):
+    """단일 페이지 이미지 업로드를 저장하고 ``fn(경로, *args, cancel=cancel)``을 이벤트 루프 밖 스레드에서 돌린다.
+
+    /api/verify·/api/read가 함께 쓰는 업로드·임시파일·다중 페이지 검사·취소·in-flight 계수 처리다.
+    파싱·추출·Judge로 수 분 걸리므로 스레드에서 돌린다 — 안 그러면 health까지 막혀 동시 요청이 줄을 선다.
+    클라이언트가 끊기면 다음 단계(추출·Judge) 전에 ``cancel``을 세워 ``fn``이 ``verify.Cancelled``로 멈추게 한다.
+    ``(fn의 결과, 저장 파일명, 시작 시각(monotonic))``을 돌려준다.
+    """
+    filename = Path(image.filename or "upload").name
+    suffix = Path(filename).suffix.lower()
+    if suffix not in IMAGES: raise HTTPException(415, f"이미지 파일만 지원합니다: {suffix or image.content_type}")
+    started = time.monotonic()
+    global INFLIGHT
+    with tempfile.TemporaryDirectory() as folder:
+        target = Path(folder) / f"{uid()}{suffix}"
+        await save_upload(image, target)
+        if frames(target) > 1: raise HTTPException(422, "다중 페이지 문서는 아직 지원하지 않습니다.")
+        INFLIGHT += 1
+        cancel = threading.Event()
+        try:
+            task = asyncio.ensure_future(asyncio.to_thread(fn, str(target), *args, cancel=cancel))
+            while not task.done():
+                if await request.is_disconnected(): cancel.set()
+                await asyncio.wait({task}, timeout=1)
+            return task.result(), filename, started
+        finally:
+            INFLIGHT -= 1
 
 
 @app.post("/api/verify", dependencies=[Depends(auth)])
@@ -660,9 +689,6 @@ async def verify_result(request: Request, image: UploadFile = File(...), ao_resu
     ``hint_paths``(JSON 배열 문자열, 예: ``["병원명", "항목내역"]``)를 주면 그 key만 비교·판정하고
     나머지는 AO 값 그대로 돌려준다(판정 정보 없음). 자세한 규칙은 ``verify.run`` 참고.
     """
-    filename = Path(image.filename or "upload").name
-    suffix = Path(filename).suffix.lower()
-    if suffix not in IMAGES: raise HTTPException(415, f"이미지 파일만 지원합니다: {suffix or image.content_type}")
     try:
         ao = json.loads(ao_result)
     except json.JSONDecodeError as exc:
@@ -679,30 +705,59 @@ async def verify_result(request: Request, image: UploadFile = File(...), ao_resu
             raise HTTPException(422, "hint_paths를 JSON으로 해석할 수 없습니다.") from exc
         if not isinstance(hints, list) or not all(isinstance(key, str) for key in hints):
             raise HTTPException(422, "hint_paths는 문자열 배열이어야 합니다.")
-    started = time.monotonic()
-    with tempfile.TemporaryDirectory() as folder:
-        target = Path(folder) / f"{uid()}{suffix}"
-        await save_upload(image, target)
-        if frames(target) > 1: raise HTTPException(422, "다중 페이지 문서는 아직 지원하지 않습니다.")
-        global VERIFY_INFLIGHT
-        VERIFY_INFLIGHT += 1
-        cancel = threading.Event()
-        try:
-            # 파싱·추출·Judge로 수 분 걸리므로 이벤트 루프 밖에서 돌린다 — 안 그러면 health까지 막혀 동시 요청이 줄을 선다
-            task = asyncio.ensure_future(asyncio.to_thread(verify.run, str(target), ao, doc_type, hints, cancel=cancel))
-            while not task.done():  # 클라이언트가 끊기면 다음 단계의 LLM 호출 전에 멈추게 한다
-                if await request.is_disconnected(): cancel.set()
-                await asyncio.wait({task}, timeout=1)
-            result = task.result()
-        except verify.Cancelled:
-            logger.info("verify: cancelled (client disconnected) doc_type=%s elapsed=%.2fs", doc_type, time.monotonic() - started)
-            return Response(status_code=499)
-        except ValueError as exc:  # ParseError 포함
-            raise HTTPException(422, str(exc)) from exc
-        except Exception as exc:
-            logger.exception("verify failed: filename=%s elapsed=%.2fs", filename, time.monotonic() - started)
-            raise HTTPException(502, f"교차검증에 실패했습니다: {exc}") from exc
-        finally:
-            VERIFY_INFLIGHT -= 1
+    try:
+        result, filename, started = await process_image(request, image, verify.run, ao, doc_type, hints)
+    except verify.Cancelled:
+        logger.info("verify: cancelled (client disconnected) doc_type=%s", doc_type)
+        return Response(status_code=499)
+    except HTTPException:  # process_image가 낸 415·413·422(다중 페이지)는 그대로 올린다
+        raise
+    except ValueError as exc:  # ParseError 포함
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("verify failed: doc_type=%s", doc_type)
+        raise HTTPException(502, f"교차검증에 실패했습니다: {exc}") from exc
     logger.info("verify finished: filename=%s counts=%s elapsed=%.2fs", filename, verify.document(result)["verify"]["counts"], time.monotonic() - started)
     return result
+
+
+@app.post("/api/read", dependencies=[Depends(auth)])
+async def read_document(request: Request, image: UploadFile = File(...), doc_type: str = Form(...), keys: str | None = Form(None)):
+    """이미지에서 Docraft 자체 추출 결과만 돌려준다 — AO 비교·교정·Judge는 하지 않는다. 하네스의 재읽기,
+    크롭 재추출(자기 교정), 폴백에 쓰는 순수 읽기 경로다.
+
+    ``keys``(JSON 배열 문자열, 예: ``["병원명", "항목내역"]``)를 주면 그 필드·표 key만 추출한다(추출 스키마도
+    그만큼 좁힌다). 정의에 없는 key는 무시하고 한 번 경고 로그를 남기며, 유효한 key가 하나도 없으면 422.
+    생략하면 유형의 전체 필드를 돌려준다.
+    """
+    try:
+        doc_type = verify.resolve_doc_type(doc_type)
+        wanted = json.loads(keys) if keys else None
+        if keys and (not isinstance(wanted, list) or not all(isinstance(key, str) for key in wanted)):
+            raise ValueError("keys는 문자열 배열이어야 합니다.")
+        only = verify.resolve_keys(doc_type, wanted, label="keys")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(422, "keys를 JSON으로 해석할 수 없습니다.") from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    def run_read(path, cancel=None):
+        return verify.read(path, doc_type, only, cancel=cancel)[1]
+
+    try:
+        fields, filename, started = await process_image(request, image, run_read)
+    except verify.Cancelled:
+        logger.info("read: cancelled (client disconnected) doc_type=%s", doc_type)
+        return Response(status_code=499)
+    except HTTPException:  # process_image가 낸 415·413·422(다중 페이지)는 그대로 올린다
+        raise
+    except ValueError as exc:  # ParseError 포함
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("read failed: doc_type=%s", doc_type)
+        raise HTTPException(502, f"읽기에 실패했습니다: {exc}") from exc
+    if only is not None:
+        fields = {key: value for key, value in fields.items() if key in only}
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+    logger.info("read finished: filename=%s doc_type=%s fields=%d elapsed_ms=%d", filename, doc_type, len(fields), elapsed_ms)
+    return {"doc_type": doc_type, "fields": fields, "elapsed_ms": elapsed_ms}

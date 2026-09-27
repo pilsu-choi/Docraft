@@ -2,6 +2,8 @@
 
 Docraft는 문서를 파싱하고 JSON Schema에 맞춰 값을 추출한 뒤, 원문 근거와 검토 결과를 제공하는 웹 앱입니다. 별도의 `POST /api/verify`는 Agentic OCR 2.0(AO)의 의료 문서 결과를 독립 추출 결과와 비교해 교정합니다.
 
+하네스(harness-v2)와의 역할 분담은 "판단은 하네스, 읽기는 Docraft"입니다. `POST /api/read`는 Docraft 자신의 추출 결과만(AO 비교·교정·Judge 없이) 돌려주는 순수 읽기 API로, 하네스가 재읽기·크롭 재추출(자기 교정)·폴백에 씁니다. `POST /api/verify`는 Docraft 단독 사용·화면과, 하네스의 예전(legacy) 폴백 경로에 남아 있습니다. 두 경로 모두 파싱과 스키마 추출은 같은 코드(`verify.read`)를 공유합니다.
+
 ## 구조
 
 ```mermaid
@@ -25,14 +27,18 @@ flowchart TD
     Engine -. provider 모드 .-> LLM[Vision LLM provider]
     Parser -. TABLE_REFINE .-> LLM
     API -. 스키마 생성 .-> Engine
-    API --> Verify[AO 교차검증]
-    Verify --> Parser
-    Verify --> Engine
+    Harness[하네스 v2] --> API
+    API --> Read[POST /api/read<br/>순수 읽기]
+    API --> Verify[POST /api/verify<br/>AO 교차검증]
+    Read --> Shared[verify.read<br/>parse→extract]
+    Verify --> Shared
+    Shared --> Parser
+    Shared --> Engine
     Verify --> Rules[의료 문서 규칙]
     Verify -. 불일치 판정 .-> LLM
 ```
 
-일반 프로젝트의 파싱·추출은 작업 큐에서 비동기로 실행합니다. `verify`는 요청 중 파싱, 추출, 판정을 마친 뒤 응답하며 프로젝트 문서나 작업 큐에 저장하지 않습니다. PostgreSQL은 프로젝트·스키마·상태·결과를, `DOCRAFT_DATA_DIR`은 업로드 원본을 저장합니다.
+일반 프로젝트의 파싱·추출은 작업 큐에서 비동기로 실행합니다. `read`·`verify`는 요청 중 파싱·추출(과 `verify`는 판정까지)을 마친 뒤 응답하며 프로젝트 문서나 작업 큐에 저장하지 않습니다. PostgreSQL은 프로젝트·스키마·상태·결과를, `DOCRAFT_DATA_DIR`은 업로드 원본을 저장합니다.
 
 ## 빠른 시작
 
@@ -87,6 +93,27 @@ flowchart TD
 
 일반 추출에는 **프로젝트에 저장한 JSON Schema**를 사용합니다. 스키마의 key·자료형·설명·enum과 원문 블록을 전달하면 LLM이 value를 채워 반환합니다. provider 요청은 JSON 객체 응답(`response_format: json_object`)을 요구합니다. JSON Schema는 추출 지시로 전달하고 반환값은 서버에서 검증하며, provider의 strict schema 응답 모드는 사용하지 않습니다. provider 오류를 로컬 추출 결과로 자동 대체하지 않습니다.
 
+## 하네스용 읽기 전용 API
+
+`POST /api/read`는 Docraft를 하네스(harness-v2)의 **읽기 서비스**로 쓰는 경로입니다 — 판단(비교·재분류·최종 채택)은 하네스가 하고, Docraft는 이미지를 읽어 값만 돌려줍니다. AO 비교·교정·`rules.run`·Judge는 전혀 거치지 않습니다. 하네스는 재읽기(다른 결과와 비교하기 위한 독립 2차 읽기), 크롭 재추출(문서의 일부만 잘라 다시 읽는 자기 교정), 폴백(1차 추출이 실패했을 때의 대체 읽기)에 이 경로를 씁니다.
+
+- `image`: 단일 페이지 이미지 파일. `/api/verify`와 같은 허용 확장자·다중 페이지 검사(422)를 씁니다. 페이지의 일부를 잘라낸 크롭 이미지도 받습니다.
+- `doc_type`: 필수 문자열. `/api/verify`와 같은 별칭(`doctypes.ALIASES`)으로 정규화하며, 모르는 유형이면 422입니다.
+- `keys`: 선택 JSON 배열 문자열(예: `["병원명", "항목내역"]`). 그 유형의 필드·표 key만 추출합니다(추출 스키마도 그만큼 좁혀 비용을 줄입니다). 정의에 없는 key는 무시하고 한 번 경고 로그를 남기며, 유효한 key가 하나도 없으면 422입니다. 생략하면 유형의 전체 필드를 돌려줍니다.
+
+응답은 `{"doc_type": "<정규화된 유형>", "fields": {"<key>": <값 또는 행 dict 목록>, ...}, "elapsed_ms": <정수>}`입니다. `fields`는 `verify.run`이 쓰는 것과 같은 파싱→추출(요청한 key로 좁힌 스키마)→`rules.apply`를 거친 Docraft의 읽기 그대로이며(요청한 key가 있으면 그 key만), AO 비교·판정 정보(`source`·`reason` 등)는 붙지 않습니다. 클라이언트 연결이 끊기면 `/api/verify`와 같은 방식으로 추출 전에 멈추고 499를 돌려주며, `/api/health`의 `verify_inflight`가 `/api/verify`·`/api/read` 처리 중 요청 수를 함께 셉니다. 오류는 `/api/verify`와 같이 `ValueError`(파싱 오류 포함)는 422, 그 외는 502입니다.
+
+여기서 쓰는 VLM은 `/api/verify`·일반 추출과 같은 `engine.extract` 설정(`AI_BASE_URL` 등)을 그대로 씁니다 — 하네스는 VLM을 직접 부르지 않고 항상 이 API를 거칩니다. AWS 개발 서버는 OpenRouter(`qwen/qwen3-vl-32b-instruct`)를, 고객사 온프레미스 k8s는 같은 추출 모델을 자체 호스팅한 Qwen3-VL(vLLM)을 씁니다.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/read \
+  -F 'image=@crop.png' \
+  -F 'doc_type=진료비영수증' \
+  -F 'keys=["항목내역"]'
+```
+
+`POST /api/verify`는 Docraft 단독 사용(화면)과 하네스의 예전 폴백 경로에 남아 있습니다. `/api/read`와 파싱·추출은 같은 함수(`verify.read`)를 공유하므로 구현이 갈라지지 않습니다.
+
 ## AO 결과 교차검증
 
 `POST /api/verify`는 단일 페이지 이미지(PNG·JPG·JPEG·TIF·TIFF·WebP)와 AO 응답 JSON을 받습니다. 지원 문서 유형은 진단서·소견서·수술확인서·입퇴원확인서·진료비영수증·세부내역서·약제비영수증 7종입니다(AO가 내는 `입원확인서`·`약제영수증`도 받습니다). 일반 프로젝트 스키마와 달리 이 경로의 필드 키·자료형·설명은 [`backend/doctypes.py`](backend/doctypes.py)에 정의되어 있습니다. [`backend/rules.py`](backend/rules.py)의 라벨 동의어·정규화·파생값·표 검사는 twin reader 규칙을 코드로 이식한 것이며, 실행 중 twin reader 확장을 읽지는 않습니다.
@@ -111,7 +138,7 @@ flowchart TD
 
 추출 프롬프트에는 표 **근거 제약**을 함께 보냅니다. 문서에 인쇄된 행만 인쇄 순서대로 내고, 인쇄되지 않은 표준 항목 행을 덧붙이지 않으며, 인쇄된 이름이 표준 목록에 없어도 비슷한 표준 이름으로 바꾸지 않습니다(`doctypes.GROUND_HINT`는 영수증·세부내역서 표 설명에, `engine.TABLE_NOTE`는 표가 있는 스키마의 system 지침에 붙습니다). 전후 수치는 [근거 제약 기록](wiki/2026-09-22-extract-grounding.md)에 있습니다.
 
-Judge에는 남은 불일치와 이상만 전달합니다. Judge 판정이 합계식(`rules.sum_errors`)을 더 어기면 key를 하나씩 AO·Docraft 값으로 바꿔 보고 불일치가 줄어드는 값을 택합니다(흐린 숫자 오독 대비, 빈 값으로는 바꾸지 않음). 결과는 입력 AO 구조를 유지하며 값별 `ao_value`, `docraft_value`, `source`, `reason`을 붙이고(`predicted_value`도 최종값으로 맞추며 AO 원래 값은 `ao_value`에 남습니다. 표 셀은 행 짝짓기로 원래 셀을 찾아 붙입니다), `verify`에 유형·건수·검사 결과를 담습니다. AO에 없던 필드는 `added: true`로 추가될 수 있습니다. `ao_result`는 JSON **문자열** form 필드입니다. 처리 중에 클라이언트 연결이 끊기면 추출·Judge 호출 전에 멈추고 499를 돌려주며, `/api/health`의 `verify_inflight`로 처리 중인 건수를 볼 수 있습니다. 교차검증은 이벤트 루프 밖 스레드에서 돌아 여러 건을 동시에 보낼 수 있습니다(AWS L4 기준 영수증 약 1~2분, 세부내역서 1~5분).
+Judge에는 남은 불일치와 이상만 전달합니다. Judge 판정이 합계식(`rules.sum_errors`)을 더 어기면 key를 하나씩 AO·Docraft 값으로 바꿔 보고 불일치가 줄어드는 값을 택합니다(흐린 숫자 오독 대비, 빈 값으로는 바꾸지 않음). 결과는 입력 AO 구조를 유지하며 값별 `ao_value`, `docraft_value`, `source`, `reason`을 붙이고(`predicted_value`도 최종값으로 맞추며 AO 원래 값은 `ao_value`에 남습니다. 표 셀은 행 짝짓기로 원래 셀을 찾아 붙입니다), `verify`에 유형·건수·검사 결과를 담습니다. AO에 없던 필드는 `added: true`로 추가될 수 있습니다. `ao_result`는 JSON **문자열** form 필드입니다. 처리 중에 클라이언트 연결이 끊기면 추출·Judge 호출 전에 멈추고 499를 돌려주며, `/api/health`의 `verify_inflight`로 처리 중인 건수(`/api/read`와 합계)를 볼 수 있습니다. 교차검증은 이벤트 루프 밖 스레드에서 돌아 여러 건을 동시에 보낼 수 있습니다(AWS L4 기준 영수증 약 1~2분, 세부내역서 1~5분).
 
 선택 필드 `hint_paths`(JSON 배열 문자열, 예: `["병원명", "항목내역"]`)를 주면 그 필드·표 key만 비교·Judge 대상으로 삼아 비용을 줄입니다(룰 엔진이 이미 확정한 필드는 다시 보내지 않는 용도). 힌트에 없는 필드는 AO 값 그대로 돌아가며 `source` 등 판정 정보가 붙지 않습니다 — 그 유무로 판정 여부를 가릴 수 있습니다. 추출 스키마도 힌트 key로 좁혀 VLM 호출 비용을 함께 줄입니다. 정의에 없는 key는 무시하고 경고 로그만 남깁니다. 비우거나 생략하면 기존과 동일하게 전체 필드를 비교합니다.
 
@@ -166,8 +193,9 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | 값 수정·승인 | `PATCH /api/documents/{document_id}/review`, `POST /api/documents/{document_id}/approve` |
 | 결과 내보내기 | `GET /api/documents/{document_id}/export`, `GET /api/projects/{project_id}/export` |
 | AO 교차검증 | `POST /api/verify` |
+| Docraft 읽기 전용(하네스) | `POST /api/read` |
 
-업로드·재파싱·추출은 `202`로 접수하며, 문서 조회의 상태(`queued`, `parsing`, `parsed`, `extracting`, `validating`, `needs_review`, `completed`, `failed`)에서 진행 상황을 확인합니다. 교차검증은 동기 응답입니다. 정확한 요청·응답은 실행 중인 `/docs`를 따릅니다.
+업로드·재파싱·추출은 `202`로 접수하며, 문서 조회의 상태(`queued`, `parsing`, `parsed`, `extracting`, `validating`, `needs_review`, `completed`, `failed`)에서 진행 상황을 확인합니다. 교차검증과 읽기 전용 API는 동기 응답입니다. 정확한 요청·응답은 실행 중인 `/docs`를 따릅니다.
 
 ## 설정과 운영
 

@@ -385,6 +385,41 @@ def _check(cancel):
     if cancel is not None and cancel.is_set(): raise Cancelled
 
 
+def resolve_doc_type(doc_type: str | None) -> str:
+    """AO doc_type 별칭을 정규 이름으로 바꾸고 정의된 유형인지 검증한다(``run``·``/api/read`` 공용). 모르는 유형이면 ValueError."""
+    doc_type = doctypes.ALIASES.get(doc_type, doc_type)
+    if doc_type not in doctypes.DOC_TYPES:
+        raise ValueError(f"지원하지 않는 문서 유형입니다: {doc_type}")
+    return doc_type
+
+
+def resolve_keys(doc_type: str, keys: list[str] | None, *, label: str = "hint_paths") -> set[str] | None:
+    """key 목록(``hint_paths``·``keys`` 공용)을 유형 정의로 검증해 ``only`` 집합으로 돌려준다. 비어 있으면(None·[]) None(전체).
+
+    정의 밖 key는 한 번 경고 로그를 남기고 무시하며, 유효한 key가 하나도 없으면(모두 정의 밖) ValueError."""
+    if not keys:
+        return None
+    spec = doctypes.spec(doc_type)
+    known = {*spec["fields"], *spec["tables"]}
+    only, unknown = {key for key in keys if key in known}, {key for key in keys if key not in known}
+    if unknown:
+        logger.warning("verify: %s에 알 수 없는 key가 있습니다: %s", label, sorted(unknown))
+    if not only:  # 유효한 key가 하나도 없으면 파싱·추출 전에 끊는다(route가 ValueError를 422로 옮긴다)
+        raise ValueError(f"{label}에 {doc_type}에 정의된 key가 없습니다: {sorted(keys)}")
+    return only
+
+
+def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None) -> tuple[str, dict, list[dict]]:
+    """이미지를 파싱하고 유형 스키마(``only``가 있으면 그 key로 좁힌다)로 추출해 ``rules.apply``까지 거친
+    Docraft 읽기 결과를 돌려준다: ``(doc_type, docraft_fields, blocks)``. AO 비교·교정·Judge는 하지 않는다 —
+    ``/api/read``와 ``run``이 함께 쓰는 공용 부분이다. ``cancel``이 세워지면 추출 직전에 ``Cancelled``로 멈춘다.
+    """
+    _, blocks = parse(image, Path(image).name, "", {"provider": "paddle"})
+    _check(cancel)
+    result, _ = engine.extract(_restrict(doctypes.schema(doc_type), only), blocks, source=image)
+    return doc_type, rules.apply(doc_type, result, blocks), blocks
+
+
 def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str] | None = None, cancel=None) -> dict:
     """이미지와 AO 응답(API·UI 형식)을 받아 교정된 AO JSON을 돌려준다. 유형을 모르면 ValueError.
 
@@ -396,24 +431,10 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
     ``cancel``(``threading.Event``)이 세워지면 추출·Judge 직전에 ``Cancelled``로 멈춘다 — 진행 중인 호출은 끝까지 간다.
     """
     given = document(ao)
-    doc_type = doc_type or given.get("doc_type") or given.get("predicted_doc_type")
-    doc_type = doctypes.ALIASES.get(doc_type, doc_type)
-    if doc_type not in doctypes.DOC_TYPES:
-        raise ValueError(f"지원하지 않는 문서 유형입니다: {doc_type}")
-    only = None
-    if hint_paths:
-        spec = doctypes.spec(doc_type)
-        known = {*spec["fields"], *spec["tables"]}
-        only, unknown = {key for key in hint_paths if key in known}, {key for key in hint_paths if key not in known}
-        if unknown:
-            logger.warning("verify: hint_paths에 알 수 없는 key가 있습니다: %s", sorted(unknown))
-        if not only:  # 유효한 key가 하나도 없으면 파싱·추출 전에 끊는다(route가 ValueError를 422로 옮긴다)
-            raise ValueError(f"hint_paths에 {doc_type}에 정의된 key가 없습니다: {sorted(hint_paths)}")
+    doc_type = resolve_doc_type(doc_type or given.get("doc_type") or given.get("predicted_doc_type"))
+    only = resolve_keys(doc_type, hint_paths)
     started = time.monotonic()
-    _, blocks = parse(image, Path(image).name, "", {"provider": "paddle"})
-    _check(cancel)
-    result, _ = engine.extract(_restrict(doctypes.schema(doc_type), only), blocks, source=image)
-    docraft = rules.apply(doc_type, result, blocks)
+    doc_type, docraft, blocks = read(image, doc_type, only, cancel)
 
     output = deepcopy(ao)
     target = document(output)

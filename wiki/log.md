@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-27
+* **Creation**: [read-api](2026-09-27-read-api.md)에 하네스용 읽기 전용 `POST /api/read` 구현을 기록했다. `verify.run`에서 `resolve_doc_type`·`resolve_keys`·`verify.read`(parse→extract→rules.apply)를 뽑아 공용화하고, `main.py`의 업로드·임시파일·취소·in-flight 보일러플레이트를 `process_image` 헬퍼로 `/api/verify`와 공유했다. `verify_inflight`는 이름을 유지한 채 두 경로 합계를 센다. `tests/test_read.py` 신규(20건), 516 passed(기존 496 + 신규 20, 회귀 없음). README에 하네스 역할 분담과 계약을 추가했다.
+* **Update**: [index](index.md)에 새 문서를 연결했다.
+
 ## 2026-09-26 (2)
 * **Creation**: [misread-correction](2026-09-26-misread-correction.md)에 진료비영수증 항목명 자모 한 개 오독 교정(세 글자 이하 포함)과 날짜 O·I·l 오독 교정, 라벨 오독 매칭을 넣지 않은 근거(낱말 25,021개 오매칭 검사)를 기록했다. 브랜치 `feat/misread-correction`, 워크트리 `.worktrees/misread-correction`.
 * **Update**: [index](index.md)에 새 문서를 연결했다.
