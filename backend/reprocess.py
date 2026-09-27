@@ -14,6 +14,9 @@ from . import engine
 from .parsers import parse
 
 
+_MISSING = object()
+
+
 def _limit(name, default, ceiling):
     try:
         return max(0, min(int(os.getenv(name, default)), ceiling))
@@ -36,7 +39,7 @@ def deadline_for(remaining_ms=None):
 
 
 def _source(result, schema, blocks):
-    return engine._grounding_tree(result, [(block, engine._block_rows(block)) for block in blocks], schema)
+    return engine.ground(result, schema, blocks)
 
 
 def _quality(result, schema, blocks):
@@ -123,25 +126,44 @@ def _candidate_path(original, candidate, path):
     """Map a table cell only by a unique unchanged row identity, never by row index alone."""
     parts = [part.replace("~1", "/").replace("~0", "~") for part in path.split("/")]
     if not isinstance(candidate, dict):
-        return None
+        return _MISSING
     if not any(part.isdigit() for part in parts):
         try:
             value = _value(candidate, path)
-            return value if not isinstance(value, (dict, list)) else None
+            return value if not isinstance(value, (dict, list)) else _MISSING
         except (KeyError, TypeError):
-            return None
+            return _MISSING
     if len(parts) != 3 or not parts[1].isdigit() or not isinstance(candidate.get(parts[0]), list):
-        return None
+        return _MISSING
     old_rows, new_rows = original.get(parts[0]), candidate[parts[0]]
     index, column = int(parts[1]), parts[2]
     if not isinstance(old_rows, list) or index >= len(old_rows) or not isinstance(old_rows[index], dict):
-        return None
+        return _MISSING
     old = old_rows[index]
     identity = {key: value for key, value in old.items() if key != column and value not in (None, "")}
     if not identity:
-        return None
+        return _MISSING
     matches = [row for row in new_rows if isinstance(row, dict) and all(row.get(key) == value for key, value in identity.items())]
-    return matches[0].get(column) if len(matches) == 1 else None
+    return matches[0][column] if len(matches) == 1 and column in matches[0] else _MISSING
+
+
+def _typed(provenance, value):
+    from .typed_evidence import valid
+    return valid(provenance, value)
+
+
+def _blank_candidate(fields, path, schema, blocks):
+    """Only a proven physical empty cell may propose null; missing extraction is not a proposal."""
+    try:
+        if _value(fields, path) is None:
+            return False
+        candidate = _patch(fields, path, None)
+        source = engine.ground(candidate, schema, blocks)
+        for part in path.split("/"):
+            source = source.get(part.replace("~1", "/").replace("~0", "~"), {}) if isinstance(source, dict) else {}
+        return isinstance(source, dict) and _typed(source, None)
+    except (KeyError, IndexError, TypeError):
+        return False
 
 
 def _patch(result, path, value):
@@ -162,9 +184,9 @@ def _box(source, blocks, root, schema):
     if provenance.get("bbox") and provenance.get("page_size"):
         return provenance["page"], provenance["bbox"], provenance["page_size"]
     spec = schema.get("properties", {}).get(root, {})
-    labels = [root, str(spec.get("title") or "")]
+    labels = engine._labels(root, spec)
     for block in blocks:
-        if block.get("bbox") and block.get("page_size") and any(label and label in block.get("text", "") for label in labels):
+        if block.get("bbox") and block.get("page_size") and any(label in engine._normalized(block.get("text", "")) for label in labels):
             return block.get("page") or 1, block["bbox"], block["page_size"]
     return None
 
@@ -208,6 +230,10 @@ def _remap(blocks, page, size, crop):
         for line in block.get("lines") or []:
             if line.get("bbox"):
                 line["bbox"] = convert(line["bbox"])
+        for cell in block.get("cells") or []:
+            if cell.get("bbox"):
+                cell["bbox"] = convert(cell["bbox"])
+            cell.update(page=page, page_size=size)
         block.update(page=page, page_size=size)
     return mapped
 
@@ -307,7 +333,7 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                 if attempts >= config["max_attempts"] or not check():
                     stop = "deadline" if time.monotonic() >= deadline else "attempt_budget"
                     break
-                if stage == "rules" and normalize is None:
+                if stage == "rules" and normalize is None and not _blank_candidate(fields, path, schema, evidence):
                     continue
                 if stage == "roi_parse" and not crop:
                     continue
@@ -319,7 +345,9 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                 attempts += 1
                 try:
                     if stage == "rules":
-                        proposal = normalize(deepcopy(fields), evidence)
+                        proposal = normalize(deepcopy(fields), evidence) if normalize else deepcopy(fields)
+                        if _blank_candidate(fields, path, schema, evidence):
+                            proposal = _patch(fields, path, None)
                     elif stage == "roi_parse":
                         _, local = parse(roi, "roi.png", "image/png", {"provider": "paddle", "refine_tables": False,
                                                                          "timeout": max(0.1, deadline - time.monotonic()),
@@ -327,6 +355,8 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                         mapped = _remap(local, region[0], region[2], crop)
                         evidence = [*blocks, *mapped]
                         proposal = normalize(deepcopy(fields), evidence) if normalize else fields
+                        if _blank_candidate(fields, path, schema, evidence):
+                            proposal = _patch(fields, path, None)
                     else:
                         narrowed = {**schema, "properties": {root: schema["properties"][root]},
                                     "required": [root] if root in schema.get("required", []) else []}
@@ -342,7 +372,7 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                         stop = "deadline"
                         break
                     value = _candidate_path(fields, proposal, path)
-                    if value is None:
+                    if value is _MISSING:
                         record(stage, "no_safe_candidate", before["status"])
                         continue
                     candidate = _patch(fields, path, value)
@@ -361,8 +391,11 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                     parts = path.split("/")
                     table_cell = (len(parts) == 3 and parts[1].isdigit()
                                   and isinstance(fields.get(root), list))
-                    semantic = table_cell or _label_seen(root, schema, source_blocks)
-                    exact = after.get("status") == "PASS" and after.get("provenance", {}).get("match") == "exact"
+                    typed = _typed(after.get("provenance", {}), value)
+                    semantic = (table_cell or _label_seen(root, schema, source_blocks)
+                                or typed and bool(after.get("provenance", {}).get("label")))
+                    exact = after.get("status") == "PASS" and (after.get("provenance", {}).get("match") == "exact"
+                                                                          or typed)
                     rule_clean = True
                     if check_rules is not None:
                         signature = lambda flag: json.dumps(flag, ensure_ascii=False, sort_keys=True, default=str)
