@@ -17,14 +17,16 @@ from urllib.parse import quote
 import fitz
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from openpyxl import Workbook
 from PIL import Image
 from pydantic import BaseModel, Field, field_validator
 from jsonschema.exceptions import SchemaError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .config import public_ai_settings
+from .config import bind_request, new_request_id, public_ai_settings
 from . import engine, jobs, master, verify
 from .db import FILES, audit, connect, decode, init_db, now
 from .parsers import ParseError, parse
@@ -55,6 +57,31 @@ init_db()  # Also supports test/embedded clients that do not enter ASGI lifespan
 jobs.backend()  # Fail fast on an unknown QUEUE_BACKEND.
 origins = [value.strip() for value in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",") if value.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """요청마다 [rid] 를 묶고 결말을 한 줄로 남긴다. rid 는 X-Request-ID(하네스가 job·doc id 를 싣는다)를 따르고 응답 헤더로 돌려준다."""
+    with bind_request(new_request_id(request.headers.get("x-request-id"))) as rid:
+        started = time.monotonic()
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception("%s %s -> unhandled error elapsed=%.2fs", request.method, request.url.path, time.monotonic() - started)
+            raise
+        elapsed = time.monotonic() - started
+        level = logging.WARNING if response.status_code >= 400 else logging.DEBUG if request.url.path == "/api/health" else logging.INFO
+        logger.log(level, "%s %s -> %d elapsed=%.2fs", request.method, request.url.path, response.status_code, elapsed)
+        response.headers["X-Request-ID"] = rid
+        return response
+
+
+@app.exception_handler(StarletteHTTPException)
+async def log_http_error(request: Request, exc: StarletteHTTPException):
+    """4xx·5xx 의 사유(detail)를 남긴다 — 상태 코드만으로는 호출자가 무엇을 잘못 보냈는지 알 수 없다."""
+    if exc.status_code >= 400:
+        logger.warning("%s %s rejected: %d %s", request.method, request.url.path, exc.status_code, exc.detail)
+    return await http_exception_handler(request, exc)
 
 
 def auth(x_api_key: str | None = Header(None)):

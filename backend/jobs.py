@@ -7,7 +7,9 @@ Tasks must be idempotent-ish: they claim their document with a conditional DB up
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from functools import cache
+from functools import cache, wraps
+
+from .config import bind_request
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +21,17 @@ LEASE = int(os.getenv("JOB_LEASE_SECONDS", "600"))
 
 
 def task(name):
-    """Register a function as the task `name` (backend.main registers `parse` and `extract`)."""
+    """Register a function as the task `name` (backend.main registers `parse` and `extract`).
+
+    작업 안의 로그 줄에는 `[parse:<document_id>]` 처럼 작업 이름과 첫 인자가 붙는다(inline·celery 공통).
+    """
     def register(fn):
-        TASKS[name] = fn
-        return fn
+        @wraps(fn)
+        def run(*args):
+            with bind_request(f"{name}:{args[0]}" if args else name):
+                return fn(*args)
+        TASKS[name] = run
+        return run
     return register
 
 
