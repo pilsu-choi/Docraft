@@ -1,6 +1,8 @@
 # Docraft wiki 변경 이력
 
 ## 2026-09-27
+* **Creation**: [untrack-context-feedback](2026-09-27-untrack-context-feedback.md)에 정제 전 `context.md`·`feedback.md` 추적 해제와 루트 `.gitignore` 등록을 기록했다. 브랜치 `fix/untrack-context-feedback`, 워크트리 `.worktrees/untrack-context-feedback`.
+* **Update**: [index](index.md)에 새 문서를 연결했다.
 * **Creation**: [request-id-logging](2026-09-27-request-id-logging.md)에 모든 로그 줄에 요청 ID(`[rid]`)를 붙이고 하네스가 보낸 `X-Request-ID`(job.txn.doc)로 두 시스템 로그를 잇게 한 작업, 4xx 사유·AI provider HTTP 오류 본문 기록, k8s 로그 보관 현황을 기록했다. 브랜치 `feat/0927-logging`, 워크트리 `.worktrees/logging`.
 * **Update**: [index](index.md)에 새 문서를 연결했다.
 * **Creation**: [작업-중지-API](2026-09-27-작업-중지-API.md)에 운영자 긴급 중지 구현을 기록했다. 문서 잡 단건 취소 `POST /api/documents/{id}/cancel`(queued→즉시 canceled, 실행 중→`documents.cancel_requested`를 세워 파싱·추출·검증 뒤 경계에서 `run_parse`/`run_extract`가 스스로 멈춤, Celery면 `jobs.revoke`)과 전체 취소 `POST /api/admin/cancel-all?confirm=true`(위와 같은 방식 + 진행 중인 모든 `/api/verify`·`/api/read` 호출의 `cancel` Event를 `INFLIGHT_EVENTS` 레지스트리로 함께 세움, 그 경우만 499 대신 409)를 추가했다. 프런트엔드 `Status`·`statusText`에 `canceled`(취소됨) 추가. `tests/test_cancel.py` 신규(13건), 529 passed(기존 516 + 신규 13, 회귀 없음). README에 API 표와 "작업 중지" 절을 추가했다.

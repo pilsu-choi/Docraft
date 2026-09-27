@@ -17,6 +17,8 @@ build/
 *.egg-info/
 node_modules
 .playwright-mcp/
+/context.md
+/feedback.md
 
 # AWS 배포 비밀값·터널 상태
 deploy/aws/.env.aws
