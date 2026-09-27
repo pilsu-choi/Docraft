@@ -3,6 +3,7 @@ import io
 import base64
 import html
 import logging
+import tempfile
 import time
 import uuid
 from html.parser import HTMLParser
@@ -12,7 +13,7 @@ from docx import Document
 from openpyxl import load_workbook
 import fitz
 import httpx
-from PIL import Image
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .config import ocr_settings
 from .engine import refine_table
@@ -90,7 +91,16 @@ def parse_pdf(path, provider="auto", pages=None):
 def parse_image(path, provider="auto"):
     if provider == "library" or (provider == "auto" and ocr_settings()["provider"] != "paddle"):
         raise ParseError("이미지 OCR은 비활성화되어 있습니다. PARSE_PROVIDER=paddle과 원격 endpoint를 설정해 주세요.")
-    return _remote_paddle(path, 1, expected_pages=1)
+    # 이름과 실제 바이트 형식이 다른 스캔도 있으므로 OCR과 표 좌표 계산에
+    # 동일하게 디코딩한 첫 페이지를 사용한다.
+    try:
+        with Image.open(path) as source, tempfile.NamedTemporaryFile(suffix=".png") as normalized:
+            ImageOps.exif_transpose(source).convert("RGB").save(normalized, format="PNG")
+            normalized.flush()
+            return _remote_paddle(normalized.name, 1, expected_pages=1)
+    except UnidentifiedImageError:
+        # OCR 자체가 지원하는 형식 및 기존 synthetic 호출 계약은 원격 오류에 맡긴다.
+        return _remote_paddle(path, 1, expected_pages=1)
 
 
 def _html_table(content):
