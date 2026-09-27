@@ -1,6 +1,6 @@
 // 여러 화면에서 함께 쓰는 아이콘, 상태 표기, 세그먼트 전환, 모달.
 import { useEffect, useState } from 'react'
-export const statusText: Record<string, string> = { queued: '대기 중', parsing: '문서 분석 중', parsed: '분석 완료', extracting: '추출 중', validating: '검증 중', needs_review: '검토 필요', completed: '완료', failed: '처리 실패' }
+export const statusText: Record<string, string> = { queued: '대기 중', parsing: '문서 분석 중', parsed: '분석 완료', extracting: '추출 중', validating: '검증 중', needs_review: '검토 필요', completed: '완료', failed: '처리 실패', canceled: '취소됨' }
 export function Icon({ name, size = 18 }: { name: 'grid' | 'plus' | 'file' | 'arrow' | 'chevron' | 'refresh' | 'key' | 'spark' | 'check' | 'search' | 'upload' | 'folder' | 'expand' | 'shrink' | 'close'; size?: number }) {
   const paths: Record<typeof name, React.ReactNode> = {
     grid: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,

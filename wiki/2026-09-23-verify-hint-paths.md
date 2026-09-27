@@ -8,6 +8,8 @@ status: active
 
 2026-09-23, 브랜치 `feat/verify-hint-paths`, 워크트리 `.worktrees/verify-hint-paths`.
 
+> **참고(2026-09-27)**: `hint_paths` 필드 자체는 `/api/verify`에 그대로 남아 있지만, 하네스는 더 이상 이 경로를 부르지 않는다(검토 칸 재조회는 [POST /api/read](2026-09-27-read-api.md)로 옮겼다). `/api/verify`는 지금 Docraft 단독 사용(화면)에만 쓰인다.
+
 ## 배경
 
 `POST /api/verify`는 지금까지 AO 응답의 모든 필드·표를 Docraft 추출 결과와 비교하고, 어긋나는 항목만

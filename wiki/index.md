@@ -9,6 +9,8 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [운영자 긴급 중지: 문서 잡·in-flight 호출 취소 API](2026-09-27-작업-중지-API.md) - 대기·실행 중인 문서 잡 단건 취소(`POST /api/documents/{id}/cancel`)와 전체 취소(`POST /api/admin/cancel-all?confirm=true`). queued는 즉시 canceled, 실행 중은 documents.cancel_requested로 다음 단계 경계에서 협조적 취소, cancel-all은 진행 중인 모든 /api/verify·/api/read 호출도 함께 끊어 409로 마무리(클라이언트 연결 끊김 499와 구분)
+* [Docraft를 하네스 읽기 서비스로 만드는 POST /api/read](2026-09-27-read-api.md) - AO 비교·rules.run·Judge 없이 Docraft 자체 추출만 돌려주는 읽기 전용 API. verify.run에서 공용 부분(resolve_doc_type·resolve_keys·verify.read)을 뽑아 재사용하고, /api/verify와 업로드·취소·in-flight 보일러플레이트(process_image)를 공유. health의 verify_inflight는 이름을 유지한 채 두 경로 합계를 센다
 * [필수 필드 오독 교정 확대](2026-09-26-misread-correction.md) - 진료비영수증 항목명 오독 교정을 세 글자 이하까지 자모 하나 차이로 넓히고('진칠료'→'진찰료'), 날짜의 숫자에 붙은 O·I·l을 0·1로 읽게 함. 라벨 오독 매칭은 실제 낱말 오매칭('발생일'→'발행일')으로 보류
 * [GPU 할당 방식 이원화: 카드 지정 모드 + device plugin 자원 모드](2026-09-26-GPU-할당-방식.md) - helm/docraft 차트의 paddleocrVl·paddleocrLines·vllmVlm 에 harness-v2 embedding 차트와 같은 nvidia.com/gpu 요청 기반 device plugin 모드를 추가하고 기존 deviceIds 카드 지정 모드와 헬퍼를 통합
 * [OCR 엣지 케이스 개선 우선순위: 속도와 정확도](2026-09-25-edge-speed-accuracy-priorities.md) - 실측 지연·정확도와 102개 카탈로그를 함께 고려한 규칙 보완, 선택적 모델 호출, 룰 1차 추출, 교차검증의 실행 순서와 채택 기준

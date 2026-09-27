@@ -1,4 +1,4 @@
-export type Status = 'uploaded' | 'queued' | 'parsing' | 'parsed' | 'extracting' | 'validating' | 'needs_review' | 'completed' | 'failed'
+export type Status = 'uploaded' | 'queued' | 'parsing' | 'parsed' | 'extracting' | 'validating' | 'needs_review' | 'completed' | 'failed' | 'canceled'
 export type Project = { id: string; name: string; description?: string; created_at: string }
 export type AiStatus = { configured: boolean; provider: string | null; model: string | null; mode: 'provider' | 'local'; ocr?: { configured: boolean; provider: string | null; model: string; ready: boolean; mode?: 'library' | 'paddle' } }
 export type Schema = { id: string; project_id: string; name: string; version: number; json_schema: Record<string, unknown>; created_at: string }

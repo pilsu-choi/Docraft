@@ -40,6 +40,8 @@ IMAGES = engine.VISION_SUFFIXES - {".pdf"}  # 페이지 이미지를 가진 형�
 MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
 # Statuses a stale job may be taken over from, keyed by the status the job claims.
 ACTIVE = {"parsing": ("parsing",), "extracting": ("extracting", "validating")}
+RUNNING_STATUSES = {"parsing", "extracting", "validating"}  # 실행 중인 잡이 있는 상태(취소는 다음 단계 경계에서)
+PROCESSING_STATUSES = {"queued", *RUNNING_STATUSES}  # 삭제 금지·취소 대상 문서 상태
 
 
 @asynccontextmanager
@@ -157,6 +159,7 @@ def document(db, document_id):
     value["corrections"] = [{**dict(row), "old_value": json.loads(row["old_value"]) if row["old_value"] else None, "new_value": json.loads(row["new_value"])} for row in corrections]
     value["groundings"] = grounding_list(value["groundings"])
     value.pop("file_path", None)
+    value.pop("cancel_requested", None)
     return value
 
 
@@ -185,7 +188,7 @@ def schema_row(row): return decode(row, ("json_schema",))
 
 
 @app.get("/api/health")
-def health(): return {"status": "ok", "ai": public_ai_settings(), "verify_inflight": VERIFY_INFLIGHT}
+def health(): return {"status": "ok", "ai": public_ai_settings(), "verify_inflight": INFLIGHT}
 
 
 @app.get("/api/ai/status", dependencies=[Depends(auth)])
@@ -282,7 +285,7 @@ async def upload_documents(project_id: str, files: list[UploadFile] = File(...))
             audit(db, project_id, "upload", "document", document_id, {"filename": filename, "size": size})
             logger.info("upload saved: document=%s filename=%s size=%d", document_id, filename, size)
             created.append(document(db, document_id))
-    for item in created: jobs.enqueue("parse", item["id"])  # After commit, so workers see the queued row.
+    for item in created: dispatch(item["id"], "parse")  # After commit, so workers see the queued row.
     return created
 
 
@@ -301,7 +304,7 @@ def remove_file(file_path):
 def delete_document(document_id: str):
     with connect() as db:
         doc = one(db, "SELECT * FROM documents WHERE id=?", (document_id,))
-        if doc["status"] in {"queued", "parsing", "extracting", "validating"}:
+        if doc["status"] in PROCESSING_STATUSES:
             raise HTTPException(409, "처리 중인 문서는 삭제할 수 없습니다.")
         audit(db, doc["project_id"], "delete", "document", document_id, {"filename": doc["filename"]})
         db.execute("DELETE FROM documents WHERE id=?", (document_id,))
@@ -323,6 +326,28 @@ def claim(db, document_id, status):
     return bool(claimed)
 
 
+TASK_IDS: dict[str, str] = {}  # document_id -> Celery task id(있으면). API 프로세스만 큐에 넣으므로 이 메모리만으로 충분하다.
+
+
+def dispatch(document_id, name, *args):
+    """작업을 큐에 넣고, Celery면 나중에 cancel이 revoke할 수 있도록 task id를 기억해둔다."""
+    result = jobs.enqueue(name, document_id, *args)
+    task_id = getattr(result, "id", None)
+    if task_id: TASK_IDS[document_id] = task_id
+
+
+def check_cancel(db, document_id):
+    """운영자가 이 문서의 취소를 요청했으면(``cancel_requested``) status를 canceled로 남기고 True를 돌려준다.
+
+    parse·extract 잡의 단계 경계(파싱 뒤, 추출 뒤, 검증 뒤)에서만 확인한다 — verify._check와 같은
+    협조적 취소이며, 진행 중인 단일 호출(파싱·추출 자체)을 중간에 끊지는 않는다.
+    """
+    row = one(db, "SELECT cancel_requested FROM documents WHERE id=?", (document_id,))
+    if not row["cancel_requested"]: return False
+    db.execute("UPDATE documents SET status='canceled',cancel_requested=FALSE,updated_at=? WHERE id=?", (now(), document_id))
+    return True
+
+
 @contextmanager
 def heartbeat(document_id):
     """Refresh updated_at while a job runs so claim() only takes over jobs whose worker died."""
@@ -340,8 +365,8 @@ def recover():
     with connect() as db:
         rows = db.execute("SELECT id,schema_id,markdown IS NOT NULL AS parsed FROM documents WHERE status='queued' OR (status IN ('parsing','extracting','validating') AND updated_at<?)", (stale_before(),)).fetchall()
     for row in rows:
-        if row["parsed"]: jobs.enqueue("extract", row["id"], row["schema_id"])
-        else: jobs.enqueue("parse", row["id"])
+        if row["parsed"]: dispatch(row["id"], "extract", row["schema_id"])
+        else: dispatch(row["id"], "parse")
     if rows: logger.info("recovered jobs: %d", len(rows))
 
 
@@ -355,6 +380,9 @@ def run_parse(document_id: str):
     try:
         with heartbeat(document_id): markdown, blocks = parse(row["file_path"], row["filename"], row["media_type"], row["parse_options"])
         with connect() as db:
+            if check_cancel(db, document_id):
+                logger.info("status transition: document=%s status=canceled (parse)", document_id)
+                return
             db.execute("UPDATE documents SET status='parsed',markdown=?,blocks=?,updated_at=? WHERE id=?", (markdown, json.dumps(blocks, ensure_ascii=False), now(), document_id))
             audit(db, row["project_id"], "parse", "document", document_id, {"blocks": len(blocks)})
         logger.info("parse finished: document=%s blocks=%d elapsed=%.2fs", document_id, len(blocks), time.monotonic() - started)
@@ -370,8 +398,28 @@ def retry_parse(document_id: str, data: ParseOptions | None = None):
         current = one(db, "SELECT parse_options FROM documents WHERE id=?", (document_id,), json_fields=("parse_options",))
         options = data.model_dump() if data is not None else current["parse_options"]
         db.execute("UPDATE documents SET status='queued',error=NULL,markdown=NULL,blocks='[]',result=NULL,groundings='{}',validation='[]',schema_id=NULL,approved_at=NULL,parse_options=?,updated_at=? WHERE id=?", (json.dumps(options, ensure_ascii=False), now(), document_id))
-    jobs.enqueue("parse", document_id)
+    dispatch(document_id, "parse")
     return {"id": document_id, "status": "queued"}
+
+
+@app.post("/api/documents/{document_id}/cancel", dependencies=[Depends(auth)])
+def cancel_document(document_id: str):
+    """대기 중인 문서는 바로 canceled로 옮기고, 처리 중인 문서는 다음 단계 경계에서 스스로 멈추도록 표시한다.
+
+    이미 끝났거나 취소된 문서(파싱 완료·검토 필요·완료·실패·취소됨)는 취소할 잡이 없어 409다.
+    """
+    with connect() as db:
+        doc = one(db, "SELECT status,project_id FROM documents WHERE id=?", (document_id,))
+        if doc["status"] == "queued":
+            db.execute("UPDATE documents SET status='canceled',updated_at=? WHERE id=?", (now(), document_id))
+        elif doc["status"] in RUNNING_STATUSES:
+            db.execute("UPDATE documents SET cancel_requested=TRUE,updated_at=? WHERE id=?", (now(), document_id))
+        else:
+            raise HTTPException(409, "대기 중이거나 처리 중인 문서만 취소할 수 있습니다.")
+        jobs.revoke(TASK_IDS.pop(document_id, None))
+        audit(db, doc["project_id"], "cancel", "document", document_id)
+        logger.info("status transition: document=%s cancel requested (was %s)", document_id, doc["status"])
+        return document(db, document_id)
 
 
 @app.get("/api/projects/{project_id}/schemas", dependencies=[Depends(auth)])
@@ -459,10 +507,17 @@ def run_extract(document_id, schema_id):
     started = time.monotonic()
     try:
         with heartbeat(document_id): result, groundings = engine.extract(schema["json_schema"], doc["blocks"], doc["file_path"])
-        with connect() as db: db.execute("UPDATE documents SET status='validating',result=?,groundings=?,updated_at=? WHERE id=?", (json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), now(), document_id))
+        with connect() as db:
+            if check_cancel(db, document_id):
+                logger.info("status transition: document=%s status=canceled (extract)", document_id)
+                return
+            db.execute("UPDATE documents SET status='validating',result=?,groundings=?,updated_at=? WHERE id=?", (json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), now(), document_id))
         issues = engine.validate(result, schema["json_schema"], groundings)
         status = "needs_review" if issues else "completed"
         with connect() as db:
+            if check_cancel(db, document_id):
+                logger.info("status transition: document=%s status=canceled (validate)", document_id)
+                return
             db.execute("UPDATE documents SET status=?,validation=?,updated_at=? WHERE id=?", (status, json.dumps(issues, ensure_ascii=False), now(), document_id))
             audit(db, doc["project_id"], "extract", "document", document_id, {"schema_id": schema_id, "issues": len(issues)})
         logger.info("extract finished: document=%s status=%s issues=%d elapsed=%.2fs", document_id, status, len(issues), time.monotonic() - started)
@@ -495,7 +550,7 @@ def start_extract(document_id: str, data: ExtractInput):
         reason = extract_reason(doc, schema["project_id"], "문서와 스키마의 프로젝트가 다릅니다.")
         if reason: raise HTTPException(409, reason)
         mark_queued(db, document_id, data.schema_id)
-    jobs.enqueue("extract", document_id, data.schema_id)
+    dispatch(document_id, "extract", data.schema_id)
     return {"id": document_id, "status": "queued"}
 
 
@@ -518,7 +573,7 @@ def batch_extract(project_id: str, data: BatchExtractInput):
                 continue
             mark_queued(db, doc_id, data.schema_id)
             queued.append(doc_id)
-    for doc_id in queued: jobs.enqueue("extract", doc_id, data.schema_id)
+    for doc_id in queued: dispatch(doc_id, "extract", data.schema_id)
     return {"queued": queued, "skipped": skipped}
 
 
@@ -676,7 +731,50 @@ def frames(path):
     except Exception: return 1
 
 
-VERIFY_INFLIGHT = 0  # 처리 중인 /api/verify 수. 배포 스크립트가 health로 보고 교체를 미룬다
+INFLIGHT = 0  # 처리 중인 /api/verify·/api/read 수(합계). health의 verify_inflight로 노출해 배포 스크립트가 교체를 미룬다
+INFLIGHT_EVENTS: set[threading.Event] = set()  # 진행 중인 호출마다 하나씩, cancel-all이 한꺼번에 세운다
+_inflight_lock = threading.Lock()
+
+
+def cancelled_response(exc, action, doc_type):
+    """``verify.Cancelled``를 라우트 응답으로 바꾼다. 운영자의 cancel-all이 세운 것(reason="operator")이면
+    409(진행 중 판단으로 오인하지 않게 클라이언트 연결 끊김의 499와 구분), 아니면 499다."""
+    if exc.args and exc.args[0] == "operator":
+        logger.info("%s: cancelled by operator doc_type=%s", action, doc_type)
+        raise HTTPException(409, "운영자에 의해 작업이 취소되었습니다.")
+    logger.info("%s: cancelled (client disconnected) doc_type=%s", action, doc_type)
+    return Response(status_code=499)
+
+
+async def process_image(request: Request, image: UploadFile, fn, *args):
+    """단일 페이지 이미지 업로드를 저장하고 ``fn(경로, *args, cancel=cancel)``을 이벤트 루프 밖 스레드에서 돌린다.
+
+    /api/verify·/api/read가 함께 쓰는 업로드·임시파일·다중 페이지 검사·취소·in-flight 계수 처리다.
+    파싱·추출·Judge로 수 분 걸리므로 스레드에서 돌린다 — 안 그러면 health까지 막혀 동시 요청이 줄을 선다.
+    클라이언트가 끊기면 다음 단계(추출·Judge) 전에 ``cancel``을 세워 ``fn``이 ``verify.Cancelled``로 멈추게 한다.
+    ``(fn의 결과, 저장 파일명, 시작 시각(monotonic))``을 돌려준다.
+    """
+    filename = Path(image.filename or "upload").name
+    suffix = Path(filename).suffix.lower()
+    if suffix not in IMAGES: raise HTTPException(415, f"이미지 파일만 지원합니다: {suffix or image.content_type}")
+    started = time.monotonic()
+    global INFLIGHT
+    with tempfile.TemporaryDirectory() as folder:
+        target = Path(folder) / f"{uid()}{suffix}"
+        await save_upload(image, target)
+        if frames(target) > 1: raise HTTPException(422, "다중 페이지 문서는 아직 지원하지 않습니다.")
+        INFLIGHT += 1
+        cancel = threading.Event()
+        with _inflight_lock: INFLIGHT_EVENTS.add(cancel)
+        try:
+            task = asyncio.ensure_future(asyncio.to_thread(fn, str(target), *args, cancel=cancel))
+            while not task.done():
+                if await request.is_disconnected(): cancel.set()
+                await asyncio.wait({task}, timeout=1)
+            return task.result(), filename, started
+        finally:
+            INFLIGHT -= 1
+            with _inflight_lock: INFLIGHT_EVENTS.discard(cancel)
 
 
 @app.post("/api/verify", dependencies=[Depends(auth)])
@@ -687,9 +785,6 @@ async def verify_result(request: Request, image: UploadFile = File(...), ao_resu
     ``hint_paths``(JSON 배열 문자열, 예: ``["병원명", "항목내역"]``)를 주면 그 key만 비교·판정하고
     나머지는 AO 값 그대로 돌려준다(판정 정보 없음). 자세한 규칙은 ``verify.run`` 참고.
     """
-    filename = Path(image.filename or "upload").name
-    suffix = Path(filename).suffix.lower()
-    if suffix not in IMAGES: raise HTTPException(415, f"이미지 파일만 지원합니다: {suffix or image.content_type}")
     try:
         ao = json.loads(ao_result)
     except json.JSONDecodeError as exc:
@@ -706,30 +801,87 @@ async def verify_result(request: Request, image: UploadFile = File(...), ao_resu
             raise HTTPException(422, "hint_paths를 JSON으로 해석할 수 없습니다.") from exc
         if not isinstance(hints, list) or not all(isinstance(key, str) for key in hints):
             raise HTTPException(422, "hint_paths는 문자열 배열이어야 합니다.")
-    started = time.monotonic()
-    with tempfile.TemporaryDirectory() as folder:
-        target = Path(folder) / f"{uid()}{suffix}"
-        await save_upload(image, target)
-        if frames(target) > 1: raise HTTPException(422, "다중 페이지 문서는 아직 지원하지 않습니다.")
-        global VERIFY_INFLIGHT
-        VERIFY_INFLIGHT += 1
-        cancel = threading.Event()
-        try:
-            # 파싱·추출·Judge로 수 분 걸리므로 이벤트 루프 밖에서 돌린다 — 안 그러면 health까지 막혀 동시 요청이 줄을 선다
-            task = asyncio.ensure_future(asyncio.to_thread(verify.run, str(target), ao, doc_type, hints, cancel=cancel))
-            while not task.done():  # 클라이언트가 끊기면 다음 단계의 LLM 호출 전에 멈추게 한다
-                if await request.is_disconnected(): cancel.set()
-                await asyncio.wait({task}, timeout=1)
-            result = task.result()
-        except verify.Cancelled:
-            logger.info("verify: cancelled (client disconnected) doc_type=%s elapsed=%.2fs", doc_type, time.monotonic() - started)
-            return Response(status_code=499)
-        except ValueError as exc:  # ParseError 포함
-            raise HTTPException(422, str(exc)) from exc
-        except Exception as exc:
-            logger.exception("verify failed: filename=%s elapsed=%.2fs", filename, time.monotonic() - started)
-            raise HTTPException(502, f"교차검증에 실패했습니다: {exc}") from exc
-        finally:
-            VERIFY_INFLIGHT -= 1
+    try:
+        result, filename, started = await process_image(request, image, verify.run, ao, doc_type, hints)
+    except verify.Cancelled as exc:
+        return cancelled_response(exc, "verify", doc_type)
+    except HTTPException:  # process_image가 낸 415·413·422(다중 페이지)는 그대로 올린다
+        raise
+    except ValueError as exc:  # ParseError 포함
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("verify failed: doc_type=%s", doc_type)
+        raise HTTPException(502, f"교차검증에 실패했습니다: {exc}") from exc
     logger.info("verify finished: filename=%s counts=%s elapsed=%.2fs", filename, verify.document(result)["verify"]["counts"], time.monotonic() - started)
     return result
+
+
+@app.post("/api/read", dependencies=[Depends(auth)])
+async def read_document(request: Request, image: UploadFile = File(...), doc_type: str = Form(...), keys: str | None = Form(None)):
+    """이미지에서 Docraft 자체 추출 결과만 돌려준다 — AO 비교·교정·Judge는 하지 않는다. 하네스의 재읽기,
+    크롭 재추출(자기 교정), 폴백에 쓰는 순수 읽기 경로다.
+
+    ``keys``(JSON 배열 문자열, 예: ``["병원명", "항목내역"]``)를 주면 그 필드·표 key만 추출한다(추출 스키마도
+    그만큼 좁힌다). 정의에 없는 key는 무시하고 한 번 경고 로그를 남기며, 유효한 key가 하나도 없으면 읽지 않고 빈
+    ``fields``를 돌려준다 — 하네스 검토 칸이 모두 Docraft 정의 밖(사고발생일자 등)일 때 오류가 아니라 "읽을 것 없음"이다.
+    생략하면 유형의 전체 필드를 돌려준다.
+    """
+    try:
+        doc_type = verify.resolve_doc_type(doc_type)
+        wanted = json.loads(keys) if keys else None
+        if keys and (not isinstance(wanted, list) or not all(isinstance(key, str) for key in wanted)):
+            raise ValueError("keys는 문자열 배열이어야 합니다.")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(422, "keys를 JSON으로 해석할 수 없습니다.") from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    try:
+        only = verify.resolve_keys(doc_type, wanted, label="keys")
+    except ValueError:
+        return {"doc_type": doc_type, "fields": {}, "elapsed_ms": 0}
+
+    def run_read(path, cancel=None):
+        return verify.read(path, doc_type, only, cancel=cancel)[1]
+
+    try:
+        fields, filename, started = await process_image(request, image, run_read)
+    except verify.Cancelled as exc:
+        return cancelled_response(exc, "read", doc_type)
+    except HTTPException:  # process_image가 낸 415·413·422(다중 페이지)는 그대로 올린다
+        raise
+    except ValueError as exc:  # ParseError 포함
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("read failed: doc_type=%s", doc_type)
+        raise HTTPException(502, f"읽기에 실패했습니다: {exc}") from exc
+    if only is not None:
+        fields = {key: value for key, value in fields.items() if key in only}
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+    logger.info("read finished: filename=%s doc_type=%s fields=%d elapsed_ms=%d", filename, doc_type, len(fields), elapsed_ms)
+    return {"doc_type": doc_type, "fields": fields, "elapsed_ms": elapsed_ms}
+
+
+@app.post("/api/admin/cancel-all", dependencies=[Depends(auth)])
+def cancel_all(confirm: bool = False):
+    """운영자 긴급 중지: 대기·처리 중인 문서 잡을 모두 취소하고, 진행 중인 모든 /api/verify·/api/read 호출을
+    끊는다(409 "운영자에 의해 작업이 취소되었습니다" — 클라이언트 연결 끊김의 499와 구분된다).
+
+    되돌릴 수 없으므로 ``confirm=true``가 없으면 422다.
+    """
+    if not confirm: raise HTTPException(422, "confirm=true가 필요합니다.")
+    stamp = now()
+    with connect() as db:
+        queued = db.execute("UPDATE documents SET status='canceled',updated_at=? WHERE status='queued' RETURNING id,project_id", (stamp,)).fetchall()
+        running = db.execute(
+            f"UPDATE documents SET cancel_requested=TRUE,updated_at=? WHERE status IN ({','.join('?' * len(RUNNING_STATUSES))}) RETURNING id,project_id",
+            (stamp, *RUNNING_STATUSES),
+        ).fetchall()
+        for row in (*queued, *running):
+            jobs.revoke(TASK_IDS.pop(row["id"], None))
+            audit(db, row["project_id"], "cancel", "document", row["id"])
+    with _inflight_lock: events = list(INFLIGHT_EVENTS)
+    for event in events:
+        event.reason = "operator"
+        event.set()
+    logger.warning("admin cancel-all: queued=%d running=%d inflight=%d", len(queued), len(running), len(events))
+    return {"queued_canceled": len(queued), "running_canceled": len(running), "inflight_canceled": len(events)}

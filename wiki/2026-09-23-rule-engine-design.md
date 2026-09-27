@@ -9,6 +9,8 @@ status: draft
 
 # 룰 엔진 선언형 전환 설계안
 
+> **참고(2026-09-27)**: 아래 "harness-v2와의 계약"·ESCALATE 절이 전제하는 `hint_paths`로 Docraft `/api/verify`를 부르는 경로는 [POST /api/read](2026-09-27-read-api.md)로 바뀌었다(하네스는 더 이상 `/api/verify`를 부르지 않는다). Docraft 자체 룰 엔진(VALIDATE·CORRECT·RE-EXTRACT) 설계는 그대로 유효하다.
+
 - 날짜: 2026-09-23
 - 브랜치: `docs/rule-engine-design`
 - 워크트리: `.worktrees/rule-engine-design`
