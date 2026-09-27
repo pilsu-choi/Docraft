@@ -1,5 +1,8 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-27 (문서 동기화)
+* **Update**: README 의 하네스 `/api/read` 쓰임새를 실제와 맞췄다 — 재분류 재추출·검토 칸 재조회 두 경우에만(한 건에 최대 2번). 문서마다 재읽기·크롭 자기 교정은 AWS 실측(느림, 크롭 교정 0/8) 뒤 하네스 쪽에서 껐다. 브랜치 `docs/0927-read-usage`.
+
 ## 2026-09-27
 * **Creation**: [untrack-context-feedback](2026-09-27-untrack-context-feedback.md)에 정제 전 `context.md`·`feedback.md` 추적 해제와 루트 `.gitignore` 등록을 기록했다. 브랜치 `fix/untrack-context-feedback`, 워크트리 `.worktrees/untrack-context-feedback`.
 * **Update**: [index](index.md)에 새 문서를 연결했다.
