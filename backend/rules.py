@@ -79,6 +79,9 @@ def _required(required):
 
 # 데이터 표는 rulesets/rules.yaml에 둔다(설명도 거기 있다). 코드가 기대하는 튜플·집합으로 바꿔 모듈 속성에 싣는다.
 _TABLES = _load(Path(__file__).with_name("rulesets") / "rules.yaml")
+# item_aliases·receipt_item_names·swaps는 하네스와 함께 쓰는 표라 rulesets/shared/receipt_items.yaml에 따로 둔다
+# (하네스 쪽 사본과 바이트가 같아야 하며, harness-installer build-bundle.sh가 빌드 전에 확인한다).
+_SHARED = yaml.safe_load((Path(__file__).with_name("rulesets") / "shared" / "receipt_items.yaml").read_text(encoding="utf-8"))
 LABELS = _TABLES["labels"]
 MASTER_NAMES = {table: tuple(spec) for table, spec in _TABLES["master_names"].items()}
 EXCLUSIVE = tuple(map(tuple, _TABLES["exclusive"]))
@@ -94,12 +97,12 @@ NOTES = {table: (note["labels"], note["date"], note["name"]) for table, note in 
 MARKS = _TABLES["marks"]
 TOTAL_FIELDS = {field: tuple(columns) for field, columns in _TABLES["total_fields"].items()}
 FIELD_SUMS = {field: tuple(parts) for field, parts in _TABLES["field_sums"].items()}
-SWAPS = tuple(map(tuple, _TABLES["swaps"]))
+SWAPS = tuple(map(tuple, _SHARED["swaps"]))
 HEADER_COLUMNS = {column: tuple(words) for column, words in _TABLES["header_columns"].items()}
 GROUPED = {column: (tuple(group["titles"]), tuple(group["subs"])) for column, group in _TABLES["grouped"].items()}
 HEADER_WORDS = tuple(_TABLES["header_words"])
-ITEM_ALIASES = tuple((re.compile(pattern), canonical) for pattern, canonical in _TABLES["item_aliases"])
-RECEIPT_ITEM_NAMES = frozenset(_TABLES["receipt_item_names"])
+ITEM_ALIASES = tuple((re.compile(pattern), canonical) for pattern, canonical in _SHARED["item_aliases"])
+RECEIPT_ITEM_NAMES = frozenset(_SHARED["receipt_item_names"])
 DATE_ORDER = tuple(map(tuple, _TABLES["date_order"]))
 ISSUED = tuple(_TABLES["issued"])
 LATER_OK = tuple(_TABLES["later_ok"])
