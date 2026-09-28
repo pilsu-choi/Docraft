@@ -305,3 +305,5 @@
 - Update: 2026-09-28 [자연 표본 교정과 독립 검증](2026-09-28-natural-corrections.md) — 자연 5필드 교정, 확대 예산 오교정 보완, 동일 6문서의 기본·확대 재검증 및 전체 테스트 기록.
 
 - Update: 2026-09-28 [필수 항목 행](2026-09-23-required-fields.md) — 한방(한의원) 진료비영수증은 CT진단료 필수 항목 검사에서 제외(`required_items_exempt`, `REQUIRED_ITEMS_EXEMPT`), 294 passed.
+
+- Creation: 2026-09-28 [MIG 자원 이름 선택](2026-09-28-mig-gpu-resource-name.md) — helm/docraft GPU 컴포넌트(paddleocrVl vlm-server·api, paddleocrLines, vllmVlm)의 device plugin 자원 이름을 값으로 빼 MIG 카드에서 컴포넌트별로 다른 조각(nvidia.com/mig-*)을 요청하게 했다. api는 vlm-server보다 가벼운 CV 서브모듈만 돌리지만 CPU 전용 옵션이 없어 실제 GPU가 필요함을 확인했고, paddleocrVl.apiGpuResource로 vlm-server와 다른 조각을 줄 수 있게 했다. gpu-check init 컨테이너는 자원 이름이 nvidia.com/mig-로 시작하면 MIG 줄 수를 센다. helm template 3가지(기본/카드 지정/MIG 리소스 모드) 검증.

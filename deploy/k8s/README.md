@@ -86,6 +86,24 @@ harness-installer 우산 차트(`charts/mlife-ocr`)의 `docraft.auth.aiApiKey`�
 지정 모드는 toolkit 설정 문제를, device plugin 모드는 time-slicing으로 같은 카드의 복제본만 받은
 경우를 짚어 준다(텐서 병렬에서 특히 중요하다).
 
+### MIG로 나뉜 카드(예: 운영계 H200)
+
+device plugin 모드에서 요청할 자원 이름은 컴포넌트마다 `gpuResource`(기본 `nvidia.com/gpu`)로
+바꿀 수 있다. 카드가 MIG로 나뉘어 있으면 `nvidia.com/mig-4g.71gb`처럼 조각 이름을 넣어 컴포넌트마다
+다른 크기의 조각을 요청한다 — 스케줄러가 카드 사용량을 알아야 여러 컴포넌트를 안전하게 배치한다:
+
+```bash
+--set vllmVlm.gpuResource=nvidia.com/mig-4g.71gb \
+--set paddleocrVl.gpuResource=nvidia.com/mig-2g.35gb \
+--set paddleocrVl.apiGpuResource=nvidia.com/mig-1g.18gb
+```
+
+`paddleocrVl`은 `vlm-server`(실제 VLM 추론)와 `api`(paddlex serve, 레이아웃 검출 등 자체 CV
+모델도 GPU로 돈다 — CPU 전용 옵션 없음)가 서로 다른 파드라 필요한 조각 크기가 다를 수 있다 —
+`apiGpuResource`를 비우면(기본) `gpuResource`를 그대로 따른다. `gpuResource`가
+`nvidia.com/mig-`로 시작하면 `gpu-check`도 `nvidia-smi -L`의 GPU 카드 줄 대신 들여쓴 `MIG` 줄
+개수를 센다.
+
 기본 배치(카드 지정 모드로 예시):
 
 | GPU | 컴포넌트 | 비고 |
