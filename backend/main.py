@@ -835,7 +835,9 @@ async def verify_result(request: Request, image: UploadFile = File(...), ao_resu
     except Exception as exc:
         logger.exception("verify failed: doc_type=%s", doc_type)
         raise HTTPException(502, f"교차검증에 실패했습니다: {exc}") from exc
-    logger.info("verify finished: filename=%s counts=%s elapsed=%.2fs", filename, verify.document(result)["verify"]["counts"], time.monotonic() - started)
+    block = verify.document(result)["verify"]
+    block["elapsed_ms"] = round((time.monotonic() - started) * 1000)
+    logger.info("verify finished: filename=%s counts=%s elapsed_ms=%d", filename, block["counts"], block["elapsed_ms"])
     return result
 
 
