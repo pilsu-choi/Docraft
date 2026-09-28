@@ -1,5 +1,8 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-28 (필수 항목 행)
+* **Update**: [필수 필드 누락 룰 MISSING.REQUIRED](2026-09-23-required-fields.md)에 항목내역 표의 필수 항목 행(`required_items`, 진료비영수증 진찰료·CT진단료) 절을 더했다. `receipt_items.yaml`의 새 공유 키를 `REQUIRED_ITEMS`로 읽어 기존 `_missing` 룰에 갈래를 더했고, 293개 테스트 결과를 기록했다. 브랜치 `feat/0928-coverage-rules`, 워크트리 `.worktrees/coverage-rules`.
+
 ## 2026-09-28 (응답 처리시간)
 * **Creation**: [/api/verify 응답에 요청 처리시간(verify.elapsed_ms) 추가](2026-09-28-response-elapsed.md)에 업로드 저장부터 응답 직전까지의 처리시간 필드 추가, harness-v2 짝 작업(harness.elapsed_ms) 연결, 616개 테스트 결과를 기록했다. 브랜치 `feat/response-elapsed`, 워크트리 `.worktrees/response-elapsed`.
 * **Update**: [index](index.md)에 `verify.elapsed_ms` 문서를 연결했다.

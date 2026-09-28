@@ -1,4 +1,4 @@
-# 진료비영수증 항목명 교정 표 — Docraft(backend/rulesets/shared/receipt_items.yaml)와
+# 하네스·Docraft 공통 규칙 표(진료비영수증 항목명 교정·추출 누락 검증) — Docraft(backend/rulesets/shared/receipt_items.yaml)와
 # 하네스(src/mlife_harness/rulesets/shared/receipt_items.yaml)가 함께 쓴다. 두 파일은
 # 바이트가 같아야 하며(harness-installer build-bundle.sh가 빌드 전에 cmp로 확인한다),
 # 고칠 때는 두 저장소에 똑같이 반영한다.
@@ -35,3 +35,19 @@ swaps:
   - ["선택진료료", "선택진료료외"]
   - ["선택진료료", "비급여"]
   - ["선택진료료외", "비급여"]
+
+# ── 추출 누락 검증(2026-09-28 사용자 결정) ──────────────────────────────
+# 룰 1: 문서 종류별로 늘 값이 있어야 하는 키(required_keys) 중 값이 채워진 비율이 min_extract_ratio 미만이면
+#       하네스 검증(검토 등급 → Docraft 재판독)으로 보낸다. 인쇄되지 않아 비는 키는 목록에 넣지 않는다.
+min_extract_ratio: 0.97
+required_keys: {}
+
+# 룰 2: 항목내역 표에 반드시 있어야 하는 행. 하나라도 없으면 하네스 검증으로 보낸다.
+required_items:
+  진료비영수증: ["진찰료", "CT진단료"]
+
+# 룰 3·4: 추출값이 빈 금액 칸을 Agentic OCR parse 표(HTML)의 값으로 보충할 때의 파서 오류 판별.
+# 한 칸에 숫자가 둘 이상이면 오류이고, 표의 금액 칸 절삭평균(큰 값 3개 제외)의 parser_outlier_ratio배를 넘는 칸도 오류로 보고 쓰지 않는다.
+# 30배: 표본 205건의 정상 금액 칸 최대 26.2배(0건 오탐)
+parser_trim_top: 3
+parser_outlier_ratio: 30

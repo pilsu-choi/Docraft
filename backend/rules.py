@@ -107,6 +107,7 @@ DATE_ORDER = tuple(map(tuple, _TABLES["date_order"]))
 ISSUED = tuple(_TABLES["issued"])
 LATER_OK = tuple(_TABLES["later_ok"])
 REQUIRED = _required(_TABLES["required"])
+REQUIRED_ITEMS = {doc_type: tuple(names) for doc_type, names in _SHARED["required_items"].items()}
 
 _ACCIDENT_DATES = ("진단일", "조제일자")  # 사고발생일자 후보(스칼라). 약제비영수증은 조제일자다
 _ACCIDENT_COLUMNS = ("수술일자", "검사일", "치료일", "행위일")  # 사고발생일자 후보(표 열)
@@ -1508,7 +1509,8 @@ def _ward_checks(doc):
 
 
 def _missing(doc):
-    """필수 필드(``REQUIRED``)가 AO에 비어 있다. 표는 값 있는 행이 없거나, 조건 열이 찬 행에서 그 열이 비었다."""
+    """필수 필드(``REQUIRED``)가 AO에 비어 있다. 표는 값 있는 행이 없거나, 조건 열이 찬 행에서 그 열이 비었다.
+    진료비영수증처럼 항목내역 표에 반드시 있어야 하는 행(``REQUIRED_ITEMS``)이 아예 없어도 잡는다(금액이 모두 0이어도 행이 있으면 된다)."""
     found = []
     for key, column, when in REQUIRED.get(doc.doc_type, ()):
         rows = _rows(doc.ao, key)
@@ -1518,6 +1520,9 @@ def _missing(doc):
                       for index, row in enumerate(rows) if not _blank(row.get(when)) and _blank(row.get(column))]
         elif all(map(_blank, [value for row in rows for value in row.values()] or [doc.ao.get(key)])):  # 표는 모든 칸, 필드는 그 값
             found.append(_flag("missing", f"필수 필드 {key}가 비어 있다. 이미지에서 다시 읽는다.", key=key))
+    names = _names(doc.rows)
+    found += [_flag("missing", f"필수 항목 '{name}' 행이 항목내역 표에 없다. 이미지에서 다시 읽는다.", item=name)
+              for name in REQUIRED_ITEMS.get(doc.doc_type, ()) if name not in names]
     return found
 
 
