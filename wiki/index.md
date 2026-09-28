@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [/api/verify 응답에 요청 처리시간(verify.elapsed_ms) 추가](2026-09-28-response-elapsed.md) - 업로드 저장부터 응답 직전까지 걸린 시간을 documents[0].verify.elapsed_ms로 반환
 * [날짜·체크·표 셀의 유형별 원문 근거](2026-09-27-typed-evidence.md) - 라벨 역할이 확인된 날짜·체크 표기, 물리 표 셀·총계·빈칸과 제한된 null 교정
 * [자동 재처리의 근거·규칙 우선순위](2026-09-27-reprocess-priority.md) - 원문 줄 위치와 규칙 위반을 확인한 필드에 제한된 재처리 예산을 먼저 배정
 * [근거 기반 자동 재처리 루프](2026-09-27-auto-reprocess.md) - 일반 추출·의료 읽기 공통 ROI 재파싱·VLM 재판독, 필드별 재검증, 예산·취소·감사 이력과 안전한 채택 경계
