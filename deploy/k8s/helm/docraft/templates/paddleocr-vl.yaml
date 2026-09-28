@@ -114,8 +114,11 @@ spec:
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
       securityContext: { seccompProfile: { type: RuntimeDefault } }
+      {{/* api 는 vlm-server 와 같은 deviceIds/gpuCount 를 쓰되, 자원 이름만 apiGpuResource(비우면
+         gpuResource)로 바꿀 수 있다 — MIG 에서 vlm-server 보다 작은 조각을 줄 때 쓴다. */}}
+      {{- $papi := merge (dict "gpuResource" (default $p.gpuResource $p.apiGpuResource)) $p }}
       initContainers:
-        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "paddleocrVl")) "gpu" $p) | nindent 8 }}
+        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "paddleocrVl")) "gpu" $papi) | nindent 8 }}
         # compose 의 depends_on condition:service_healthy 에 해당한다 — vlm-server 준비 전에
         # paddlex --serve 가 뜨면 첫 요청에서 바로 실패한다.
         - name: wait-for-vlm-server
@@ -133,13 +136,13 @@ spec:
           # compose 와 같은 sed — model_name 만 값으로 바꾼다.
           command: ["/bin/bash", "-c", "sed 's/model_name: PaddleOCR-VL.*/model_name: {{ $p.model }}/' /home/paddleocr/pipeline_config_vllm.yaml > /tmp/pipeline.yaml && exec paddlex --serve --pipeline /tmp/pipeline.yaml"]
           env:
-            {{- include "dft.gpuEnv" $p | nindent 12 }}
+            {{- include "dft.gpuEnv" $papi | nindent 12 }}
           ports: [{ name: http, containerPort: 8080 }]
           securityContext: { allowPrivilegeEscalation: false }
           startupProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 10, failureThreshold: 30 }
           readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 10, timeoutSeconds: 5 }
           livenessProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3 }
-          resources: {{- include "dft.gpuResources" (dict "res" $p.resources.api "gpu" $p) | nindent 12 }}
+          resources: {{- include "dft.gpuResources" (dict "res" $p.resources.api "gpu" $papi) | nindent 12 }}
           volumeMounts:
             - { name: shm, mountPath: /dev/shm }
       volumes:

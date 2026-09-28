@@ -184,6 +184,13 @@ paddleocrVl:
   # 붙인다(장수는 개수로 정해지고 gpuCount 는 쓰이지 않는다) — 이때는 gpu.nodeSelector 로 노드를
   # 직접 지정해야 한다(비우면 렌더링이 멈춘다).
   deviceIds: ""
+  # device plugin 모드에서 requests/limits 에 쓸 자원 이름. MIG 로 나뉜 카드에서는 vlm-server(실제
+  # 추론)에 nvidia.com/mig-4g.71gb 처럼 큰 조각을 준다 — api 는 apiGpuResource 로 따로 준다.
+  gpuResource: nvidia.com/gpu
+  # api(paddlex serve) 전용 자원 이름. **비우면(기본) 위 gpuResource 를 그대로 쓴다.** api 는
+  # layout 검출 등 vlm-server 보다 가벼운 CV 모델만 돌리므로(아래 api 컨테이너 주석 참고) MIG
+  # 에서는 더 작은 조각(예: nvidia.com/mig-1g.18gb)을 줄 수 있다.
+  apiGpuResource: ""
   # GPU 전체 메모리 대비 비율. compose 기본값 0.6 은 L4 24GB(약 14.4GB) 기준이다. 고객 환경(L40S
   # 48GB)에서는 같은 절대량이면 0.3 이지만, harness bge-m3·paddleocr-lines 와 카드를 나눠 쓰므로
   # 여유를 더 둬 0.25 를 기본값으로 한다 — 실측 후 조정한다(미확정, 아래 uncertain 참고). 카드를
@@ -201,6 +208,10 @@ paddleocrVl:
     vlmServer:
       requests: { cpu: "1", memory: 4Gi }
       limits:   { memory: 16Gi }
+    # api 는 VLM 추론은 vlm-server 에 맡기지만, 그 안의 문서 방향·왜곡 보정·레이아웃 검출
+    # (PP-DocLayoutV3 등)은 자체적으로 GPU 로 돈다 — pipeline_config_vllm.yaml 에 --device 지정이
+    # 없어(paddleocr-lines 의 --device cpu 와 달리) CPU 전용 옵션이 아직 없다. 그대로 GPU 자원을
+    # 요청한다(위 apiGpuResource 로 vlm-server 와 다른 MIG 조각을 줄 수 있다).
     api:
       requests: { cpu: 500m, memory: 1Gi }
       limits:   { memory: 4Gi }
@@ -217,6 +228,9 @@ paddleocrLines:
   # **비우면(기본) device plugin 이 위 gpuCount 장을 준다.** 값을 넣으면 device plugin 을
   # 우회해 그 번호의 카드를 직접 붙인다.
   deviceIds: ""
+  # device plugin 모드에서 requests/limits 에 쓸 자원 이름 — 연산은 CPU 지만 libcuda 로딩용으로
+  # 카드(또는 MIG 조각) 하나를 여전히 잡아야 한다(위 device 주석 참고).
+  gpuResource: nvidia.com/gpu
   resources:
     requests: { cpu: "1", memory: 2Gi }
     limits:   { memory: 4Gi }
@@ -248,6 +262,10 @@ vllmVlm:
   # 넣으면 device plugin 을 우회해 그 번호의 카드를 직접 붙인다 — 장수는 개수로 정해지고
   # gpuCount 는 쓰이지 않는다(harness-v2 embedding 모델과 같은 패턴).
   deviceIds: ""
+  # device plugin 모드에서 requests/limits 에 쓸 자원 이름. MIG 카드에서는 vLLM 텐서 병렬용으로
+  # 큰 조각(예: nvidia.com/mig-4g.71gb)을 준다 — gpuCount(텐서 병렬 장수)만큼 같은 이름으로
+  # 여러 조각을 요청하므로, 노드에 그 크기의 조각이 gpuCount 개 있어야 한다.
+  gpuResource: nvidia.com/gpu
   # GPU 전체 메모리 대비 비율. L40S 48GB에 FP8 32B(가중치 약 32GB) + KV cache 여유.
   gpuMemoryUtilization: 0.90
   maxModelLen: 32768

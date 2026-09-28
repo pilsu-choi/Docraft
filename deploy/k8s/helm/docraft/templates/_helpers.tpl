@@ -135,16 +135,19 @@ runtimeClassName: {{ . }}
 - { name: NVIDIA_DRIVER_CAPABILITIES, value: "compute,utility" }
 {{- end -}}
 
-{{/* resources 맵에 device plugin 모드일 때만 nvidia.com/gpu 요청·제한을 얹는다(harness-v2
-   models.yaml 과 같은 패턴). 카드 지정 모드는 nvidia.com/gpu 를 요청하지 않는다 — 스케줄러가
-   모르게 그 카드를 직접 붙이는 대신, gpu.nodeSelector 로 노드를 지정해야 한다
-   (dft.requireGpuNode). dft.gpuResources (dict "res" $p.resources.vlmServer "gpu" $p) */}}
+{{/* resources 맵에 device plugin 모드일 때만 GPU 요청·제한을 얹는다(harness-v2 models.yaml 과
+   같은 패턴). 자원 이름은 .gpu.gpuResource(기본 nvidia.com/gpu) — MIG 로 나뉜 카드에서는
+   컴포넌트마다 nvidia.com/mig-4g.71gb 처럼 다른 조각 이름을 줘 스케줄러가 카드 사용을 알게
+   한다. 카드 지정 모드는 이 자원을 요청하지 않는다 — 스케줄러가 모르게 그 카드를 직접 붙이는
+   대신, gpu.nodeSelector 로 노드를 지정해야 한다(dft.requireGpuNode).
+   dft.gpuResources (dict "res" $p.resources.vlmServer "gpu" $p) */}}
 {{- define "dft.gpuResources" -}}
 {{- $res := deepCopy (.res | default dict) -}}
 {{- if eq (toString (.gpu.deviceIds | default "")) "" -}}
 {{- $n := include "dft.gpuCount" .gpu | int -}}
-{{- $_ := set $res "requests" (merge (dict "nvidia.com/gpu" $n) (deepCopy ($res.requests | default dict))) -}}
-{{- $_ := set $res "limits"   (merge (dict "nvidia.com/gpu" $n) (deepCopy ($res.limits   | default dict))) -}}
+{{- $name := .gpu.gpuResource | default "nvidia.com/gpu" -}}
+{{- $_ := set $res "requests" (merge (dict $name $n) (deepCopy ($res.requests | default dict))) -}}
+{{- $_ := set $res "limits"   (merge (dict $name $n) (deepCopy ($res.limits   | default dict))) -}}
 {{- end -}}
 {{- toYaml $res -}}
 {{- end -}}
@@ -161,13 +164,16 @@ runtimeClassName: {{ . }}
 {{- $gpu := .gpu -}}
 {{- $count := include "dft.gpuCount" $gpu -}}
 {{- $pinned := ne (toString ($gpu.deviceIds | default "")) "" -}}
+{{/* MIG 조각을 요청하는 컴포넌트는 nvidia-smi -L 이 "GPU n:" 밑에 들여쓴 "MIG ..." 줄로 조각을
+   나열한다 — 이때는 GPU 카드 수가 아니라 MIG 조각 수를 세야 한다. */}}
+{{- $mig := hasPrefix "nvidia.com/mig-" (.gpu.gpuResource | default "nvidia.com/gpu") -}}
 - name: gpu-check
   image: {{ .image }}
   imagePullPolicy: {{ .ctx.Values.image.pullPolicy }}
   command: ["sh", "-c"]
   args:
     - |
-      n="$(nvidia-smi -L 2>/dev/null | grep -c '^GPU ' || true)"
+      n="$(nvidia-smi -L 2>/dev/null | grep -c '{{ if $mig }}MIG {{ else }}^GPU {{ end }}' || true)"
       if [ "${n:-0}" -ne {{ $count }} ]; then
         {{- if $pinned }}
         echo "카드 지정(deviceIds={{ $gpu.deviceIds }})이 먹히지 않았습니다 — 보이는 GPU ${n:-0}장, 필요 {{ $count }}장." >&2
