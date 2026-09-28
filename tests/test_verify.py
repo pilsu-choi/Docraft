@@ -536,6 +536,7 @@ def test_verify_route_returns_the_corrected_result(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert response.json()["documents"][0]["verify"]["counts"]["agree"] == 1
+    assert isinstance(response.json()["documents"][0]["verify"]["elapsed_ms"], int)
     assert seen[0][1] == "진단서" and seen[0][0].endswith(".png")
 
 
@@ -778,7 +779,7 @@ def test_verify_route_accepts_the_ui_result_format(monkeypatch, tmp_path):
 
     response = post(_image(tmp_path), ao_result=json.dumps(UI), doc_type="진료비영수증")
 
-    assert response.status_code == 200 and response.json()["result"]["verify"] == {"counts": {}}
+    assert response.status_code == 200 and response.json()["result"]["verify"]["counts"] == {}
 
 
 def test_verify_route_rejects_a_payload_with_neither_documents_nor_result(tmp_path):
