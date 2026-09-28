@@ -424,17 +424,21 @@ def resolve_keys(doc_type: str, keys: list[str] | None, *, label: str = "hint_pa
 
 def _exposed_grounding(source, value):
     typed = reprocess._typed(source, value)
-    if source.get("match") in {"typed", "blank"} and not typed:
+    if source.get("match") in {"typed", "blank", "derived", "inferred"} and not typed:
         return None
-    if (source.get("confidence", 0) < 0.7 or not isinstance(source.get("page"), int)
+    if (not typed and (source.get("confidence", 0) < 0.7 or not isinstance(source.get("page"), int)
             or not isinstance(source.get("bbox"), (list, tuple)) or len(source["bbox"]) != 4
             or not all(isinstance(n, (int, float)) for n in source["bbox"])
-            or (not source.get("source_text") and not typed)):
+            or not source.get("source_text"))):
         return None
     names = ("page", "bbox", "page_size", "source_text", "confidence", "match", "evidence_type",
-             "transform", "role", "label", "geometry_scope", "normalized_value", "verified", "row", "column", "table")
+             "transform", "role", "label", "geometry_scope", "normalized_value", "verified", "row", "column", "table",
+             "basis", "operation", "target_field", "target_path", "doc_type", "terms", "field_key",
+             "label_bbox", "alignment_axis", "alignment_anchors", "blank_method", "polygon",
+             "rotation_degrees", "group_label", "group_bbox", "target_line_text", "target_label_bbox")
     return {name: source[name] for name in names if name in source} | {
-        "basis": "image_cell_blank" if source.get("match") == "blank" else "ocr_typed" if typed else "image_pixel"}
+        "basis": source.get("basis") or ("ocr_typed" if typed else "image_pixel"),
+        "confidence": source.get("confidence", 1.0 if typed else 0)}
 
 
 def _read_groundings(doc_type: str, raw: dict, final: dict, groundings: dict) -> dict:
@@ -549,9 +553,14 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
         recovered["extra_model_calls"] = recovered["model_calls"]
     if with_groundings:
         final_groundings = _read_groundings(doc_type, result or {}, fields, groundings or {})
-        if recovered and any(item.get("reason") == "verified" for item in recovered["trace"]):
+        if recovered and any(item.get("adopted") for item in recovered["trace"]):
             final_groundings = _merge_recovered_groundings(final_groundings, recovery_groundings,
                                                             recovered["trace"], fields)
+        source_groundings = recovery_groundings if recovered is not None else engine.ground(fields, schema, blocks)
+        for key, value in fields.items():
+            source = source_groundings.get(key, {}) if isinstance(source_groundings, dict) else {}
+            if not isinstance(value, (dict, list)) and reprocess._typed(source, value):
+                final_groundings[key] = _exposed_grounding(source, value)
         return (doc_type, fields, blocks, final_groundings, recovered_quality, recovered) if with_reprocess else (doc_type, fields, blocks, final_groundings)
     if with_reprocess:
         return doc_type, fields, blocks, recovered

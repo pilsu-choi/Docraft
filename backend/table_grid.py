@@ -219,17 +219,20 @@ def ruled_table(image, bbox, lines, with_geometry=False):
     grid, spans = [[""] * (len(keep_c) - 1) for _ in keep_r[:-1]], []
     cells = []
 
-    def page_box(left, top, right, bottom):
+    def page_polygon(left, top, right, bottom):
         if abs(angle) >= 0.1:
             sin, cos = np.sin(np.radians(angle)), np.cos(np.radians(angle))
             ox, oy, nx, ny = (x1 - x0) / 2, (y1 - y0) / 2, w / 2, h / 2
             corners = [(ox + (x - nx) * cos - (y - ny) * sin,
                         oy + (x - nx) * sin + (y - ny) * cos)
-                       for x in (left, right) for y in (top, bottom)]
-            left, top = min(x for x, _ in corners), min(y for _, y in corners)
-            right, bottom = max(x for x, _ in corners), max(y for _, y in corners)
-        return [max(x0, round(x0 + left)), max(y0, round(y0 + top)),
-                min(x1, round(x0 + right)), min(y1, round(y0 + bottom))]
+                       for x, y in ((left, top), (right, top), (right, bottom), (left, bottom))]
+        else:
+            corners = ((left, top), (right, top), (right, bottom), (left, bottom))
+        return [[max(x0, min(x1, round(x0 + x))), max(y0, min(y1, round(y0 + y)))] for x, y in corners]
+
+    def page_box(polygon):
+        return [min(point[0] for point in polygon), min(point[1] for point in polygon),
+                max(point[0] for point in polygon), max(point[1] for point in polygon)]
 
     def closed_cell(r0, c0, r1, c1):
         left, right, top, bottom = xs[c0], xs[c1 + 1], ys[r0], ys[r1 + 1]
@@ -237,14 +240,26 @@ def ruled_table(image, bbox, lines, with_geometry=False):
                     and ruled(vertical, left, top, bottom, 0) and ruled(vertical, right, top, bottom, 0))
 
     def image_blank(r0, c0, r1, c1, box_count, closed):
-        if box_count or not closed or abs(angle) >= 0.1:
-            return False  # rotated hulls overlap neighboring cells; never certify those as empty
+        if box_count or not closed:
+            return False
         left, right, top, bottom = xs[c0], xs[c1 + 1], ys[r0], ys[r1 + 1]
-        # Skip only the drawn border. A wider text-height margin can cut off a faint digit near a rule.
-        margin = 3
-        interior = np.asarray(crop)[top + margin:bottom - margin, left + margin:right - margin]
-        # JPEG noise can cause false negatives here; that is safer than declaring faint printing blank.
-        return interior.size > 0 and not np.any(interior < 245)
+        cell = np.asarray(crop)[top:bottom, left:right]
+        if cell.shape[0] < 12 or cell.shape[1] < 12:
+            return False
+        dark = cell < 240
+        # Remove ruled rows/columns, including their scan halo. A small letter beside an edge
+        # still leaves ink off the long rule and therefore blocks a blank claim.
+        ruled_rows, ruled_cols = dark.mean(axis=1) > 0.35, dark.mean(axis=0) > 0.35
+        row_mask, col_mask = np.zeros_like(ruled_rows), np.zeros_like(ruled_cols)
+        for shift in range(-5, 6):
+            row_mask |= np.roll(ruled_rows, shift)
+            col_mask |= np.roll(ruled_cols, shift)
+        interior = (dark[3:-3, 3:-3] & ~row_mask[3:-3, None] & ~col_mask[None, 3:-3])
+        if interior.size < 100:
+            return False
+        # Tiny isolated scan specks are tolerated. A faint or one-stroke glyph occupies more
+        # than 0.02% of the cell interior and must block an automatic blank claim.
+        return int(interior.sum()) <= max(2, int(interior.size * 0.0002))
 
     for n, (r0, c0, r1, c1) in enumerate(rects):
         top, left, bottom, right = bisect_left(keep_r, r0), bisect_left(keep_c, c0), bisect_left(keep_r, r1 + 1), bisect_left(keep_c, c1 + 1)
@@ -252,12 +267,16 @@ def ruled_table(image, bbox, lines, with_geometry=False):
             continue  # an empty cell lying wholly inside a dropped sliver
         text = _reading(texts.get(n, []))
         if with_geometry:
-            bbox_cell = page_box(xs[c0], ys[r0], xs[c1 + 1], ys[r1 + 1])
+            polygon = page_polygon(xs[c0], ys[r0], xs[c1 + 1], ys[r1 + 1])
+            bbox_cell = page_box(polygon)
             closed = (closed_cell(r0, c0, r1, c1)
                       and bbox_cell[0] < bbox_cell[2] and bbox_cell[1] < bbox_cell[3])
             blank = not text and image_blank(r0, c0, r1, c1, len(texts.get(n, [])), closed)
             cells.append({"row": top, "column": left, "rowspan": bottom - top, "colspan": right - left,
-                          "text": text, "bbox": bbox_cell, "blank": bool(blank), "verified": closed})
+                          "text": text, "bbox": bbox_cell, "blank": bool(blank), "verified": closed,
+                          **({"blank_method": "deskewed_closed_cell_noise_floor_v1" if abs(angle) >= 0.1
+                              else "closed_cell_noise_floor_v1", "polygon": polygon,
+                              "rotation_degrees": angle} if blank else {})})
         for r in range(top, bottom):
             grid[r][left:right] = [text] * (right - left)
         if bottom - top > 1 or right - left > 1:

@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-28 (자연 문서 자동 교정)
+* **Creation**: [자연 문서 자동 교정과 서식 인쇄 정렬 추론](2026-09-28-natural-corrections.md)에 회전 OCR의 원본좌표 역변환, 날짜 두 곳의 공통 인쇄 오프셋, 등록 합계식의 원자 교정, 긴 텍스트 교차판독, 자연 표본 한 건의 3필드 정답 확인과 예산 한계를 기록했다. 브랜치 `fix/natural-corrections`, 워크트리 `.worktrees/natural-corrections`.
+* **Update**: [index](index.md)와 [README](../README.md)에 교정 조건 및 기록 링크를 반영했다.
+
 ## 2026-09-27 (유형별 원문 근거)
 * **Creation**: [날짜·체크·표 셀의 유형별 원문 근거](2026-09-27-typed-evidence.md)에 날짜·체크·병합 머리글·검증된 빈칸의 근거와 자동 채택 경계를 기록했다. 브랜치 `feat/typed-evidence`, 워크트리 `.worktrees/typed-evidence`.
 * **Update**: [index](index.md)와 [README](../README.md)의 `/api/read` 근거 계약을 연결했다.
@@ -289,3 +293,5 @@
 * **Creation**: 하네스 표본 7종 e2e에서 드러난 `/api/verify` 결함 셋(정의 밖 key 502, `_balance` 항목명, 빈 AO 재추출 요청)과 검토 보완을 [verify-harness-e2e-fixes](2026-09-24-verify-harness-e2e-fixes.md)에 기록했다(484 passed, `df5af1c` AWS 배포).
 
 - Update: 2026-09-27 [유형별 근거](2026-09-27-typed-evidence.md) — 최종 597 tests, 실제 API 3건 및 Harness 근거 연동·고정 캐시 재처리 결과 기록.
+
+- Update: 2026-09-28 [자연 표본 교정과 독립 검증](2026-09-28-natural-corrections.md) — 자연 5필드 교정, 확대 예산 오교정 보완, 동일 6문서의 기본·확대 재검증 및 전체 테스트 기록.
