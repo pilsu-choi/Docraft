@@ -303,3 +303,5 @@
 - Update: 2026-09-27 [유형별 근거](2026-09-27-typed-evidence.md) — 최종 597 tests, 실제 API 3건 및 Harness 근거 연동·고정 캐시 재처리 결과 기록.
 
 - Update: 2026-09-28 [자연 표본 교정과 독립 검증](2026-09-28-natural-corrections.md) — 자연 5필드 교정, 확대 예산 오교정 보완, 동일 6문서의 기본·확대 재검증 및 전체 테스트 기록.
+
+- Update: 2026-09-28 [필수 항목 행](2026-09-23-required-fields.md) — 한방(한의원) 진료비영수증은 CT진단료 필수 항목 검사에서 제외(`required_items_exempt`, `REQUIRED_ITEMS_EXEMPT`), 294 passed.

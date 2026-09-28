@@ -1225,6 +1225,16 @@ def test_a_required_item_row_with_only_zero_amounts_still_counts_as_present(monk
     assert rules.check("진료비영수증", {"항목내역": rows}, {}, []) == []
 
 
+def test_a_required_item_exempt_by_another_row_is_not_flagged(monkeypatch):
+    """한방 진료비영수증(항목내역에 '한방'으로 시작하는 행)은 CT진단료가 없어도 잡지 않는다(REQUIRED_ITEMS_EXEMPT).
+    같은 문서에서 진찰료가 없으면 그건 그대로 잡는다."""
+    monkeypatch.setattr(rules, "REQUIRED_ITEMS", {"진료비영수증": ("진찰료", "CT진단료")})
+    rows = receipt(("한방물리요법료", {"본인부담금": "5000"}))
+    flags = rules.check("진료비영수증", {"항목내역": rows}, {}, [])
+    assert [(flag["code"], flag["key"], flag["item"], flag["rule"]) for flag in flags] == [
+        ("missing", "항목내역", "진찰료", "MISSING.REQUIRED")]
+
+
 def test_required_rejects_a_key_or_column_the_doc_type_does_not_define():
     for required in ({"진단서": ["진단명"]}, {"진단서": [{"병명내역": {"수술명": "병명코드"}}]}, {"없는유형": []}):
         with pytest.raises(ValueError, match="required"):
