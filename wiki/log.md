@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-28 (응답 처리시간)
+* **Creation**: [/api/verify 응답에 요청 처리시간(verify.elapsed_ms) 추가](2026-09-28-response-elapsed.md)에 업로드 저장부터 응답 직전까지의 처리시간 필드 추가, harness-v2 짝 작업(harness.elapsed_ms) 연결, 616개 테스트 결과를 기록했다. 브랜치 `feat/response-elapsed`, 워크트리 `.worktrees/response-elapsed`.
+* **Update**: [index](index.md)에 `verify.elapsed_ms` 문서를 연결했다.
+
 ## 2026-09-28 (자연 문서 자동 교정)
 * **Creation**: [자연 문서 자동 교정과 서식 인쇄 정렬 추론](2026-09-28-natural-corrections.md)에 회전 OCR의 원본좌표 역변환, 날짜 두 곳의 공통 인쇄 오프셋, 등록 합계식의 원자 교정, 긴 텍스트 교차판독, 자연 표본 한 건의 3필드 정답 확인과 예산 한계를 기록했다. 브랜치 `fix/natural-corrections`, 워크트리 `.worktrees/natural-corrections`.
 * **Update**: [index](index.md)와 [README](../README.md)에 교정 조건 및 기록 링크를 반영했다.
@@ -23,6 +27,7 @@
 * **Update**: README의 `/api/read` 응답 계약과 OCR 근거의 한계를 현재 코드에 맞게 갱신했다.
 * **Update**: [Parse·Extract 근거와 검토 상태 보강](2026-09-27-parse-extract-quality.md)에 17개 요구의 구현·미구현 범위, 실제 이미지 형식 불일치 수정, 35건 독립 silver 라벨과 선행 15건 raw→rules 거짓 값 증가 원인 13건을 기록했다.
 * **Update**: [Parse·Extract 근거와 검토 상태 보강](2026-09-27-parse-extract-quality.md)에 영수증 병합 머리글 공통 수정의 35건 캐시 +28개 정답, 기존 76건 무회귀, 그룹 제목 null/0 계약 차이와 551개 테스트 결과를 기록했다.
+* **Update**: [Parse·Extract 근거와 검토 상태 보강](2026-09-27-parse-extract-quality.md)에 이미지 변형 실험(원본·회전·흐림·가림 gold 4건×4조건) 절을 추가해 rules 일치·엄격 일치·근거 게이트 재확인 필드 수를 기록했다.
 
 ## 2026-09-27 (/api/read 원문 좌표)
 * **Creation**: [read-groundings](2026-09-27-read-groundings.md)에 최종 값과 추출 근거의 안전한 대응, 표 행 재정렬·중복 처리, API 계약과 제한을 기록했다. 브랜치 `feat/read-groundings`, 워크트리 `.worktrees/read-groundings`.
