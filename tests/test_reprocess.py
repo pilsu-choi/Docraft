@@ -12,7 +12,7 @@ SCHEMA = {"type": "object", "properties": {"amount": {"type": "string", "title":
 BLOCK = {"text": "amount", "page": 1, "bbox": [10, 10, 80, 30], "page_size": [200, 100]}
 
 
-def quality(fields, schema, blocks):
+def quality(fields, schema, blocks, grounds=None):
     recovered = fields["amount"] == "new" or any(block.get("recovered") for block in blocks)
     state = "PASS" if recovered else "UNRESOLVED"
     return {"amount": {"status": state, "provenance": {"match": "exact"} if recovered else {}},

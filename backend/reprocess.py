@@ -10,7 +10,7 @@ from pathlib import Path
 import fitz
 from PIL import Image, ImageOps
 
-from . import engine
+from . import doctypes, engine, inference, rules, typed_evidence
 from .parsers import parse
 
 
@@ -42,8 +42,8 @@ def _source(result, schema, blocks):
     return engine.ground(result, schema, blocks)
 
 
-def _quality(result, schema, blocks):
-    grounds = _source(result, schema, blocks)
+def _quality(result, schema, blocks, grounds=None):
+    grounds = grounds if grounds is not None else _source(result, schema, blocks)
     return engine.assess(result, schema, blocks, grounds), grounds
 
 
@@ -122,7 +122,7 @@ def _value(result, path):
     return node
 
 
-def _candidate_path(original, candidate, path):
+def _candidate_path(original, candidate, path, doc_type=None):
     """Map a table cell only by a unique unchanged row identity, never by row index alone."""
     parts = [part.replace("~1", "/").replace("~0", "~") for part in path.split("/")]
     if not isinstance(candidate, dict):
@@ -140,6 +140,23 @@ def _candidate_path(original, candidate, path):
     if not isinstance(old_rows, list) or index >= len(old_rows) or not isinstance(old_rows[index], dict):
         return _MISSING
     old = old_rows[index]
+    if doc_type in doctypes.DOC_TYPES and parts[0] in doctypes.spec(doc_type)["tables"]:
+        table = parts[0]
+        keys = [key for key in rules.ROW_KEYS.get(table, ()) if key != column and old.get(key) not in (None, "")]
+        if not keys:
+            return _MISSING
+        def identity(row):
+            if not isinstance(row, dict):
+                return None
+            return tuple(rules.normalize(doctypes.kind(doc_type, key, table), row.get(key)) for key in keys)
+        token = identity(old)
+        if any(value is None for value in token):
+            return _MISSING
+        if (sum(identity(row) == token for row in old_rows) != 1
+                or sum(identity(row) == token for row in new_rows) != 1):
+            return _MISSING
+        row = next(row for row in new_rows if identity(row) == token)
+        return row[column] if column in row and not isinstance(row[column], (dict, list)) else _MISSING
     identity = {key: value for key, value in old.items() if key != column and value not in (None, "")}
     if not identity:
         return _MISSING
@@ -155,8 +172,12 @@ def _typed(provenance, value):
 def _blank_candidate(fields, path, schema, blocks):
     """Only a proven physical empty cell may propose null; missing extraction is not a proposal."""
     try:
-        if _value(fields, path) is None:
+        value = _value(fields, path)
+        if value is None:
             return False
+        if "/" not in path:
+            key = path.replace("~1", "/").replace("~0", "~")
+            return typed_evidence.blank_candidate(schema.get("title"), key, value, blocks) is not None
         candidate = _patch(fields, path, None)
         source = engine.ground(candidate, schema, blocks)
         for part in path.split("/"):
@@ -177,6 +198,20 @@ def _patch(result, path, value):
     else:
         node[parts[-1]] = value
     return patched
+
+
+def _candidate_groundings(current, candidate, schema, evidence, path):
+    """Refresh only the candidate leaf; ROI OCR must not rewrite evidence for unchanged fields."""
+    fresh = _source(candidate, schema, evidence)
+    parts = [part.replace("~1", "/").replace("~0", "~") for part in path.split("/")]
+    for part in parts:
+        fresh = fresh.get(part, {}) if isinstance(fresh, dict) else {}
+    merged = deepcopy(current)
+    node = merged
+    for part in parts[:-1]:
+        node = node.setdefault(part, {})
+    node[parts[-1]] = fresh
+    return merged
 
 
 def _box(source, blocks, root, schema):
@@ -233,8 +268,63 @@ def _remap(blocks, page, size, crop):
         for cell in block.get("cells") or []:
             if cell.get("bbox"):
                 cell["bbox"] = convert(cell["bbox"])
+            if cell.get("polygon"):
+                try:
+                    cell["polygon"] = [[left + x * sx, top + y * sy] for x, y in cell["polygon"]]
+                    cell["bbox"] = [min(point[0] for point in cell["polygon"]),
+                                    min(point[1] for point in cell["polygon"]),
+                                    max(point[0] for point in cell["polygon"]),
+                                    max(point[1] for point in cell["polygon"])]
+                except (TypeError, ValueError):
+                    cell.update(verified=False, blank=False)
             cell.update(page=page, page_size=size)
         block.update(page=page, page_size=size)
+    return mapped
+
+
+def _vertical_ocr(blocks):
+    """Only retry rotation when enough OCR boxes visibly follow the vertical page axis."""
+    boxes = [line.get("bbox") for block in blocks for line in block.get("lines") or []]
+    ratios = [(box[2] - box[0]) / (box[3] - box[1]) for box in boxes
+              if isinstance(box, (list, tuple)) and len(box) == 4 and box[3] > box[1]]
+    return len(ratios) >= 15 and sum(ratio < 1 for ratio in ratios) >= .75 * len(ratios)
+
+
+def _rotated(image, angle, target):
+    with Image.open(image) as source:
+        canvas = ImageOps.exif_transpose(source).convert("RGB")
+        size = canvas.size
+        canvas.rotate(angle, expand=True).save(target, format="PNG")
+    return size
+
+
+def _remap_rotation(blocks, angle, size):
+    """Map rotated OCR boxes back to page-local coordinates of the original image."""
+    width, height = size
+    mapped = deepcopy(blocks)
+    def point(x, y):
+        return (width - y, x) if angle == 90 else (y, height - x)
+    def convert(box):
+        corners = [point(x, y) for x in (box[0], box[2]) for y in (box[1], box[3])]
+        return [min(x for x, _ in corners), min(y for _, y in corners),
+                max(x for x, _ in corners), max(y for _, y in corners)]
+    for block in mapped:
+        for item in (block, *(block.get("lines") or []), *(block.get("cells") or [])):
+            if item.get("bbox"):
+                item["bbox"] = convert(item["bbox"])
+            if item.get("polygon"):
+                try:
+                    item["polygon"] = [list(point(*corner)) for corner in item["polygon"]]
+                    item["bbox"] = [min(corner[0] for corner in item["polygon"]),
+                                    min(corner[1] for corner in item["polygon"]),
+                                    max(corner[0] for corner in item["polygon"]),
+                                    max(corner[1] for corner in item["polygon"])]
+                    # The small deskew angle is relative to the rotated crop, not to this page.
+                    if item.get("blank") is True:
+                        item.update(verified=False, blank=False)
+                except (TypeError, ValueError):
+                    item.update(verified=False, blank=False)
+            item["page_size"] = list(size)
     return mapped
 
 
@@ -279,10 +369,34 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
     direct, broad = _rule_targets(initial_flags, fields, quality)
     _mark_rules(quality, direct)
     targets = [path for path, item in quality.items() if item["status"] not in {"PASS", "CORRECTED"}]
+    deterministic = {}
+    for path in targets:
+        if not check():
+            break
+        if "/" in path:
+            continue
+        key = path.replace("~1", "/").replace("~0", "~")
+        if schema.get("title") not in doctypes.DOC_TYPES or key not in doctypes.spec(schema["title"])["fields"]:
+            continue
+        kind = doctypes.kind(schema["title"], key)
+        candidate = typed_evidence.schema_alias_candidate(schema["title"], key, fields, groundings)
+        if candidate is not None:
+            source_key = candidate[1]["terms"][0]["path"]
+            source_quality = quality.get(_escape(source_key), {})
+            if (source_quality.get("status") not in {"PASS", "CORRECTED"}
+                    or source_quality.get("issue_codes")):
+                candidate = None
+        if candidate is None and kind == "bool":
+            candidate = typed_evidence.inferred_checkbox_candidate(schema["title"], key, blocks)
+        if candidate is None and fields.get(key) is not None:
+            candidate = typed_evidence.blank_candidate(schema["title"], key, fields[key], blocks)
+        if candidate is not None and candidate[0] != fields.get(key):
+            deterministic[path] = candidate
     def priority(path):
         located = _positioned(quality[path], blocks, path)
         related = path in direct or path in broad
-        return (0 if located == 2 and related else 1 if located == 2 else 2 if located == 1
+        return (0 if path in deterministic else 1,
+                0 if located == 2 and related else 1 if located == 2 else 2 if located == 1
                 else 3 if related else 4)
     targets.sort(key=priority)
     if not targets:
@@ -290,11 +404,11 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
     for path in targets:
         if quality.get(path, {}).get("status") in {"PASS", "CORRECTED"}:
             continue
-        if attempts >= config["max_attempts"]:
-            stop = "attempt_budget"
-            break
         if not check():
             stop = "deadline"
+            break
+        if attempts >= config["max_attempts"]:
+            stop = "attempt_budget"
             break
         root = path.split("/")[0].replace("~1", "/").replace("~0", "~")
         try:
@@ -310,6 +424,8 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
             record("select", "unsupported_path", quality[path]["status"])
             continue
         before = quality[path]
+        text_field = (len(path.split("/")) == 1 and schema.get("title") in doctypes.DOC_TYPES
+                      and doctypes.kind(schema["title"], root) == "text")
         located = _positioned(before, blocks, path)
         selection = ("located_rule_violation" if path in direct and located == 2 else
                      "located_rule_related" if path in broad and located == 2 else
@@ -329,11 +445,20 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
             local = []
             mapped = []
             evidence = blocks
-            for stage in ("rules", "roi_parse", "roi_vlm", "wide_vlm"):
+            roi_failure = None
+            held_text = None
+            sum_target = any(root in (total, *parts) for total, parts in rules.FIELD_SUMS.items())
+            rotation = (sum_target and _vertical_ocr(blocks)
+                        and Path(image).suffix.lower() in engine.VISION_SUFFIXES
+                        and Path(image).suffix.lower() != ".pdf")
+            stages = ("rules", *(("rotate_ccw", "rotate_cw") if rotation else ()),
+                      "roi_parse", "roi_vlm", "wide_vlm")
+            for stage in stages:
                 if attempts >= config["max_attempts"] or not check():
                     stop = "deadline" if time.monotonic() >= deadline else "attempt_budget"
                     break
-                if stage == "rules" and normalize is None and not _blank_candidate(fields, path, schema, evidence):
+                if (stage == "rules" and normalize is None and path not in deterministic
+                        and not _blank_candidate(fields, path, schema, evidence)):
                     continue
                 if stage == "roi_parse" and not crop:
                     continue
@@ -346,8 +471,22 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                 try:
                     if stage == "rules":
                         proposal = normalize(deepcopy(fields), evidence) if normalize else deepcopy(fields)
-                        if _blank_candidate(fields, path, schema, evidence):
+                        local_proof = deterministic.get(path)
+                        if local_proof and isinstance(proposal, dict) and proposal.get(root) == fields.get(root):
+                            proposal = _patch(proposal, path, local_proof[0])
+                        elif _blank_candidate(fields, path, schema, evidence):
                             proposal = _patch(fields, path, None)
+                    elif stage.startswith("rotate_"):
+                        angle = 90 if stage == "rotate_ccw" else -90
+                        rotated = str(Path(folder) / f"rotated-{angle}.png")
+                        size = _rotated(image, angle, rotated)
+                        _, rotated_blocks = parse(rotated, "rotated.png", "image/png",
+                                                  {"provider": "paddle", "refine_tables": False,
+                                                   "timeout": max(0.1, deadline - time.monotonic()),
+                                                   "deadline": deadline})
+                        mapped = _remap_rotation(rotated_blocks, angle, size)
+                        evidence = [*blocks, *mapped]
+                        proposal = deepcopy(fields)
                     elif stage == "roi_parse":
                         _, local = parse(roi, "roi.png", "image/png", {"provider": "paddle", "refine_tables": False,
                                                                          "timeout": max(0.1, deadline - time.monotonic()),
@@ -365,23 +504,95 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                             if calls >= config["max_model_calls"]:
                                 raise RuntimeError("model budget exceeded")
                             calls += 1
-                        proposal, _ = engine.extract(narrowed, local if stage == "roi_vlm" else blocks,
+                        blind_wide = stage == "wide_vlm" and text_field
+                        proposal, _ = engine.extract(narrowed, local if stage == "roi_vlm" else [] if blind_wide else blocks,
                                                      source=roi if stage == "roi_vlm" else image,
                                                      deadline=deadline, cancel=cancel, on_call=count)
                     if not check():
                         stop = "deadline"
                         break
-                    value = _candidate_path(fields, proposal, path)
+                    if stage.startswith("rotate_"):
+                        grouped = inference.sum_group(fields, root, mapped, schema.get("title"))
+                        if grouped is not None:
+                            group_fields, proofs = grouped
+                            group_groundings = deepcopy(groundings)
+                            group_groundings.update(proofs)
+                            group_quality, _ = _quality(group_fields, schema, blocks, group_groundings)
+                            old_flags = check_rules(fields, mapped) if check_rules else []
+                            new_flags = check_rules(group_fields, mapped) if check_rules else []
+                            original_flags = check_rules(group_fields, blocks) if check_rules else []
+                            group_direct, _ = _rule_targets(original_flags, group_fields, group_quality)
+                            mapped_direct, _ = _rule_targets(new_flags, group_fields, group_quality)
+                            for key in proofs:
+                                group_direct.pop(_escape(key), None)
+                                if _escape(key) in mapped_direct:
+                                    group_direct[_escape(key)] = mapped_direct[_escape(key)]
+                            _mark_rules(group_quality, group_direct)
+                            signature = lambda flag: json.dumps(flag, ensure_ascii=False, sort_keys=True, default=str)
+                            clean = not ({signature(flag) for flag in new_flags} - {signature(flag) for flag in old_flags})
+                            changed = [key for key in proofs if group_fields[key] != fields[key]]
+                            unrelated = any(item["status"] not in {"PASS", "CORRECTED"}
+                                            and quality.get(key, {}).get("status") in {"PASS", "CORRECTED"}
+                                            for key, item in group_quality.items() if key not in proofs)
+                            if not check():
+                                stop = "deadline"
+                                break
+                            if (changed and clean and not unrelated and repr(group_fields) not in seen
+                                    and all(group_quality[key]["status"] in {"PASS", "CORRECTED"}
+                                            and not group_quality[key].get("issue_codes") for key in proofs)):
+                                previous = fields
+                                fields, quality, groundings = group_fields, group_quality, group_groundings
+                                seen.add(repr(fields))
+                                corrected.update(changed)
+                                for key in corrected:
+                                    if quality.get(key, {}).get("status") == "PASS":
+                                        quality[key] = {**quality[key], "status": "CORRECTED"}
+                                for key in changed:
+                                    trace.append({"stage": stage, "field": _escape(key), "reason": "verified_sum_group",
+                                                  "status": quality[key]["status"], "before": previous[key],
+                                                  "proposed": fields[key], "after": fields[key], "adopted": True,
+                                                  "provenance": groundings[key],
+                                                  "checks": {"proof_kind": groundings[key].get("evidence_type"),
+                                                             "verified": True, "semantic": True,
+                                                             "rules": clean, "regression": False}})
+                                break
+                            record(stage, "sum_group_quality_rejected", before["status"],
+                                   checks={"candidate_status": {key: group_quality[key]["status"] for key in proofs},
+                                           "candidate_issue_codes": {key: group_quality[key].get("issue_codes", [])
+                                                                     for key in proofs},
+                                           "rules": clean, "regression": unrelated})
+                        else:
+                            record(stage, "no_verified_sum_group", before["status"])
+                        continue
+                    value = _candidate_path(fields, proposal, path, schema.get("title"))
                     if value is _MISSING:
                         record(stage, "no_safe_candidate", before["status"])
                         continue
                     candidate = _patch(fields, path, value)
-                    proposed_quality, proposed_groundings = _quality(candidate, schema, evidence)
-                    old_flags = initial_flags if fields == result else (check_rules(fields, blocks) if check_rules else [])
+                    proposed_groundings = _candidate_groundings(groundings, candidate, schema, evidence, path)
+                    if stage == "rules" and path in deterministic and value == deterministic[path][0]:
+                        proposed_groundings[root] = deterministic[path][1]
+                    proposed_quality, _ = _quality(candidate, schema, blocks, proposed_groundings)
+                    if evidence is not blocks:
+                        roi_quality, _ = _quality(candidate, schema, evidence, proposed_groundings)
+                        if path in roi_quality:
+                            proposed_quality[path] = roi_quality[path]
+                    old_flags = check_rules(fields, evidence) if check_rules else []
                     new_flags = check_rules(candidate, evidence) if check_rules else []
-                    proposed_direct, _ = _rule_targets(new_flags, candidate, proposed_quality)
+                    original_flags = check_rules(candidate, blocks) if check_rules and evidence is not blocks else new_flags
+                    proposed_direct, _ = _rule_targets(original_flags, candidate, proposed_quality)
+                    if evidence is not blocks:
+                        roi_direct, _ = _rule_targets(new_flags, candidate, proposed_quality)
+                        proposed_direct.pop(path, None)
+                        if path in roi_direct:
+                            proposed_direct[path] = roi_direct[path]
                     _mark_rules(proposed_quality, proposed_direct)
                     after = proposed_quality.get(path, {})
+                    if (stage == "rules" and candidate == fields
+                            and all(after.get(key) == before.get(key) for key in ("status", "issue_codes", "provenance"))):
+                        attempts -= 1  # local normalization did not make a candidate or add evidence
+                        record(stage, "no_change", before["status"])
+                        continue
                     old_rank = {"PASS": 0, "CORRECTED": 0, "SUSPICIOUS": 1, "UNRESOLVED": 2}.get(before["status"], 2)
                     new_rank = {"PASS": 0, "CORRECTED": 0, "SUSPICIOUS": 1, "UNRESOLVED": 2}.get(after.get("status"), 2)
                     regression = any({"PASS": 0, "CORRECTED": 0, "SUSPICIOUS": 1, "UNRESOLVED": 2}.get(item["status"], 2)
@@ -393,7 +604,9 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                                   and isinstance(fields.get(root), list))
                     typed = _typed(after.get("provenance", {}), value)
                     semantic = (table_cell or _label_seen(root, schema, source_blocks)
-                                or typed and bool(after.get("provenance", {}).get("label")))
+                                or typed and (bool(after.get("provenance", {}).get("label"))
+                                              or after.get("provenance", {}).get("evidence_type")
+                                              in {"derived_sum", "schema_alias"}))
                     exact = after.get("status") == "PASS" and (after.get("provenance", {}).get("match") == "exact"
                                                                           or typed)
                     rule_clean = True
@@ -402,6 +615,21 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                         rule_clean = not ({signature(flag) for flag in new_flags} - {signature(flag) for flag in old_flags})
                     proven = exact and semantic and rule_clean
                     improved = new_rank < old_rank or (candidate != fields and old_rank == 0 and new_rank == 0)
+                    if not check():
+                        stop = "deadline"
+                        break
+                    long_text = (text_field and isinstance(value, str)
+                                 and max(len(value), len(str(original_value or ""))) >= 20)
+                    if (stage == "roi_vlm" and long_text and value != original_value
+                            and proven and improved and not regression):
+                        held_text = engine._normalized(value)
+                        record(stage, "await_wide_confirmation", before["status"], value,
+                               provenance=after.get("provenance"))
+                        continue
+                    if stage == "wide_vlm" and held_text is not None and engine._normalized(value) != held_text:
+                        record(stage, "conflicting_text_reads", before["status"], value,
+                               provenance=after.get("provenance"))
+                        continue
                     if proven and improved and not regression and (candidate == fields or repr(candidate) not in seen):
                         old_value = original_value
                         fields, quality, groundings = candidate, proposed_quality, proposed_groundings
@@ -421,6 +649,16 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                            checks={"candidate_status": after.get("status"), "candidate_issue_codes": after.get("issue_codes", []),
                                    "exact": exact, "semantic": semantic, "rules": rule_clean,
                                    "regression": regression, "improved": improved})
+                    if stage in {"roi_parse", "roi_vlm"}:
+                        source = after.get("provenance") or {}
+                        failure = (value, after.get("status"), tuple(after.get("issue_codes") or ()),
+                                   source.get("match"), source.get("evidence_type"), source.get("source_text"),
+                                   source.get("normalized_value"))
+                        if stage == "roi_vlm" and roi_failure == failure:
+                            record("wide_vlm", "repeated_unverified_evidence", before["status"])
+                            break
+                        if stage == "roi_parse":
+                            roi_failure = failure
                 except Exception:
                     if cancel is not None and cancel.is_set():
                         check()

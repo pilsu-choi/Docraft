@@ -685,14 +685,19 @@ def assess(result, schema, blocks, groundings=None, require_geometry=True):
         else:
             codes = list(dict.fromkeys(by_path.get(path, [])))
             from .typed_evidence import valid as valid_typed
-            if isinstance(source, dict) and source.get("match") in {"typed", "blank"} and not valid_typed(source, value):
+            typed = (isinstance(source, dict) and valid_typed(source, value)
+                     and (not source.get("field_key") or source["field_key"] == path.lstrip("/"))
+                     and (source.get("evidence_type") not in {"derived_sum", "schema_alias", "aligned_amount", "inferred_checkbox_unselected"}
+                          or source.get("doc_type") == schema.get("title")
+                          and source.get("target_field", source.get("target_path")) == path.lstrip("/")))
+            if isinstance(source, dict) and source.get("match") in {"typed", "blank", "derived", "inferred"} and not typed:
                 codes.append("invalid_typed_proof")
             if value is None:
                 codes = [code for code in codes if code != "low_confidence"]
-                if printed_label(path) and not valid_typed(source, None):
+                if printed_label(path) and not typed:
                     codes.append("missing_value")
             if value is not None and not isinstance(value, bool):
-                if not isinstance(source, dict) or not source.get("source_text") or (require_geometry and (source.get("page") is None or not source.get("bbox"))):
+                if not typed and (not isinstance(source, dict) or not source.get("source_text") or (require_geometry and (source.get("page") is None or not source.get("bbox")))):
                     codes.append("no_source")
                 elif source.get("match") == "approximate":
                     codes.append("approximate_source")
@@ -708,7 +713,7 @@ def assess(result, schema, blocks, groundings=None, require_geometry=True):
                              all(isinstance(number, (int, float)) for number in (*box, *size)))
                     if not valid or not (0 <= box[0] < box[2] <= size[0] and 0 <= box[1] < box[3] <= size[1]):
                         codes.append("invalid_geometry")
-                if isinstance(source, dict) and distant_label(path, source):
+                if isinstance(source, dict) and not typed and distant_label(path, source):
                     codes.append("distant_label")
             codes = list(dict.fromkeys(codes))
             hard = {"row_mismatch", "invalid_geometry"}
@@ -716,7 +721,7 @@ def assess(result, schema, blocks, groundings=None, require_geometry=True):
             quality[path.lstrip("/")] = {"status": state, "issue_codes": codes,
                                            "stage": "undetermined" if codes else None,
                                            "action": "REVIEW" if state == "UNRESOLVED" else ("RECHECK" if codes else "ACCEPT"),
-                                           "provenance": {key: source.get(key) for key in ("page", "bbox", "page_size", "source_text", "block", "row", "column", "table", "match", "evidence_type", "transform", "role", "label", "geometry_scope", "normalized_value", "verified", "basis") if key in source} if isinstance(source, dict) else {}}
+                                           "provenance": {key: source.get(key) for key in ("page", "bbox", "page_size", "source_text", "block", "row", "column", "table", "match", "evidence_type", "transform", "role", "label", "geometry_scope", "normalized_value", "verified", "basis", "operation", "target_field", "target_path", "doc_type", "terms", "field_key", "label_bbox", "alignment_axis", "alignment_anchors", "blank_method", "polygon", "rotation_degrees", "group_label", "group_bbox", "target_line_text", "target_label_bbox") if key in source} if isinstance(source, dict) else {}}
 
     walk(result, evidence, schema)
     return quality

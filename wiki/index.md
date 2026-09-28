@@ -12,6 +12,7 @@ okf_version: "0.2"
 * [날짜·체크·표 셀의 유형별 원문 근거](2026-09-27-typed-evidence.md) - 라벨 역할이 확인된 날짜·체크 표기, 물리 표 셀·총계·빈칸과 제한된 null 교정
 * [자동 재처리의 근거·규칙 우선순위](2026-09-27-reprocess-priority.md) - 원문 줄 위치와 규칙 위반을 확인한 필드에 제한된 재처리 예산을 먼저 배정
 * [근거 기반 자동 재처리 루프](2026-09-27-auto-reprocess.md) - 일반 추출·의료 읽기 공통 ROI 재파싱·VLM 재판독, 필드별 재검증, 예산·취소·감사 이력과 안전한 채택 경계
+* [자연 문서 자동 교정과 서식 인쇄 정렬 추론](2026-09-28-natural-corrections.md) - 독립 날짜 anchor로 인쇄 오프셋을 증명하고 등록 합계식으로 금액 필드를 원자적으로 교정한 기록
 * [Parse·Extract 근거와 검토 상태 보강](2026-09-27-parse-extract-quality.md) - OCR 원문·행/열·페이지 좌표 기반 품질 신호와 API 계약, 76건 캐시 평가 및 97% 목표의 남은 한계
 * [/api/read 최종 값의 원문 좌표 반환](2026-09-27-read-groundings.md) - 규칙 적용 뒤 값·행이 유일하게 대응하는 근거만 `groundings`로 제공
 * [Harness와 Docraft의 key-value 추출 흐름 점검](2026-09-27-harness-docraft-kv-pipeline-review.md) - OCR·스키마 추출·검증·근거·사람 검토의 구현 범위와 통합 경로의 한계

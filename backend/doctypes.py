@@ -193,6 +193,19 @@ _SPEC = {  # 진단서 계열 4종은 AO 스키마가 같다(값이 없는 표�
         "약국정보(주소)": ("text", "약국 주소. '사업장소재지'·'주소' 라벨의 값."),
     }, {}),
 }
+
+# Printed source field -> schema-defined derived field. A derived value retains its source role;
+# the receipt's "사고발생일자" is a treatment/dispensing start alias, not a printed accident date.
+SCHEMA_ALIASES = {
+    "진료비영수증": {"사고발생일자": "환자정보-진료시작일"},
+    "세부내역서": {"사고발생일자": "환자정보(진료시작일)"},
+    "약제비영수증": {"사고발생일자": "조제일자"},
+}
+
+EXCLUSIVE_CHECKBOX_GROUPS = {
+    name: ("임상적추정", "최종진단")
+    for name in ("진단서", "소견서", "수술확인서", "입퇴원확인서")
+}
 ALIASES = {"입원확인서": "입퇴원확인서", "약제영수증": "약제비영수증"}  # AO doc_type → 유형 이름
 
 ENUMS = {  # 필드 → 정규값: [동의어]. rules가 값 매핑에 쓰고 schema가 enum 목록에 쓴다.

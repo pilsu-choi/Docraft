@@ -199,7 +199,8 @@ def test_forged_typed_claim_cannot_make_missing_value_pass():
     fake = {"confidence": 1, "page": 1, "bbox": [10, 10, 180, 30], "page_size": [200, 100],
             "source_text": "", "match": "blank", "evidence_type": "table_blank", "transform": "blank_to_null",
             "role": "field_cell", "label": "상한액초과금", "geometry_scope": "cell", "normalized_value": None,
-            "verified": True, "basis": "image_cell_blank"}
+            "verified": True, "basis": "image_cell_blank", "field_key": "상환액초과금",
+            "blank_method": "closed_cell"}
     assert valid(fake, None)
     fake["bbox"] = [10, 10, 210, 30]
     assert not valid(fake, None)
@@ -217,3 +218,61 @@ def test_typed_value_mismatch_is_unresolved_and_not_exposed():
     assert "invalid_typed_proof" in quality["진단일"]["issue_codes"]
     assert quality["진단일"]["status"] == "UNRESOLVED"
     assert verify._exposed_grounding(source, "20260927") is None
+
+
+def test_payment_group_short_card_label_proves_only_its_closed_blank_cell():
+    from backend import typed_evidence as typed
+    cells = [
+        {"row": 0, "column": 0, "rowspan": 2, "colspan": 1, "text": "납부한 금액",
+         "bbox": [0, 0, 50, 60], "verified": True},
+        {"row": 0, "column": 1, "rowspan": 1, "colspan": 1, "text": "카 드",
+         "bbox": [50, 0, 100, 30], "verified": True},
+        {"row": 0, "column": 2, "rowspan": 1, "colspan": 1, "text": "",
+         "bbox": [100, 0, 170, 30], "verified": True, "blank": True},
+        {"row": 1, "column": 1, "rowspan": 1, "colspan": 1, "text": "합계",
+         "bbox": [50, 30, 100, 60], "verified": True},
+    ]
+    source = {"page": 1, "page_size": [200, 100], "cells": cells, "lines": []}
+    candidate = typed.blank_candidate("진료비영수증", "납부한금액_카드", "999", [source])
+    assert candidate and candidate[0] is None
+    assert candidate[1]["group_label"] == "납부한 금액"
+    assert typed.valid(candidate[1], None)
+    assert typed.blank_candidate("진료비영수증", "납부한금액_현금", "999", [source]) is None
+    cells[2]["verified"] = False
+    assert typed.blank_candidate("진료비영수증", "납부한금액_카드", "999", [source]) is None
+
+
+def test_rotated_blank_hull_is_valid_only_for_a_real_convex_cell():
+    from backend import typed_evidence as typed
+    proof = {"page": 1, "page_size": [200, 100], "bbox": [10, 10, 110, 61],
+             "polygon": [[10, 10], [110, 11], [109, 61], [11, 60]], "rotation_degrees": 0.5,
+             "blank_method": "deskewed_closed_cell_noise_floor_v1", "geometry_scope": "rotated_cell_hull",
+             "source_text": "", "match": "blank", "evidence_type": "table_blank", "transform": "blank_to_null",
+             "role": "field_cell", "label": "카드", "normalized_value": None, "verified": True,
+             "field_key": "납부한금액_카드", "basis": "image_cell_blank"}
+    assert typed.valid(proof, None)
+    proof["polygon"] = [[10, 10], [110, 11], [11, 60], [109, 61]]
+    assert not typed.valid(proof, None)
+
+
+def test_narrative_date_conflict_blocks_blank_candidate():
+    from backend import typed_evidence as typed
+    source = {"page": 1, "page_size": [200, 100], "cells": [
+        {"row": 0, "column": 0, "rowspan": 1, "colspan": 1, "text": "입원일자",
+         "bbox": [0, 0, 80, 30], "verified": True},
+        {"row": 0, "column": 1, "rowspan": 1, "colspan": 1, "text": "",
+         "bbox": [80, 0, 180, 30], "verified": True, "blank": True}],
+         "lines": [{"text": "입원 치료 2026년 9월 1일", "bbox": [0, 40, 180, 55]},
+                   {"text": "퇴원 2026년 9월 5일", "bbox": [0, 60, 180, 75]}]}
+    assert typed.blank_candidate("입퇴원확인서", "입원일자", "20260901", [source]) is None
+
+
+def test_checkbox_inference_requires_registered_group_and_unique_mark():
+    from backend import typed_evidence as typed
+    selected = block("☑ 임상적추정", [0, 0, 80, 20])
+    selected["lines"].append({"text": "최종진단", "bbox": [85, 0, 150, 20]})
+    candidate = typed.inferred_checkbox_candidate("진단서", "최종진단", [selected])
+    assert candidate and candidate[0] == "N" and typed.valid(candidate[1], "N")
+    assert typed.inferred_checkbox_candidate("진료비영수증", "최종진단", [selected]) is None
+    selected["lines"][1]["text"] = "☑ 최종진단"
+    assert typed.inferred_checkbox_candidate("진단서", "최종진단", [selected]) is None
