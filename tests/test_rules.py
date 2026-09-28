@@ -13,8 +13,9 @@ AO_SAMPLES = Path("/home/pilsu/projects/mirae-assets/harness-v2/docs/agentic-ocr
 
 @pytest.fixture(autouse=True)
 def no_required(monkeypatch):
-    """다른 룰 테스트의 작은 문서가 필수 필드 누락으로 걸리지 않게 한다. 누락 룰 테스트는 ``REQUIRED``를 직접 둔다."""
+    """다른 룰 테스트의 작은 문서가 필수 필드·항목 누락으로 걸리지 않게 한다. 누락 룰 테스트는 ``REQUIRED``·``REQUIRED_ITEMS``를 직접 둔다."""
     monkeypatch.setattr(rules, "REQUIRED", {})
+    monkeypatch.setattr(rules, "REQUIRED_ITEMS", {})
 
 
 def block(text="", rows=None, kind="text", lines=None):
@@ -1206,6 +1207,32 @@ def test_a_required_column_is_flagged_only_on_rows_that_have_its_condition(monke
     rows = [{"수술일자": None, "수술명": "충수절제술"}, {"수술일자": None, "수술명": None}, {"수술일자": "20240101", "수술명": "봉합"}]
     assert [(flag["key"], flag["row"], flag["column"]) for flag in rules.check("수술확인서", {"수술내역": rows}, {}, [])] == [
         ("수술내역", 0, "수술일자")]
+
+
+def test_a_required_item_row_missing_from_the_table_is_flagged(monkeypatch):
+    """진료비영수증은 항목내역 표에 진찰료·CT진단료 행이 반드시 있어야 한다(REQUIRED_ITEMS)."""
+    monkeypatch.setattr(rules, "REQUIRED_ITEMS", {"진료비영수증": ("진찰료", "CT진단료")})
+    rows = receipt(("진찰료", {"본인부담금": "5000"}))
+    flags = rules.check("진료비영수증", {"항목내역": rows}, {}, [])
+    assert [(flag["code"], flag["key"], flag["item"], flag["rule"]) for flag in flags] == [
+        ("missing", "항목내역", "CT진단료", "MISSING.REQUIRED")]
+
+
+def test_a_required_item_row_with_only_zero_amounts_still_counts_as_present(monkeypatch):
+    """AO는 CT진단료를 금액 없이 0으로 찍기도 한다 — 행만 있으면 필수 항목은 채워진 것으로 본다."""
+    monkeypatch.setattr(rules, "REQUIRED_ITEMS", {"진료비영수증": ("진찰료", "CT진단료")})
+    rows = receipt(("진찰료", {"본인부담금": "5000"}), ("CT진단료", {}))
+    assert rules.check("진료비영수증", {"항목내역": rows}, {}, []) == []
+
+
+def test_a_required_item_exempt_by_another_row_is_not_flagged(monkeypatch):
+    """한방 진료비영수증(항목내역에 '한방'으로 시작하는 행)은 CT진단료가 없어도 잡지 않는다(REQUIRED_ITEMS_EXEMPT).
+    같은 문서에서 진찰료가 없으면 그건 그대로 잡는다."""
+    monkeypatch.setattr(rules, "REQUIRED_ITEMS", {"진료비영수증": ("진찰료", "CT진단료")})
+    rows = receipt(("한방물리요법료", {"본인부담금": "5000"}))
+    flags = rules.check("진료비영수증", {"항목내역": rows}, {}, [])
+    assert [(flag["code"], flag["key"], flag["item"], flag["rule"]) for flag in flags] == [
+        ("missing", "항목내역", "진찰료", "MISSING.REQUIRED")]
 
 
 def test_required_rejects_a_key_or_column_the_doc_type_does_not_define():
