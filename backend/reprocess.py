@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import tempfile
 import time
 from copy import deepcopy
@@ -618,6 +619,13 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                     if not check():
                         stop = "deadline"
                         break
+                    if (stage == "roi_vlm" and isinstance(original_value, str) and original_value and original_value != value
+                            and not re.fullmatch(r"[\d\s.,:/\-]+", original_value)
+                            and any(engine._normalized(original_value) in map(engine._normalized, re.split(r"[:：\n]", block.get("text", "")))
+                                    for block in local)):
+                        record(stage, "roi_parse_supports_original", before["status"], value,
+                               provenance=after.get("provenance"))
+                        break  # ROI OCR이 원값을 그대로 읽었으면 VLM 단독 제안으로 덮어쓰지 않는다
                     long_text = (text_field and isinstance(value, str)
                                  and max(len(value), len(str(original_value or ""))) >= 20)
                     if (stage == "roi_vlm" and long_text and value != original_value

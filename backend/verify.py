@@ -538,8 +538,7 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
     if deadline is not None and time.monotonic() >= deadline:
         raise TimeoutError("read deadline exceeded")
     fields = rules.apply(doc_type, result, blocks)
-    recovered = None
-    recovered_quality = None
+    recovered = recovery_groundings = recovered_quality = None
     if auto_reprocess is not False and Path(image).is_file() and schema.get("properties"):
         fields, recovery_groundings, recovered_quality, recovered = reprocess.run(
             image, schema, blocks, fields, normalize=lambda values, evidence: rules.apply(doc_type, values, evidence),
@@ -556,7 +555,7 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
         if recovered and any(item.get("adopted") for item in recovered["trace"]):
             final_groundings = _merge_recovered_groundings(final_groundings, recovery_groundings,
                                                             recovered["trace"], fields)
-        source_groundings = recovery_groundings if recovered is not None else engine.ground(fields, schema, blocks)
+        source_groundings = recovery_groundings if recovery_groundings is not None else engine.ground(fields, schema, blocks)
         for key, value in fields.items():
             source = source_groundings.get(key, {}) if isinstance(source_groundings, dict) else {}
             if not isinstance(value, (dict, list)) and reprocess._typed(source, value):

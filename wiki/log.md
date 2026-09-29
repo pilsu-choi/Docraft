@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-29 (읽기·재처리 수정)
+* **Creation**: [auto_reprocess=false 읽기 오류와 ROI VLM 오채택 수정](2026-09-29-read-reprocess-fix.md)을 기록했다. 브랜치 `fix/read-reprocess`, 워크트리 `.worktrees/read-reprocess-fix`.
+* **Update**: [index](index.md)에 문서를 연결했다.
+
 ## 2026-09-28 (응답 처리시간)
 * **Creation**: [/api/verify 응답에 요청 처리시간(verify.elapsed_ms) 추가](2026-09-28-response-elapsed.md)에 업로드 저장부터 응답 직전까지의 처리시간 필드 추가, harness-v2 짝 작업(harness.elapsed_ms) 연결, 616개 테스트 결과를 기록했다. 브랜치 `feat/response-elapsed`, 워크트리 `.worktrees/response-elapsed`.
 * **Update**: [index](index.md)에 `verify.elapsed_ms` 문서를 연결했다.
