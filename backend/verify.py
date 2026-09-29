@@ -385,6 +385,36 @@ def _restrict(schema, only):
             "required": [key for key in schema["required"] if key in only]}
 
 
+def resolve_row_filter(doc_type: str, row_filter: dict | None, only: set[str] | None) -> dict[str, list[str]]:
+    """``/api/read``의 ``row_filter``(표 key → 행 식별 값 목록)를 검증해 ``only`` 안의 정의된 표만 남긴다.
+    행 식별 열은 그 표의 첫 열(영수증·세부내역서 "항목", 진단서 계열 코드·일자)이다. 정의 밖 표 key는 한 번 경고하고 무시한다."""
+    if row_filter is None:
+        return {}
+    if not isinstance(row_filter, dict) or not all(
+            isinstance(names, list) and all(isinstance(name, str) for name in names) for names in row_filter.values()):
+        raise ValueError("row_filter는 표 key에서 문자열 배열로 가는 객체여야 합니다.")
+    tables = doctypes.spec(doc_type)["tables"]
+    if unknown := sorted(set(row_filter) - set(tables)):
+        logger.warning("verify: row_filter에 알 수 없는 표 key가 있습니다: %s", unknown)
+    return {key: names for key, names in row_filter.items() if key in tables and (only is None or key in only)}
+
+
+def _row_column(doc_type: str, table: str) -> str:
+    return next(iter(doctypes.spec(doc_type)["tables"][table]))
+
+
+def _narrow_rows(schema, doc_type: str, row_filter: dict[str, list[str]]):
+    """필터된 표의 스키마 지시·maxItems를 좁혀 모델이 그 행만 생성하게 한다(생성 토큰 절감)."""
+    properties = dict(schema["properties"])
+    for table, names in row_filter.items():
+        if table in properties:
+            prop = properties[table]
+            note = (f"{_row_column(doc_type, table)} 열 값이 {json.dumps(names, ensure_ascii=False)} 중 하나인 행만 적고 "
+                    "나머지 행은 모두 생략한다. 목록에 없는 행은 절대 적지 않는다. ")
+            properties[table] = {**prop, "description": note + prop.get("description", ""), "maxItems": len(names)}
+    return {**schema, "properties": properties}
+
+
 class Cancelled(Exception):
     """호출자가 ``cancel``을 세워 교차검증을 중단했다(예: 클라이언트 연결 끊김)."""
 
@@ -511,10 +541,11 @@ def _merge_recovered_groundings(original, recovered, trace, fields):
 
 def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
          with_groundings: bool = False, with_reprocess: bool = False,
-         deadline=None, auto_reprocess=None) -> tuple:
+         deadline=None, auto_reprocess=None, row_filter: dict[str, list[str]] | None = None) -> tuple:
     """이미지를 파싱하고 유형 스키마(``only``가 있으면 그 key로 좁힌다)로 추출해 ``rules.apply``까지 거친
     Docraft 읽기 결과를 돌려준다: ``(doc_type, docraft_fields, blocks)``. AO 비교·교정·Judge는 하지 않는다 —
     ``/api/read``와 ``run``이 함께 쓰는 공용 부분이다. ``cancel``이 세워지면 추출 직전에 ``Cancelled``로 멈춘다.
+    ``row_filter``(``resolve_row_filter`` 결과)가 있으면 그 표는 목록의 행만 추출·반환하고 그 표의 자동 재처리는 건너뛴다.
     """
     if deadline is not None and time.monotonic() >= deadline:
         raise TimeoutError("read deadline exceeded")
@@ -525,23 +556,30 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
     if deadline is not None and time.monotonic() >= deadline:
         raise TimeoutError("read deadline exceeded")
     schema = _restrict(doctypes.schema(doc_type), only)
+    row_filter = row_filter or {}
+    extract_schema = _narrow_rows(schema, doc_type, row_filter) if row_filter else schema
     if deadline is None:
-        result, groundings = engine.extract(schema, blocks, source=image)
+        result, groundings = engine.extract(extract_schema, blocks, source=image)
     else:
         initial_calls = 0
         def count_initial():
             nonlocal initial_calls
             initial_calls += 1
-        result, groundings = engine.extract(schema, blocks, source=image, deadline=deadline, cancel=cancel,
+        result, groundings = engine.extract(extract_schema, blocks, source=image, deadline=deadline, cancel=cancel,
                                             on_call=count_initial)
     _check(cancel)
     if deadline is not None and time.monotonic() >= deadline:
         raise TimeoutError("read deadline exceeded")
     fields = rules.apply(doc_type, result, blocks)
+    for table, names in row_filter.items():  # 모델이 목록 밖 행을 내도 걸러 낸다
+        column = _row_column(doc_type, table)
+        fields[table] = [row for row in fields.get(table) or [] if row.get(column) in names]
+    # 부분 표는 행 단위 재처리 대상이 아니다
+    reprocess_schema = _restrict(schema, set(schema["properties"]) - set(row_filter)) if row_filter else schema
     recovered = recovery_groundings = recovered_quality = None
-    if auto_reprocess is not False and Path(image).is_file() and schema.get("properties"):
+    if auto_reprocess is not False and Path(image).is_file() and reprocess_schema.get("properties"):
         fields, recovery_groundings, recovered_quality, recovered = reprocess.run(
-            image, schema, blocks, fields, normalize=lambda values, evidence: rules.apply(doc_type, values, evidence),
+            image, reprocess_schema, blocks, fields, normalize=lambda values, evidence: rules.apply(doc_type, values, evidence),
             check_rules=lambda values, evidence: rules.check(doc_type, values, values, evidence),
             cancel=cancel, deadline=deadline, enabled=auto_reprocess)
     if recovered is None and with_reprocess:

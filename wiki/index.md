@@ -124,3 +124,5 @@ okf_version: "0.2"
 
 * [AI provider 검증 기록](2026-09-21-ai-provider-validation.md) - OpenAI 호환 AI provider 계약 테스트와 OpenRouter Qwen 실호출 검증
 * [프로젝트 작업공간 테스트 기록](2026-09-21-project-workspace-tests.md) - 프로젝트 작업공간의 PostgreSQL 격리 통합 테스트와 E2E 결과
+
+* [/api/read row_filter](2026-09-29-read-row-filter.md) - 지정한 행만 생성하게 해 재읽기 시간을 줄이는 인자
