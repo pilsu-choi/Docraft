@@ -1361,3 +1361,9 @@ def test_has_header_needs_the_joined_words_in_separate_cells():
 def test_item_keeps_the_parentheses_of_standard_lump_sum_names(name, expected):
     """2026-09-24 사용자 결정: 영수증 정액수가 항목은 AO·서식처럼 괄호를 두고, 입원료 2·3인실은 '2-3'으로 통일한다."""
     assert rules.item(name) == expected
+
+
+def test_detail_class_hint_forbids_guessing():
+    """급여구분 스키마 설명은 인쇄된 값만·공란은 null·표 행 규칙을 담는다(공란 칸을 급여로 채우지 않게)."""
+    description = doctypes.schema("세부내역서")["properties"]["항목내역"]["items"]["properties"]["급여구분"]["description"]
+    assert "공란" not in description and "비었" in description and "null" in description and "추정하지 않는다" in description

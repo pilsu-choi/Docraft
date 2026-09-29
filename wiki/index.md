@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [세부내역서 급여구분 스키마 설명: 공란 칸을 급여로 채우지 않기](2026-09-29-benefit-class-hint.md) - 급여구분 힌트에 인쇄된 값만·공란 null·추정 금지·TABLE_HINT 추가, 원인 경로(VLM 추출·BLANK_AO 채택)와 표본 4건 실측
 * [MIG 자원 이름 선택: 컴포넌트마다 다른 nvidia.com/mig-* 요청](2026-09-28-mig-gpu-resource-name.md) - helm/docraft GPU 컴포넌트(paddleocrVl vlm-server·api, paddleocrLines, vllmVlm)의 device plugin 자원 이름을 값으로 빼 MIG로 나뉜 카드에서 조각별로 요청하게 함. paddleocrVl.gpuResource/apiGpuResource로 api·vlm-server 분리, gpu-check가 MIG 줄 수를 세도록 전환
 * [/api/verify 응답에 요청 처리시간(verify.elapsed_ms) 추가](2026-09-28-response-elapsed.md) - 업로드 저장부터 응답 직전까지 걸린 시간을 documents[0].verify.elapsed_ms로 반환
 * [날짜·체크·표 셀의 유형별 원문 근거](2026-09-27-typed-evidence.md) - 라벨 역할이 확인된 날짜·체크 표기, 물리 표 셀·총계·빈칸과 제한된 null 교정
