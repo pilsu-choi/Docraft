@@ -304,3 +304,5 @@
 - Update: 2026-09-27 [유형별 근거](2026-09-27-typed-evidence.md) — 최종 597 tests, 실제 API 3건 및 Harness 근거 연동·고정 캐시 재처리 결과 기록.
 
 - Update: 2026-09-28 [자연 표본 교정과 독립 검증](2026-09-28-natural-corrections.md) — 자연 5필드 교정, 확대 예산 오교정 보완, 동일 6문서의 기본·확대 재검증 및 전체 테스트 기록.
+
+- Creation: 2026-09-29 [/api/read row_filter](2026-09-29-read-row-filter.md) — 표 일부 행만 추출하는 `row_filter` 추가(629 tests).

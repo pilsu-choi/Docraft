@@ -843,7 +843,7 @@ async def verify_result(request: Request, image: UploadFile = File(...), ao_resu
 
 @app.post("/api/read", dependencies=[Depends(auth)])
 async def read_document(request: Request, image: UploadFile = File(...), doc_type: str = Form(...), keys: str | None = Form(None),
-                        remaining_ms: int | None = Form(None), auto_reprocess: bool = Form(True)):
+                        row_filter: str | None = Form(None), remaining_ms: int | None = Form(None), auto_reprocess: bool = Form(True)):
     """이미지에서 Docraft 자체 추출 결과만 돌려준다 — AO 비교·교정·Judge는 하지 않는다. 하네스의 재읽기,
     크롭 재추출(자기 교정), 폴백에 쓰는 순수 읽기 경로다.
 
@@ -851,6 +851,9 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
     그만큼 좁힌다). 정의에 없는 key는 무시하고 한 번 경고 로그를 남기며, 유효한 key가 하나도 없으면 읽지 않고 빈
     ``fields``를 돌려준다 — 하네스 검토 칸이 모두 Docraft 정의 밖(사고발생일자 등)일 때 오류가 아니라 "읽을 것 없음"이다.
     생략하면 유형의 전체 필드를 돌려준다.
+
+    ``row_filter``(JSON 객체 문자열, 예: ``{"항목내역": ["진찰료", "CT진단료"]}``)는 표 key → 행 식별 값(표 첫 열) 목록이다.
+    ``keys`` 안의(생략 시 전체) 표에 적용돼 모델이 그 행만 생성하게 하고 응답에서도 목록 밖 행을 거른다. 생략하면 기존과 같다.
     """
     deadline = reprocess.deadline_for(remaining_ms)
     if time.monotonic() >= deadline:
@@ -860,8 +863,9 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
         wanted = json.loads(keys) if keys else None
         if keys and (not isinstance(wanted, list) or not all(isinstance(key, str) for key in wanted)):
             raise ValueError("keys는 문자열 배열이어야 합니다.")
+        rows = json.loads(row_filter) if row_filter else None
     except json.JSONDecodeError as exc:
-        raise HTTPException(422, "keys를 JSON으로 해석할 수 없습니다.") from exc
+        raise HTTPException(422, "keys·row_filter를 JSON으로 해석할 수 없습니다.") from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     try:
@@ -870,11 +874,19 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
         return {"doc_type": doc_type, "fields": {}, "groundings": {}, "field_quality": {}, "elapsed_ms": 0,
                 "reprocess": {"attempts": 0, "model_calls": 0, "stop_reason": "no_keys", "elapsed_ms": 0, "trace": []}}
 
+    try:
+        row_filter = verify.resolve_row_filter(doc_type, rows, only)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
     def run_read(path, cancel=None):
         _, fields, blocks, groundings, recovered_quality, recovery = verify.read(path, doc_type, only, cancel=cancel,
                                                               with_groundings=True, with_reprocess=True,
-                                                              deadline=deadline, auto_reprocess=auto_reprocess)
-        quality = recovered_quality or engine.assess(fields, verify._restrict(verify.doctypes.schema(doc_type), only), blocks)
+                                                              deadline=deadline, auto_reprocess=auto_reprocess,
+                                                              row_filter=row_filter)
+        schema = verify._restrict(verify.doctypes.schema(doc_type), only)
+        quality = recovered_quality or engine.assess(
+            fields, verify._restrict(schema, set(schema["properties"]) - set(row_filter)), blocks)
         return fields, groundings, quality, recovery
 
     try:
