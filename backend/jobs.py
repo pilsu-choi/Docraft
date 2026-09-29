@@ -29,7 +29,8 @@ def task(name):
     def register(fn):
         @wraps(fn)
         def run(*args, rid=None):
-            with bind_request(f"{rid}>" * bool(rid) + (f"{name}:{args[0]}" if args else name)):
+            label = f"{name}:{args[0]}" if args else name
+            with bind_request(f"{rid}>{label}" if rid else label):
                 return fn(*args)
         TASKS[name] = run
         return run
@@ -38,7 +39,8 @@ def task(name):
 
 def enqueue(name, *args):
     """작업을 큐에 넣고 백엔드의 결과(Celery면 AsyncResult, inline이면 Future)를 돌려준다 — 호출자가 취소용 id를 챙길 수 있게."""
-    return backend()(name, args, request_id())
+    rid = request_id()
+    return backend()(name, args, None if rid == "-" else rid)
 
 
 def revoke(task_id):
@@ -61,13 +63,13 @@ _pool = ThreadPoolExecutor(max_workers=CONCURRENCY, thread_name_prefix="docraft-
 
 def _inline(name, args, rid):
     def run():
-        try: TASKS[name](*args, rid=rid if rid != "-" else None)
+        try: TASKS[name](*args, rid=rid)
         except Exception: logger.exception("job failed: %s%s", name, args)
     return _pool.submit(run)
 
 
 def _celery(name, args, rid):
-    return celery_app().send_task(f"{QUEUE_NAME}.{name}", args=args, kwargs={"rid": rid} if rid != "-" else {}, queue=QUEUE_NAME)
+    return celery_app().send_task(f"{QUEUE_NAME}.{name}", args=args, kwargs={"rid": rid} if rid else {}, queue=QUEUE_NAME)
 
 
 BACKENDS = {"inline": _inline, "celery": _celery}
