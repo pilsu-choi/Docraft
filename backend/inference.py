@@ -1,9 +1,12 @@
 """Conservative, auditable field-sum inference from individually bound OCR amounts."""
 
+import logging
 import re
 from copy import deepcopy
 
 from . import doctypes, rules, typed_evidence
+
+logger = logging.getLogger(__name__)
 
 
 _DATE = re.compile(r"\d{4}[-./]\d{1,2}[-./]\d{1,2}")
@@ -105,6 +108,7 @@ def sum_group(fields, target, blocks, doc_type=None):
     relations = [(total, parts) for total, parts in rules.FIELD_SUMS.items()
                  if target in (total, *parts) and all(key in fields for key in (total, *parts))]
     if len(relations) != 1:
+        logger.debug("sum_group: target=%s skipped, relations=%d", target, len(relations))
         return None
     total, parts = relations[0]
     aligned = _aligned_amounts((total, *parts), blocks, doc_type)
@@ -126,6 +130,7 @@ def sum_group(fields, target, blocks, doc_type=None):
     if printed_total is not None:
         printed, proof = printed_total
         if rules.normalize("amount", printed) != computed or not typed_evidence.valid(proof, printed):
+            logger.debug("sum_group: target=%s printed total does not match the sum of %d parts", target, len(parts))
             return None
         total_proof = proof
     else:
@@ -140,4 +145,5 @@ def sum_group(fields, target, blocks, doc_type=None):
         return None
     proofs = {term["path"]: term["provenance"] for term in terms}
     proofs[total] = total_proof
+    logger.debug("sum_group: target=%s proposed total=%s parts=%d", target, total, len(parts))
     return candidate, proofs

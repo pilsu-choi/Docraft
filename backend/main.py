@@ -742,7 +742,9 @@ def frames(path):
     """이미지 파일의 프레임 수. 다중 페이지 TIF를 가려내는 데 쓴다."""
     try:
         with Image.open(path) as image: return getattr(image, "n_frames", 1)
-    except Exception: return 1
+    except Exception:
+        logger.debug("frame count unreadable, assuming 1", exc_info=True)
+        return 1
 
 
 INFLIGHT = 0  # 처리 중인 /api/verify·/api/read 수(합계). health의 verify_inflight로 노출해 배포 스크립트가 교체를 미룬다

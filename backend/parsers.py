@@ -136,7 +136,7 @@ def _attach_lines(blocks, encoded, file_type, settings, page_map, timeout=None):
         response.raise_for_status()
         pages = response.json()["result"]["ocrResults"]
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
-        logger.warning("paddleocr line OCR failed, grounding falls back to block boxes: %s", exc)
+        logger.warning("paddleocr line OCR failed, grounding falls back to block boxes: %s", exc, exc_info=True)
         return
     for index, page in enumerate(pages[:len(page_map)] if page_map else pages, 1):
         page_no = page_map[index - 1] if page_map else index
@@ -180,7 +180,7 @@ def _ruled_tables(blocks, path, file_type, page_map):
                         table["cells"] = [{**cell, "page": page_no, "page_size": table["page_size"]} for cell in cells]
                         table["text"] = _markdown(table, "html")
     except (OSError, ValueError, RuntimeError) as exc:
-        logger.warning("ruled table grid skipped, keeping VLM table structure: %s", exc)
+        logger.warning("ruled table grid skipped, keeping VLM table structure: %s", exc, exc_info=True)
         return
     logger.debug("ruled tables: elapsed=%.2fs tables=%d ruled=%d", time.monotonic() - started, len(tables), sum(b.get("structure") == "ruled" for b in tables))
 
@@ -226,6 +226,7 @@ def _remote_paddle(path, file_type, page_map=None, expected_pages=None, timeout=
         text = markdown.get("text") if isinstance(markdown, dict) else None
         if not regions and text and text.strip():
             blocks.append(block(text.strip(), "text", page=page_no, bbox=None, source="paddleocr_remote"))
+        logger.debug("paddleocr page %d/%d: regions=%d elapsed=%.2fs", index, len(pages), len(regions), time.monotonic() - started)
     if not blocks:
         raise ParseError("PaddleOCR 원격 응답에서 텍스트를 찾지 못했습니다.")
     if settings["lines_url"] and (deadline is None or time.monotonic() < deadline):

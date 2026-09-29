@@ -4,10 +4,13 @@ The VLM writes rowspan/colspan token by token, so one miscounted span shifts eve
 Here the grid comes first: horizontal/vertical rule lines give row and column boundaries, a missing rule
 between two grid cells means they are merged, and PP-OCRv5 line boxes fill the cells. A rectangular grid is
 guaranteed by construction; only merges can go wrong."""
+import logging
 from bisect import bisect_left
 
 import numpy as np
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 GAP = 3  # px: rule thickness; profile rows closer than this belong to one rule
 SLACK = 10  # px floor for how far a warped scan bends a rule away from its table-wide position
@@ -145,6 +148,7 @@ def ruled_table(image, bbox, lines, with_geometry=False):
     xs = _positions(vertical.sum(0), w, down, [(b[0] + b[2]) / 2 for b in words])
     rows, cols = len(ys) - 1, len(xs) - 1
     if rows < 2 or cols < 2:
+        logger.debug("table_grid: not ruled rows=%d cols=%d skew=%.1f", rows, cols, angle)
         return None
 
     slack = max(SLACK, round(text_h / 2))  # scale with the page: 10px is nothing on a 300 DPI scan
