@@ -276,3 +276,14 @@ def test_read_route_shares_the_inflight_counter_with_verify(monkeypatch, tmp_pat
 
     assert response.status_code == 200
     assert main.INFLIGHT == 0
+
+
+def test_read_with_auto_reprocess_off_returns_first_pass_and_disabled_recovery(monkeypatch, tmp_path):
+    hinted_stub(monkeypatch)
+
+    response = post_read(_image(tmp_path), auto_reprocess="false")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["fields"] == DOCRAFT
+    assert body["reprocess"]["stop_reason"] == "disabled" and body["reprocess"]["model_calls"] == 0

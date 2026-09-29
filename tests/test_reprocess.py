@@ -170,3 +170,16 @@ def test_two_adoptions_keep_both_corrected_markers(monkeypatch):
     assert fields == {"amount": "new", "other": "new"}
     assert assessed["amount"]["status"] == assessed["other"]["status"] == "CORRECTED"
     assert summary["extra_model_calls"] == 2
+
+
+def test_roi_vlm_does_not_override_value_that_roi_ocr_read_unchanged(monkeypatch):
+    setup(monkeypatch)
+    monkeypatch.setattr(reprocess, "parse", lambda *a, **k: ("", [{**BLOCK, "text": "old"}]))
+    monkeypatch.setattr(reprocess.engine, "extract", lambda *a, on_call, **k: (on_call(), ({"amount": "new"}, {}))[1])
+
+    fields, _, _, summary = reprocess.run("scan.png", SCHEMA, [BLOCK], {"amount": "old", "other": "kept"},
+                                          normalize=lambda values, blocks: values)
+
+    assert fields["amount"] == "old"
+    assert not any(step["adopted"] for step in summary["trace"])
+    assert any(step["reason"] == "roi_parse_supports_original" for step in summary["trace"])
