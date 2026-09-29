@@ -11,6 +11,7 @@ okf_version: "0.2"
 
 * [MIG 자원 이름 선택: 컴포넌트마다 다른 nvidia.com/mig-* 요청](2026-09-28-mig-gpu-resource-name.md) - helm/docraft GPU 컴포넌트(paddleocrVl vlm-server·api, paddleocrLines, vllmVlm)의 device plugin 자원 이름을 값으로 빼 MIG로 나뉜 카드에서 조각별로 요청하게 함. paddleocrVl.gpuResource/apiGpuResource로 api·vlm-server 분리, gpu-check가 MIG 줄 수를 세도록 전환
 * [/api/verify 응답에 요청 처리시간(verify.elapsed_ms) 추가](2026-09-28-response-elapsed.md) - 업로드 저장부터 응답 직전까지 걸린 시간을 documents[0].verify.elapsed_ms로 반환
+* [auto_reprocess=false 읽기 오류와 ROI VLM 오채택 수정](2026-09-29-read-reprocess-fix.md) - 미할당 recovery_groundings 502 수정, ROI OCR이 지지한 원값을 VLM이 덮어쓰지 못하게 함
 * [날짜·체크·표 셀의 유형별 원문 근거](2026-09-27-typed-evidence.md) - 라벨 역할이 확인된 날짜·체크 표기, 물리 표 셀·총계·빈칸과 제한된 null 교정
 * [자동 재처리의 근거·규칙 우선순위](2026-09-27-reprocess-priority.md) - 원문 줄 위치와 규칙 위반을 확인한 필드에 제한된 재처리 예산을 먼저 배정
 * [근거 기반 자동 재처리 루프](2026-09-27-auto-reprocess.md) - 일반 추출·의료 읽기 공통 ROI 재파싱·VLM 재판독, 필드별 재검증, 예산·취소·감사 이력과 안전한 채택 경계
@@ -124,3 +125,5 @@ okf_version: "0.2"
 
 * [AI provider 검증 기록](2026-09-21-ai-provider-validation.md) - OpenAI 호환 AI provider 계약 테스트와 OpenRouter Qwen 실호출 검증
 * [프로젝트 작업공간 테스트 기록](2026-09-21-project-workspace-tests.md) - 프로젝트 작업공간의 PostgreSQL 격리 통합 테스트와 E2E 결과
+
+* [/api/read row_filter](2026-09-29-read-row-filter.md) - 지정한 행만 생성하게 해 재읽기 시간을 줄이는 인자

@@ -1,5 +1,6 @@
 """Recovery decisions must preserve unrelated values and require renewed evidence."""
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -170,3 +171,25 @@ def test_two_adoptions_keep_both_corrected_markers(monkeypatch):
     assert fields == {"amount": "new", "other": "new"}
     assert assessed["amount"]["status"] == assessed["other"]["status"] == "CORRECTED"
     assert summary["extra_model_calls"] == 2
+
+
+@pytest.mark.parametrize("old, block_text, vlm, expected", [
+    ("연세맑은이비인후과", "연세맑은이비인후과", "연세앎은이비인후과", "연세맑은이비인후과"),
+    ("연세맑은이비인후과", "명칭: 연세맑은이비인후과", "연세앎은이비인후과", "연세맑은이비인후과"),
+    ("1000", "10000", "10000", "10000"),
+    ("연세맑", "연세맑은이비인후과", "연세맑은이비인후과", "연세맑은이비인후과"),
+])
+def test_roi_vlm_is_blocked_only_when_roi_ocr_read_the_original_exactly(monkeypatch, old, block_text, vlm, expected):
+    setup(monkeypatch)
+    monkeypatch.setattr(reprocess, "_quality", lambda fields, *a, **k: (
+        {"amount": {"status": "PASS" if fields["amount"] == vlm else "UNRESOLVED",
+                    "provenance": {"match": "exact"} if fields["amount"] == vlm else {}},
+         "other": {"status": "PASS", "provenance": {"match": "exact"}}}, {}))
+    monkeypatch.setattr(reprocess, "parse", lambda *a, **k: ("", [{**BLOCK, "text": block_text}]))
+    monkeypatch.setattr(reprocess.engine, "extract", lambda *a, on_call, **k: (on_call(), ({"amount": vlm}, {}))[1])
+
+    fields, _, _, summary = reprocess.run("scan.png", SCHEMA, [BLOCK], {"amount": old, "other": "kept"},
+                                          normalize=lambda values, blocks: values)
+
+    assert fields["amount"] == expected
+    assert any(step["reason"] == "roi_parse_supports_original" for step in summary["trace"]) == (expected == old)
