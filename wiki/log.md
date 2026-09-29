@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-29 (급여구분 힌트)
+* **Creation**: [세부내역서 급여구분 스키마 설명](2026-09-29-benefit-class-hint.md)에 공란 칸이 급여로 채워진 원인 경로, 스키마 설명 수정, 표본 4건 수정 전 실측과 수정 후 미실측 사유를 기록했다. 브랜치 `fix/benefit-class-hint`, 워크트리 `.worktrees/benefit-class-hint`.
+* **Update**: [index](index.md)에 문서를 연결했다.
+
 ## 2026-09-28 (필수 항목 행)
 * **Update**: [필수 필드 누락 룰 MISSING.REQUIRED](2026-09-23-required-fields.md)에 항목내역 표의 필수 항목 행(`required_items`, 진료비영수증 진찰료·CT진단료) 절을 더했다. `receipt_items.yaml`의 새 공유 키를 `REQUIRED_ITEMS`로 읽어 기존 `_missing` 룰에 갈래를 더했고, 293개 테스트 결과를 기록했다. 브랜치 `feat/0928-coverage-rules`, 워크트리 `.worktrees/coverage-rules`.
 
