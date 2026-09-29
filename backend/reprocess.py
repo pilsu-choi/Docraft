@@ -1,6 +1,7 @@
 """Bounded, evidence-gated recovery after a document has been read once."""
 
 import json
+import logging
 import os
 import tempfile
 import time
@@ -12,6 +13,8 @@ from PIL import Image, ImageOps
 
 from . import doctypes, engine, inference, rules, typed_evidence
 from .parsers import parse
+
+logger = logging.getLogger(__name__)
 
 
 _MISSING = object()
@@ -339,10 +342,12 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
     calls = 0
     attempts = 0
     stop = "complete"
+    targets = []
     corrected = set()
     active = config["enabled"] and enabled is not False
 
     def finished(reason):
+        logger.info("reprocess: stop=%s targets=%d attempts=%d model_calls=%d trace=%d elapsed=%.2fs", reason, len(targets), attempts, calls, len(trace), time.monotonic() - started)
         status = ("UNRESOLVED" if any(item["status"] not in {"PASS", "CORRECTED"} for item in quality.values())
                   else "CORRECTED" if any(item["adopted"] and item["before"] != item["after"] for item in trace)
                   else "PASS")
@@ -399,6 +404,7 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                 0 if located == 2 and related else 1 if located == 2 else 2 if located == 1
                 else 3 if related else 4)
     targets.sort(key=priority)
+    logger.debug("reprocess: targets=%d deterministic=%d max_attempts=%d", len(targets), len(deterministic), config["max_attempts"])
     if not targets:
         return finished("pass")
     for path in targets:
@@ -416,6 +422,7 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
         except (KeyError, IndexError, TypeError):
             original_value = None
         def record(stage, reason, status, proposed=None, adopted=False, provenance=None, checks=None):
+            logger.debug("reprocess: field=%s stage=%s reason=%s adopted=%s", path, stage, reason, adopted)
             trace.append({"stage": stage, "field": path, "reason": reason, "status": status,
                           "before": original_value, "proposed": proposed,
                           "after": proposed if adopted else original_value, "adopted": adopted,
@@ -662,6 +669,7 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                 except Exception:
                     if cancel is not None and cancel.is_set():
                         check()
+                    logger.warning("reprocess stage failed: field=%s stage=%s", path, stage, exc_info=True)
                     record(stage, "parse_failed" if stage == "roi_parse" else "stage_failed", before["status"])
             else:
                 stop = "no_improvement"

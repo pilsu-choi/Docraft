@@ -1,6 +1,6 @@
 """Job dispatch: `enqueue(name, *args)` hands a registered task to the backend chosen by QUEUE_BACKEND.
 
-Backends take `(name, args)`. Add one by writing that function and registering it in BACKENDS.
+Backends take `(name, args, rid)`. Add one by writing that function and registering it in BACKENDS.
 Tasks must be idempotent-ish: they claim their document with a conditional DB update before working.
 """
 
@@ -9,7 +9,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from functools import cache, wraps
 
-from .config import bind_request
+from .config import bind_request, request_id
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +23,14 @@ LEASE = int(os.getenv("JOB_LEASE_SECONDS", "600"))
 def task(name):
     """Register a function as the task `name` (backend.main registers `parse` and `extract`).
 
-    작업 안의 로그 줄에는 `[parse:<document_id>]` 처럼 작업 이름과 첫 인자가 붙는다(inline·celery 공통).
+    작업 안의 로그 줄에는 `[<요청 rid>><parse>:<document_id>]` 처럼 enqueue 한 요청의 rid, 작업 이름, 첫 인자가 붙는다(inline·celery 공통).
+    rid 가 없는 옛 메시지는 `[parse:<document_id>]`.
     """
     def register(fn):
         @wraps(fn)
-        def run(*args):
-            with bind_request(f"{name}:{args[0]}" if args else name):
+        def run(*args, rid=None):
+            label = f"{name}:{args[0]}" if args else name
+            with bind_request(f"{rid}>{label}" if rid else label):
                 return fn(*args)
         TASKS[name] = run
         return run
@@ -37,7 +39,8 @@ def task(name):
 
 def enqueue(name, *args):
     """작업을 큐에 넣고 백엔드의 결과(Celery면 AsyncResult, inline이면 Future)를 돌려준다 — 호출자가 취소용 id를 챙길 수 있게."""
-    return backend()(name, args)
+    rid = request_id()
+    return backend()(name, args, None if rid == "-" else rid)
 
 
 def revoke(task_id):
@@ -58,15 +61,15 @@ def backend():
 _pool = ThreadPoolExecutor(max_workers=CONCURRENCY, thread_name_prefix="docraft-job")
 
 
-def _inline(name, args):
+def _inline(name, args, rid):
     def run():
-        try: TASKS[name](*args)
+        try: TASKS[name](*args, rid=rid)
         except Exception: logger.exception("job failed: %s%s", name, args)
     return _pool.submit(run)
 
 
-def _celery(name, args):
-    return celery_app().send_task(f"{QUEUE_NAME}.{name}", args=args, queue=QUEUE_NAME)
+def _celery(name, args, rid):
+    return celery_app().send_task(f"{QUEUE_NAME}.{name}", args=args, kwargs={"rid": rid} if rid else {}, queue=QUEUE_NAME)
 
 
 BACKENDS = {"inline": _inline, "celery": _celery}

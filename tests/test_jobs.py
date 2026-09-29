@@ -5,6 +5,7 @@ import types
 import pytest
 
 from backend import jobs
+from backend.config import bind_request, request_id
 from backend.db import connect
 from backend.main import heartbeat, recover, run_extract, run_parse
 from tests.test_api import project, schema, upload, wait_for
@@ -43,8 +44,8 @@ def test_celery_backend_sends_namespaced_task(monkeypatch):
             registered.append((name, options["max_retries"]))
             return lambda fn: fn
 
-        def send_task(self, name, args, queue):
-            sent.append((name, args, queue))
+        def send_task(self, name, args, queue, kwargs=None):
+            sent.append((name, args, queue, kwargs))
 
     monkeypatch.setitem(sys.modules, "celery", types.SimpleNamespace(Celery=FakeCelery))
     monkeypatch.setenv("QUEUE_BACKEND", "celery")
@@ -58,7 +59,18 @@ def test_celery_backend_sends_namespaced_task(monkeypatch):
     assert conf["task_default_queue"] == "docraft" and conf["task_acks_late"]
     assert conf["broker_transport_options"] == {"global_keyprefix": "docraft:", "visibility_timeout": jobs.LEASE}
     assert sorted(registered) == [("docraft.extract", 3), ("docraft.parse", 3)]
-    assert sent[1] == ("docraft.extract", ("doc-1", "schema-1"), "docraft")
+    assert sent[1] == ("docraft.extract", ("doc-1", "schema-1"), "docraft", {})  # rid 없는 enqueue 는 kwargs 를 비운다
+
+
+def test_enqueue_carries_the_request_rid_into_the_job(monkeypatch):
+    seen = []
+    monkeypatch.delenv("QUEUE_BACKEND", raising=False)
+    monkeypatch.setitem(jobs.TASKS, "probe", jobs.task("probe")(lambda *args: seen.append(request_id())))
+    with bind_request("txn-1"):
+        jobs.enqueue("probe", "doc-9").result()
+    jobs.enqueue("probe", "doc-9").result()  # rid 없이 넣으면 기존 형식
+    jobs.TASKS["probe"]("doc-9", rid="old")  # 새 kwarg 없이 큐에 남은 옛 메시지도 그대로 돈다
+    assert seen == ["txn-1>probe:doc-9", "probe:doc-9", "old>probe:doc-9"]
 
 
 def set_status(document_id, status, updated_at):

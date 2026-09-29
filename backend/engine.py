@@ -65,7 +65,7 @@ def _page_images(source, pages):
         with fitz.open(source) as document:
             return [_data_url(document[number - 1]) for number in pages if 1 <= number <= len(document)]
     except Exception as exc:
-        logger.warning("vision: page image rendering failed for %s: %s", Path(source).name, exc)
+        logger.warning("vision: page image rendering failed for %s: %s", Path(source).name, exc, exc_info=True)
         return []
 
 
@@ -156,7 +156,7 @@ def refine_table(block, source, deadline=None):
         reply = reply.get("corrections", reply)  # models also answer with the bare {cell number: text} object
         corrections = {index: str(reply[str(index)]) for index, text in texts.items() if str(index) in reply and _edit(text, str(reply[str(index)]))}
     except Exception as exc:
-        logger.warning("table refine failed, keeping OCR text: %s", exc)
+        logger.warning("table refine failed, keeping OCR text: %s", exc, exc_info=True)
         return None
     logger.info("table refine: page=%s cells=%d changed=%d elapsed=%.2fs", block["page"], len(texts), len(corrections), time.monotonic() - started)
     if not corrections:

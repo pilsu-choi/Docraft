@@ -278,4 +278,4 @@ if __name__ == "__main__":
         parser.error(f"원본 디렉터리가 없습니다: {args.source}")
     db.init_db()
     count = reload_from(args.source)
-    print(f"master_code: {count:,}건 재적재")
+    logger.info("master_code: %s건 재적재", f"{count:,}")
