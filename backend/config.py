@@ -85,7 +85,7 @@ def setup_logging() -> None:
     logger = logging.getLogger("backend")
     if logger.handlers:
         return
-    logger.setLevel(os.getenv("LOG_LEVEL", "DEBUG").upper())
+    logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
     logger.propagate = False  # Keep separate from uvicorn's own loggers/root.
     handlers = [logging.StreamHandler()]
     log_file = os.getenv("LOG_FILE", str(Path(__file__).resolve().parents[1] / "docraft.log"))
