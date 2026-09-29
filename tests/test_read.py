@@ -276,3 +276,81 @@ def test_read_route_shares_the_inflight_counter_with_verify(monkeypatch, tmp_pat
 
     assert response.status_code == 200
     assert main.INFLIGHT == 0
+
+
+def test_read_with_auto_reprocess_off_returns_first_pass_and_disabled_recovery(monkeypatch, tmp_path):
+    hinted_stub(monkeypatch)
+
+    response = post_read(_image(tmp_path), auto_reprocess="false")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["fields"] == DOCRAFT
+    assert body["reprocess"]["stop_reason"] == "disabled" and body["reprocess"]["model_calls"] == 0
+
+
+# --- row_filter --------------------------------------------------------------
+
+
+ROWS = [{"병명코드": "A1", "병명": "가"}, {"병명코드": "B2", "병명": "나"}]
+
+
+def row_stub(monkeypatch):
+    """hinted_stub에 병명내역 두 행을 내는 모델·룰을 얹고, 모델이 받은 스키마를 모은다."""
+    _, schemas = hinted_stub(monkeypatch)
+    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None, **kw: (schemas.append(schema) or {"병명내역": ROWS}, {}))
+    monkeypatch.setattr(rules, "apply", lambda doc_type, result, blocks: {"병명내역": list(result["병명내역"])})
+    return schemas
+
+
+def test_read_row_filter_narrows_the_extraction_schema_and_drops_extra_rows(monkeypatch):
+    schemas = row_stub(monkeypatch)
+
+    _, fields, _ = verify.read("scan.png", "진단서", None, row_filter={"병명내역": ["B2"]})
+
+    table = schemas[0]["properties"]["병명내역"]
+    assert table["maxItems"] == 1 and '["B2"]' in table["description"] and "병명코드" in table["description"]
+    assert schemas[0]["properties"]["병원명"] == {}  # 다른 속성은 그대로
+    assert fields == {"병명내역": [ROWS[1]]}  # 모델이 두 행을 내도 목록 밖 행은 걸러진다
+
+
+def test_read_without_row_filter_keeps_schema_and_rows(monkeypatch):
+    schemas = row_stub(monkeypatch)
+
+    _, fields, _ = verify.read("scan.png", "진단서", None)
+
+    assert "maxItems" not in schemas[0]["properties"]["병명내역"] and fields == {"병명내역": ROWS}
+
+
+def test_read_row_filter_skips_reprocess_of_the_partial_table(monkeypatch):
+    row_stub(monkeypatch)
+    schemas = []
+    monkeypatch.setattr(verify.reprocess, "run", lambda image, schema, *a, **k: schemas.append(schema) or ({}, {}, {}, None))
+
+    verify.read("scan.png", "진단서", {"병명내역"}, row_filter={"병명내역": ["B2"]})
+
+    assert schemas == []  # 부분 표뿐이라 재처리 스키마가 비어 건너뛴다
+
+
+def test_resolve_row_filter_keeps_known_tables_in_keys_and_warns_on_unknown(monkeypatch, caplog):
+    with caplog.at_level("WARNING"):
+        kept = verify.resolve_row_filter("진단서", {"병명내역": ["A1"], "수술내역": ["x"], "없는표": ["y"]}, {"병명내역"})
+
+    assert kept == {"병명내역": ["A1"]} and caplog.text.count("없는표") == 1
+    assert verify.resolve_row_filter("진단서", None, None) == {}
+
+
+def test_read_route_row_filter_filters_the_response_rows(monkeypatch, tmp_path):
+    row_stub(monkeypatch)
+
+    response = post_read(_image(tmp_path), keys=json.dumps(["병명내역"]), row_filter=json.dumps({"병명내역": ["B2"]}))
+
+    assert response.status_code == 200
+    assert response.json()["fields"] == {"병명내역": [ROWS[1]]}
+
+
+@pytest.mark.parametrize("bad", ["not json", json.dumps(["병명내역"]), json.dumps({"병명내역": "A1"})])
+def test_read_route_rejects_a_malformed_row_filter(monkeypatch, tmp_path, bad):
+    hinted_stub(monkeypatch)
+
+    assert post_read(_image(tmp_path), row_filter=bad).status_code == 422

@@ -4,6 +4,10 @@
 * **Creation**: [세부내역서 급여구분 스키마 설명](2026-09-29-benefit-class-hint.md)에 공란 칸이 급여로 채워진 원인 경로, 스키마 설명 수정, 표본 4건 수정 전 실측과 수정 후 미실측 사유를 기록했다. 브랜치 `fix/benefit-class-hint`, 워크트리 `.worktrees/benefit-class-hint`.
 * **Update**: [index](index.md)에 문서를 연결했다.
 
+## 2026-09-29 (읽기·재처리 수정)
+* **Creation**: [auto_reprocess=false 읽기 오류와 ROI VLM 오채택 수정](2026-09-29-read-reprocess-fix.md)을 기록했다. 브랜치 `fix/read-reprocess`, 워크트리 `.worktrees/read-reprocess-fix`.
+* **Update**: [index](index.md)에 문서를 연결했다.
+
 ## 2026-09-28 (필수 항목 행)
 * **Update**: [필수 필드 누락 룰 MISSING.REQUIRED](2026-09-23-required-fields.md)에 항목내역 표의 필수 항목 행(`required_items`, 진료비영수증 진찰료·CT진단료) 절을 더했다. `receipt_items.yaml`의 새 공유 키를 `REQUIRED_ITEMS`로 읽어 기존 `_missing` 룰에 갈래를 더했고, 293개 테스트 결과를 기록했다. 브랜치 `feat/0928-coverage-rules`, 워크트리 `.worktrees/coverage-rules`.
 
@@ -311,3 +315,4 @@
 - Update: 2026-09-28 [필수 항목 행](2026-09-23-required-fields.md) — 한방(한의원) 진료비영수증은 CT진단료 필수 항목 검사에서 제외(`required_items_exempt`, `REQUIRED_ITEMS_EXEMPT`), 294 passed.
 
 - Creation: 2026-09-28 [MIG 자원 이름 선택](2026-09-28-mig-gpu-resource-name.md) — helm/docraft GPU 컴포넌트(paddleocrVl vlm-server·api, paddleocrLines, vllmVlm)의 device plugin 자원 이름을 값으로 빼 MIG 카드에서 컴포넌트별로 다른 조각(nvidia.com/mig-*)을 요청하게 했다. api는 vlm-server보다 가벼운 CV 서브모듈만 돌리지만 CPU 전용 옵션이 없어 실제 GPU가 필요함을 확인했고, paddleocrVl.apiGpuResource로 vlm-server와 다른 조각을 줄 수 있게 했다. gpu-check init 컨테이너는 자원 이름이 nvidia.com/mig-로 시작하면 MIG 줄 수를 센다. helm template 3가지(기본/카드 지정/MIG 리소스 모드) 검증.
+- Creation: 2026-09-29 [/api/read row_filter](2026-09-29-read-row-filter.md) — 표 일부 행만 추출하는 `row_filter` 추가(629 tests).
