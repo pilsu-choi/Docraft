@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import tempfile
 import time
 from copy import deepcopy
@@ -619,7 +620,8 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                         stop = "deadline"
                         break
                     if (stage == "roi_vlm" and isinstance(original_value, str) and original_value and original_value != value
-                            and any(engine._normalized(original_value) in engine._normalized(block.get("text", ""))
+                            and not re.fullmatch(r"[\d\s.,:/\-]+", original_value)
+                            and any(engine._normalized(original_value) in map(engine._normalized, re.split(r"[:：\n]", block.get("text", "")))
                                     for block in local)):
                         record(stage, "roi_parse_supports_original", before["status"], value,
                                provenance=after.get("provenance"))

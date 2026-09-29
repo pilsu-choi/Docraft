@@ -17,7 +17,7 @@ status: active
 
 ## 버그 2: ROI VLM 오채택
 * 원인: `backend/reprocess.py` 채택 조건이 VLM 후보의 자체 검증(exact·semantic·rule)만 보고, ROI OCR(roi_parse)이 원값을 그대로 읽었다는 독립 근거를 무시했다(`연세맑은이비인후과` → `연세앎은이비인후과`).
-* 수정: roi_vlm 단계에서 원값이 ROI OCR 블록 텍스트에 그대로 있고 VLM 값이 다르면 `roi_parse_supports_original` 로 기록하고 그 필드의 남은 단계를 멈춘다(원값 유지).
+* 수정: roi_vlm 단계에서 숫자형이 아닌 원값이 ROI OCR 블록(라벨 ":" 앞뒤로 나눈 조각) 전체와 정확히 같고 VLM 값이 다르면 `roi_parse_supports_original` 로 기록하고 그 필드의 남은 단계를 멈춘다(원값 유지).
 
 ## 테스트
 * `tests/test_read.py::test_read_with_auto_reprocess_off_returns_first_pass_and_disabled_recovery`
