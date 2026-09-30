@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-09-30 (영수증 항목명 표기)
+* **Creation**: [진료비영수증 항목명 이름 규칙 보강(표준 표기 유지)](2026-09-30-receipt-item-names.md)를 기록했다. 표준 표기는 2026-09-24 결정대로 유지. 브랜치 `fix/receipt-item-names`, 워크트리 `.worktrees/receipt-item-names`.
+* **Update**: [index](index.md)에 문서를 연결했다.
+
 ## 2026-09-29 (급여구분 힌트)
 * **Creation**: [세부내역서 급여구분 스키마 설명](2026-09-29-benefit-class-hint.md)에 공란 칸이 급여로 채워진 원인 경로, 스키마 설명 수정, 표본 4건 수정 전 실측과 수정 후 미실측 사유를 기록했다. 브랜치 `fix/benefit-class-hint`, 워크트리 `.worktrees/benefit-class-hint`.
 * **Update**: [index](index.md)에 문서를 연결했다.
