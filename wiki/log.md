@@ -1,7 +1,7 @@
 # Docraft wiki 변경 이력
 
 ## 2026-09-30 (영수증 항목명 표기)
-* **Creation**: [진료비영수증 표준 항목명을 정답지 표기로](2026-09-30-receipt-item-names.md)를 기록했다. 브랜치 `fix/receipt-item-names`, 워크트리 `.worktrees/receipt-item-names`.
+* **Creation**: [진료비영수증 항목명 이름 규칙 보강(표준 표기 유지)](2026-09-30-receipt-item-names.md)를 기록했다. 표준 표기는 2026-09-24 결정대로 유지. 브랜치 `fix/receipt-item-names`, 워크트리 `.worktrees/receipt-item-names`.
 * **Update**: [index](index.md)에 문서를 연결했다.
 
 ## 2026-09-29 (급여구분 힌트)
