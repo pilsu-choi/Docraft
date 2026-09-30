@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # 계획과 구현 기록
 
+* [진료비영수증 표준 항목명을 정답지 표기로](2026-09-30-receipt-item-names.md) - 보철·교정료·입원료_2·3인실 등 정답지 표기, item()이 기호 뗀 이름도 맞춤(하네스와 공통 표)
 * [세부내역서 급여구분 스키마 설명: 공란 칸을 급여로 채우지 않기](2026-09-29-benefit-class-hint.md) - 급여구분 힌트에 인쇄된 값만·공란 null·추정 금지·TABLE_HINT 추가, 원인 경로(VLM 추출·BLANK_AO 채택)와 표본 4건 실측
 * [MIG 자원 이름 선택: 컴포넌트마다 다른 nvidia.com/mig-* 요청](2026-09-28-mig-gpu-resource-name.md) - helm/docraft GPU 컴포넌트(paddleocrVl vlm-server·api, paddleocrLines, vllmVlm)의 device plugin 자원 이름을 값으로 빼 MIG로 나뉜 카드에서 조각별로 요청하게 함. paddleocrVl.gpuResource/apiGpuResource로 api·vlm-server 분리, gpu-check가 MIG 줄 수를 세도록 전환
 * [/api/verify 응답에 요청 처리시간(verify.elapsed_ms) 추가](2026-09-28-response-elapsed.md) - 업로드 저장부터 응답 직전까지 걸린 시간을 documents[0].verify.elapsed_ms로 반환

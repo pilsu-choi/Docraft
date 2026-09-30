@@ -103,6 +103,8 @@ GROUPED = {column: (tuple(group["titles"]), tuple(group["subs"])) for column, gr
 HEADER_WORDS = tuple(_TABLES["header_words"])
 ITEM_ALIASES = tuple((re.compile(pattern), canonical) for pattern, canonical in _SHARED["item_aliases"])
 RECEIPT_ITEM_NAMES = frozenset(_SHARED["receipt_item_names"])
+_SYMBOLS = re.compile(r"[^0-9A-Za-z가-힣]")
+_BARE_NAMES = {_SYMBOLS.sub("", name): name for name in RECEIPT_ITEM_NAMES}  # 보철교정료 → 보철·교정료(정답지 표기)
 DATE_ORDER = tuple(map(tuple, _TABLES["date_order"]))
 ISSUED = tuple(_TABLES["issued"])
 LATER_OK = tuple(_TABLES["later_ok"])
@@ -959,11 +961,11 @@ _ITEM_GROUP = re.compile(r"^(필수항목|선택항목|필수|선택|필)")  # �
 LUMP_ITEMS = ("정액수가", "65세이상등정액", "질병군포괄수가")  # 항목 행을 묶어 담는 포괄수가 행
 _MULTI_AMOUNT = re.compile(r"\d[\d,]*\s+\d")
 _OTHER_THAN = re.compile(r"선택진료[료비]?.?외")  # '이외'를 '미외'로 읽는 등 한 글자 OCR 오독을 허용한다
-_RECEIPT_ITEM_TEXT = re.compile(r"^[0-9A-Z가-힣_()-]{1,24}$")
+_RECEIPT_ITEM_TEXT = re.compile(r"^[0-9A-Z가-힣_()·-]{1,24}$")
 
 
 def _alias(text):
-    return next((canonical for pattern, canonical in ITEM_ALIASES if pattern.match(text)), text or None)
+    return next((canonical for pattern, canonical in ITEM_ALIASES if pattern.match(text)), _BARE_NAMES.get(text, text) or None)
 
 
 def item(name) -> str | None:
@@ -971,7 +973,7 @@ def item(name) -> str | None:
 
     서식의 분류 칸 글자가 붙어 온 이름('필주사료_약품비'·'선택항목_CT진단료')은 떼어 낸 나머지가 표준 항목일 때만 뗀다.
     """
-    text = re.sub(r"[^0-9A-Za-z가-힣]", "", str(name or ""))
+    text = _SYMBOLS.sub("", str(name or ""))
     bare = _alias(_ITEM_GROUP.sub("", text, count=1))
     name = bare if bare in RECEIPT_ITEM_NAMES else _alias(text)
     return name if name in RECEIPT_ITEM_NAMES or name is None or len(name) < 2 else _misread(name)
@@ -984,8 +986,8 @@ def _misread(name):
     네 글자 이상에서 한 글자만 다른 것이다('시행및처치료'→'시술및처치료', '치료재대'→'치료재료대').
     짧은 이름은 글자 하나를 통째로 바꾸면 다른 항목이 되므로('주사료'·'검사료') 자모 하나까지만 본다.
     서식 라벨에는 쓰지 않는다 — 라벨은 닫힌 목록이 아니라 '발생일'이 '발행일'로, '종료일자'가 '진료일자'로 붙는다."""
-    hits = [other for other in RECEIPT_ITEM_NAMES if len(other) == len(name) and _one_off(_jamo(other), _jamo(name))
-            or len(other) >= 4 and _one_off(other, name)]
+    hits = [other for bare, other in _BARE_NAMES.items() if len(bare) == len(name) and _one_off(_jamo(bare), _jamo(name))
+            or len(bare) >= 4 and _one_off(bare, name)]
     return hits[0] if len(hits) == 1 else name
 
 
