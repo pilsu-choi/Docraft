@@ -129,3 +129,4 @@ okf_version: "0.2"
 * [프로젝트 작업공간 테스트 기록](2026-09-21-project-workspace-tests.md) - 프로젝트 작업공간의 PostgreSQL 격리 통합 테스트와 E2E 결과
 
 * [/api/read row_filter](2026-09-29-read-row-filter.md) - 지정한 행만 생성하게 해 재읽기 시간을 줄이는 인자
+* [요양기관종류 체크박스 판독 지침과 텍스트 일치 판정 보정](2026-10-02-institution-type-checkbox.md) - 표시된 선택지만 답이라는 필드 설명, 선택지를 품은 값을 같다고 보던 오판을 enum 정확 비교로 수정

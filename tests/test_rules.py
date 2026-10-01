@@ -1368,3 +1368,10 @@ def test_detail_class_hint_forbids_guessing():
     """급여구분 스키마 설명은 인쇄된 값만·공란은 null·표 행 규칙을 담는다(공란 칸을 급여로 채우지 않게)."""
     description = doctypes.schema("세부내역서")["properties"]["항목내역"]["items"]["properties"]["급여구분"]["description"]
     assert "공란" not in description and "비었" in description and "null" in description and "추정하지 않는다" in description
+
+
+def test_institution_type_checkbox_options_compare_exactly_but_plain_text_keeps_containment():
+    kind = doctypes.kind("진료비영수증", "의료기관정보-요양기관종류")
+    assert not rules.same(kind, "고상급종합병원", "종합병원") and not rules.same(kind, "상급종합병원", "종합병원")
+    assert rules.same(kind, "종합 병원", "종합병원")
+    assert rules.same("text", "고상급종합병원", "종합병원")
