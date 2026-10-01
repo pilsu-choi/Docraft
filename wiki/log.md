@@ -320,4 +320,4 @@
 
 - Creation: 2026-09-28 [MIG 자원 이름 선택](2026-09-28-mig-gpu-resource-name.md) — helm/docraft GPU 컴포넌트(paddleocrVl vlm-server·api, paddleocrLines, vllmVlm)의 device plugin 자원 이름을 값으로 빼 MIG 카드에서 컴포넌트별로 다른 조각(nvidia.com/mig-*)을 요청하게 했다. api는 vlm-server보다 가벼운 CV 서브모듈만 돌리지만 CPU 전용 옵션이 없어 실제 GPU가 필요함을 확인했고, paddleocrVl.apiGpuResource로 vlm-server와 다른 조각을 줄 수 있게 했다. gpu-check init 컨테이너는 자원 이름이 nvidia.com/mig-로 시작하면 MIG 줄 수를 센다. helm template 3가지(기본/카드 지정/MIG 리소스 모드) 검증.
 - Creation: 2026-09-29 [/api/read row_filter](2026-09-29-read-row-filter.md) — 표 일부 행만 추출하는 `row_filter` 추가(629 tests).
-- Creation: 2026-10-02 [요양기관종류 체크박스](2026-10-02-institution-type-checkbox.md) — 요양기관종류 설명에 체크박스 판독 지침 추가, `rules.same` text 포함 일치 규칙을 괄호 제거 후 동일로 교체('고상급종합병원'≠'종합병원'), 638 passed.
+- Creation: 2026-10-02 [요양기관종류 체크박스](2026-10-02-institution-type-checkbox.md) — 요양기관종류 설명에 체크박스 판독 지침 추가, 요양기관종류 kind를 `enum`(정확 비교)으로 바꿔 '고상급종합병원'≠'종합병원', 637 passed.

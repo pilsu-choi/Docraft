@@ -276,8 +276,8 @@ def same(kind: str, a, b, strict: bool = False) -> bool:
     """두 값이 정규화 후 같은지.
 
     표기 차이를 같게 보도록 느슨하게 판정한다: 금액·수량은 빈 칸과 0을 같게 보고(빈 금액 칸은 0이다),
-    텍스트는 괄호 묶음만 빼면 같은 값을 같게 본다('(주상병)이상체중감소'와 '이상체중감소').
-    괄호 밖 글자가 다르면 다른 값이다 — '종합병원'은 '상급종합병원'·'고상급종합병원'과 다르다.
+    텍스트는 한쪽이 다른 쪽을 통째로 품고 있으면 같게 본다('(주상병)이상체중감소'와 '이상체중감소').
+    다만 짧은 쪽이 네 글자는 되어야 한다 — '외과'는 '정형외과'와 다른 값이다.
     ``strict``면 텍스트도 정규화 값이 그대로 같아야 한다(자동 통과 판정용 — 구두점 한 글자도 다른 값이다).
     """
     left, right = normalize(kind, a), normalize(kind, b)
@@ -288,7 +288,8 @@ def same(kind: str, a, b, strict: bool = False) -> bool:
     if kind == "dates":
         return set(left.split(", ")) == set(right.split(", "))
     if kind == "text" and not strict:
-        left, right = (re.sub(r"[\s\W_]+", "", re.sub(r"\([^)]*\)", "", value)) or value for value in (left, right))
+        short, long = sorted((re.sub(r"[\s\W_]+", "", value) for value in (left, right)), key=len)
+        return short == long or (len(short) >= 4 and short in long)
     return left == right
 
 
