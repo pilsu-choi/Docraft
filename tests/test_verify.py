@@ -1000,3 +1000,9 @@ def test_run_takes_docraft_values_without_the_judge_when_ao_is_blank(monkeypatch
     assert (issued["value"], issued["source"]) == ("20220517", "docraft")
     table = next(t for t in document["extracted_tables"] if t["key"] == "병명내역")
     assert table["source"] == "docraft" and table["rows"][0][0]["value"] == "R634"
+
+
+def test_receipt_institution_type_desc_tells_judge_only_the_checked_option_counts():
+    key = "의료기관정보-요양기관종류"
+    desc = verify._describe("진료비영수증", key, {"ao": "의원급·보건기관", "docraft": "종합병원"})["desc"]
+    assert "체크박스" in desc and "표시 없는" in desc

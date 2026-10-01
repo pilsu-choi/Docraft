@@ -115,6 +115,8 @@ def test_same_is_lenient_about_empty_amounts_and_wrapped_text(kind, a, b):
     ("text", "가", "가나다"),                      # 한 글자는 품고 있어도 같다고 보지 않는다
     ("text", "외과", "정형외과"),                   # 세 글자 이하는 품고 있어도 다른 값이다
     ("text", "이상체중감소", "체중증가"),
+    ("text", "고상급종합병원", "종합병원"),           # 체크박스 선택지는 품고 있어도 다른 값이다
+    ("text", "상급종합병원", "종합병원"),
 ])
 def test_same_still_separates_different_values(kind, a, b):
     assert not rules.same(kind, a, b) and not rules.same(kind, b, a)
