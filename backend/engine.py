@@ -507,9 +507,14 @@ def _table_plan(doc_type, table, spec, blocks):
     earlier page): a long table repeats one printed header, and a page whose header OCR misread a word or carries no header
     (a continuation page) reads with the same plan as the others."""
     union = {key: prop.get("description", "") for key, prop in spec["items"]["properties"].items()}
-    plans = [plan for _, group in groupby(blocks, key=lambda b: b.get("page"))
-             if (plan := table_layout.plan(doc_type, table, list(group), spec.get("description", ""), union))]
-    return max(plans, key=lambda plan: (plans.count(plan), len(plan[1])), default=None)
+    pages = [table_layout.planned(doc_type, table, list(group), spec.get("description", ""), union)
+             for _, group in groupby(blocks, key=lambda b: b.get("page"))]
+    plans = [plan for plan, _, _ in pages if plan]
+    best = max(plans, key=lambda plan: (plans.count(plan), len(plan[1])), default=None)
+    source, reason = next(((source, reason) for plan, source, reason in pages if plan == best), ("union", None))
+    note("table_plan", source, add=False)  # 운영 지표: 열 배치 출처와 머리글을 못 읽은 사유(첫 쪽)
+    note("table_plan_reason", reason or next((reason for _, _, reason in pages if reason), None), add=False)
+    return best
 
 
 def _table_pages(blocks, budget, columns):

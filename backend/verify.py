@@ -19,7 +19,7 @@ from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 
-from . import doctypes, engine, latency, reprocess, rules, table_layout
+from . import doctypes, engine, latency, reprocess, rules
 from .parsers import parse
 
 logger = logging.getLogger(__name__)
@@ -539,12 +539,10 @@ def _merge_recovered_groundings(original, recovered, trace, fields):
     return original
 
 
-def _note_table(doc_type, schema, blocks, misses, reread):
-    """rowmajor 항목 표 읽기의 운영 지표를 요청 단계 값(``latency.note``)으로 남긴다: 열 배치 출처(layout·header·value·union)와
-    머리글을 못 읽은 사유(``table_layout.planned``), 게이트 이상 비율과 asis로 다시 읽었는지, 바로 세워 읽은 쪽(쪽 → 돌린 각도)."""
-    spec = schema["properties"][rules.ITEM_TABLE]
-    _, source, reason = table_layout.planned(doc_type, rules.ITEM_TABLE, blocks, "", dict.fromkeys(spec["items"]["properties"], ""))
-    for name, value in {"table_plan": source, "table_plan_reason": reason, "table_gate": round(misses, 3), "table_reread": reread,
+def _note_table(blocks, misses, reread):
+    """rowmajor 항목 표 읽기의 운영 지표를 요청 단계 값(``latency.note``)으로 남긴다: 게이트 이상 비율과 asis로 다시 읽었는지,
+    바로 세워 읽은 쪽(쪽 → 돌린 각도). 열 배치 출처·사유는 engine이, 맞바꾼 열은 rules가 남긴다."""
+    for name, value in {"table_gate": round(misses, 3), "table_reread": reread,
                         "turned": {str(page): turn for page, turn in engine._turns(blocks).items()}}.items():
         latency.note(name, value, add=False)
 
@@ -583,8 +581,7 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
     fields = rules.apply(doc_type, result, blocks)
     rowmajor = settings["table_extract"] == "rowmajor" and rules.ITEM_TABLE in extract_schema.get("properties", {})
     if rowmajor:
-        _note_table(doc_type, extract_schema, blocks, misses := rules.table_misses(doc_type, result.get(rules.ITEM_TABLE), fields),
-                    misses >= settings["table_recheck_ratio"])
+        _note_table(blocks, misses := rules.table_misses(doc_type, result.get(rules.ITEM_TABLE), fields), misses >= settings["table_recheck_ratio"])
     if rowmajor and misses >= settings["table_recheck_ratio"]:
         # 행 산술이 크게 어긋나거나 금액을 비웠거나 행이 무너졌으면 rowmajor 열 배치가 틀린 것이다: 그 표만 asis로 다시 읽는다
         logger.info("verify: %s 표 이상 비율 %.2f >= %.2f, asis로 다시 읽는다", rules.ITEM_TABLE, misses, settings["table_recheck_ratio"])

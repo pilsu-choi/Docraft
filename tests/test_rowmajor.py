@@ -570,16 +570,25 @@ def test_read_records_the_table_plan_gate_and_turn_as_request_diagnostics(monkey
     with latency.track() as stages:
         verify.read("scan.png", "세부내역서", only={"항목내역"}, auto_reprocess=False)
 
-    assert stages["table_plan"] == "union" and stages["table_plan_reason"] == "no_table_text"
     assert stages["table_gate"] >= 0.3 and stages["table_reread"] is True and stages["turned"] == {"1": 90}
 
 
-def test_a_rowmajor_fallback_reason_is_recorded(provider):
+def test_rowmajor_extract_records_the_plan_source_and_a_fallback_reason(provider):
     provider.rows = [["a"]]  # 열 수가 틀린 행: 표를 asis로 다시 읽는다
     with latency.track() as stages:
         engine.extract(detail_schema(), BLOCKS, provider.image, table_extract="rowmajor")
 
+    assert stages["table_plan"] == "header" and stages["table_plan_reason"] is None
     assert "열 수" in stages["rowmajor_fallback"]
+
+
+def test_rowmajor_extract_records_why_the_header_was_not_read(provider):
+    blocks = [{**BLOCKS[0], "lines": BLOCKS[0]["lines"][:2]}]
+    provider.rows = [[None] * len(DETAIL)]
+    with latency.track() as stages:
+        engine.extract(detail_schema(), blocks, provider.image, table_extract="rowmajor")
+
+    assert (stages["table_plan"], stages["table_plan_reason"]) == ("union", "few_header_columns")
 
 
 # --- 머리글을 못 읽은 표: 셀 값 꼴로 열 순서 ---------------------------------------------
