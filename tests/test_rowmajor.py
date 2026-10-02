@@ -315,3 +315,28 @@ def test_arith_misses_counts_rows_once_and_only_for_detail_bills():
     assert rules.arith_misses("세부내역서", fields) == 0.25  # 어긋난 행 하나가 두 검사에 걸려도 한 번만 센다
     assert rules.arith_misses("진료비영수증", fields) == 0.0
     assert rules.arith_misses("세부내역서", {"항목내역": []}) == 0.0
+
+
+# --- 돌아간 페이지(orientation) ----------------------------------------------------
+
+
+@pytest.mark.parametrize("turn", [90, 180, 270])
+def test_header_order_is_read_on_the_upright_page_of_a_turned_block(turn):
+    from backend.parsers import unturn
+    upright = [{**header(("항목", 0, 0), ("코드", 200, 0), ("명칭", 300, 0), ("단가", 500, 0), ("일수", 700, 0), ("총액", 900, 0))[0],
+                "page_size": [1200, 400]}]
+    turned = unturn(upright, turn)  # 원본(돌아간) 페이지 좌표로 보고된 블록
+
+    assert turned[0]["orientation"] == turn
+    assert table_layout.printed_columns(turned, DETAIL) == table_layout.printed_columns(upright, DETAIL)
+
+
+def test_rowmajor_page_image_is_turned_upright(provider, monkeypatch):
+    turns = []
+    monkeypatch.setattr(engine, "_page_images", lambda source, pages, turns_=None: turns.append(turns_) or ["data:x"])
+    provider.objects = [{"환자성명": "홍길동"}]
+    blocks = [{**BLOCKS[0], "orientation": 90}]
+
+    engine.extract(detail_schema(), blocks, provider.image, table_extract="rowmajor")
+
+    assert turns and all(t == {1: 90} for t in turns)

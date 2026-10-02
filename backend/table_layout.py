@@ -89,11 +89,15 @@ def _words(text):
 
 
 def _tokens(blocks):
-    """표 블록 줄을 머리글 낱말로 쪼갠 {text, x, y, h}. 한 줄에 낱말이 여럿이면 글자 수로 줄 폭을 나눠 x를 정한다."""
+    """표 블록 줄을 머리글 낱말로 쪼갠 {text, x, y, h}. 한 줄에 낱말이 여럿이면 글자 수로 줄 폭을 나눠 x를 정한다.
+    돌아간 페이지의 블록(``orientation``)은 좌표가 원본 기준이므로 바로 선 페이지 좌표로 돌려서 본다."""
+    from .parsers import unturn  # parsers → engine → table_layout 순환을 피한다
     out = []
     for block in blocks:
         if block.get("type") != "table":
             continue
+        if block.get("orientation"):
+            block = unturn([block], 360 - block["orientation"])[0]
         for line in block.get("lines") or []:
             x0, y0, x1, y1 = line["bbox"]
             words = _words(line["text"])

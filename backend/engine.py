@@ -54,6 +54,11 @@ def _data_url(page, clip=None, max_zoom=2.0, turn=0):
     return "data:image/jpeg;base64," + base64.b64encode(pixmap.tobytes("jpeg", jpg_quality=90)).decode()
 
 
+def _turns(blocks):
+    """page → `orientation` of the blocks the parser read from a turned page."""
+    return {b["page"]: b["orientation"] for b in blocks if b.get("orientation")}
+
+
 def _page_images(source, pages, turns=None):
     """Page images of the document file `source` for the given 1-based page numbers (the same numbering the
     parser puts on blocks), each turned upright by `turns` (page → `orientation`). Empty when vision is off, the
@@ -496,7 +501,7 @@ def _read_chunks(schema, chunks, source, budget, deadline=None, cancel=None, on_
             raise TimeoutError("extraction deadline exceeded")
         page_range = _page_range(chunk)
         evidence = _chunk_text(chunk, budget)
-        images = _page_images(source, _pages(chunk), {b["page"]: b["orientation"] for b in chunk if b.get("orientation")})
+        images = _page_images(source, _pages(chunk), _turns(chunk))
         logger.debug("extract: chunk %d/%d pages=%s blocks=%d evidence_chars=%d images=%d", index + 1, len(chunks), page_range, len(chunk), len(evidence), len(images))
         chunk_system = system + (VISION_NOTE if images else "")
         if len(chunks) > 1:
@@ -535,7 +540,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     logger.info("extract: provider mode blocks=%d chunks=%d budget=%d pages=%s", len(blocks), len(chunks), budget, [_page_range(chunk) for chunk in chunks])
     properties = schema.get("properties", {})
     tables = [key for key, prop in properties.items() if prop.get("type") == "array" and prop.get("items", {}).get("type") == "object"]
-    images = _page_images(source, _pages(blocks)) if table_extract == "rowmajor" and tables and len(chunks) == 1 else []
+    images = _page_images(source, _pages(blocks), _turns(blocks)) if table_extract == "rowmajor" and tables and len(chunks) == 1 else []
     if table_extract == "rowmajor" and tables and not images:
         logger.info("extract: rowmajor needs one chunk with page images (chunks=%d), reading tables asis", len(chunks))
     tables = tables if images else []
