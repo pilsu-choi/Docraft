@@ -270,7 +270,7 @@ def test_total_row_moves_to_total_fields():
     rows = [{"항목": "진찰료", "본인부담": "1,000", "공단부담": "2,000"},
             {"항목": "합 계", "본인부담": "5,000", "공단부담": "7,000"}]
     out = rules.apply("세부내역서", {"항목내역": rows}, [])
-    assert [row["항목"] for row in out["항목내역"]] == ["진찰료", "합 계"]  # 세부내역서 집계 행은 인쇄된 라벨 그대로 남는다
+    assert [row["항목"] for row in out["항목내역"]] == ["진찰료", "합계"]  # 세부내역서 집계 행은 표준 라벨로 남는다
     assert (out["급여_본인부담총액"], out["급여_공단부담총액"]) == ("5000", "7000")
 
 
@@ -1609,15 +1609,24 @@ def test_codes_are_not_swapped_with_a_column_holding_names():
     assert [flag["column"] for flag in rules.check("세부내역서", {"항목내역": out}, {"항목내역": out}, blocks) if flag["code"] == "column_swap"] == ["원내코드"]
 
 
-@pytest.mark.parametrize("label", ["소계", "계", "합계", "총합계", "합 계", "끝수처리조정금액", "끝수처리 조정금액", "끝처리 조정금액",
-                                   "끝수처리조정금", "조정금액", "(Total)", "투약및조제료 소계"])
-def test_detail_summary_row_variants_are_kept_and_not_summed(label):
-    """세부내역서 집계 행은 인쇄된 라벨 그대로 표에 남고(2026-10-03 정책), 금액 합 검사에서는 빠진다."""
+@pytest.mark.parametrize("label,standard", [
+    ("소계", "소계"), ("소계:", "소계"), ("투약및조제료 소계", "소계"), ("계", "계"), ("계:", "계"), ("(Total)", "계"),
+    ("합계", "합계"), ("합 계", "합계"), ("총합계", "합계"), ("총계", "합계"), ("합계:", "합계"),
+    ("끝수처리조정금액", "끝수처리조정금액"), ("끝수처리 조정금액", "끝수처리조정금액"), ("끝처리 조정금액", "끝수처리조정금액"),
+    ("끝수처리 조정금", "끝수처리조정금액"), ("끝수처리조정금액:", "끝수처리조정금액"), ("조정금액", "조정금액"),
+])
+def test_detail_summary_row_variants_are_kept_under_the_standard_label_and_not_summed(label, standard):
+    """세부내역서 집계 행은 표준 라벨(AO·정답지 관례)로 표에 남고(2026-10-03 정책), 금액 합 검사에서는 빠진다."""
     rows = [{"항목": "진찰료", "EDI코드": "AA157", "총액": "100"}, {"항목": label, "총액": "100"}]
 
     out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
 
-    assert [row["항목"] for row in out] == ["진찰료", label] and rules.is_total(out[1]) and not rules.is_total(out[0])
+    assert [row["항목"] for row in out] == ["진찰료", standard] and rules.is_total(out[1]) and not rules.is_total(out[0])
+
+
+@pytest.mark.parametrize("name", ["진찰료", "조정", "검사료", "계산서", "합계표"])
+def test_item_names_are_not_summary_rows(name):
+    assert not rules.is_total({"항목": name})
 
 
 def test_a_coded_row_named_like_a_total_is_an_item_row():

@@ -470,7 +470,7 @@ def test_decide_keeps_printed_total_rows_of_a_detail_table_via_apply_reuse():
 
     rows, source, reason = verify._decide("세부내역서", "항목내역", verdict, [], [], "rows")
 
-    assert [row["항목"] for row in rows] == ["진찰료", "계", "끝수처리 조정금액"]
+    assert [row["항목"] for row in rows] == ["진찰료", "계", "끝수처리조정금액"]
     assert rows[0]["본인부담"] == "1000"  # kind별 정규화(콤마 제거)도 함께 적용된다
     assert source == "corrected" and reason == "합계행을 함께 읽었다"
 

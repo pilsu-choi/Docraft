@@ -678,7 +678,7 @@ def assert_summary_kept(rows):
     assert [(r["항목"], r["EDI명칭"], r["시작일자"], r["종료일자"], r["총액"]) for r in rows] == [
         ("진찰료", "초진진찰료", "20230303", "20230303", "100"), ("진찰료", "재진진찰료", "20230303", "20230303", "50"),
         ("소계", None, None, None, "150"), ("검사료", "혈액검사", "20230304", "20230304", "30"), ("검사료", "소변검사", "20230304", "20230304", "20"),
-        ("끝수처리 조정금액", None, None, None, "-5"), ("합계", None, None, None, "195")]
+        ("끝수처리조정금액", None, None, None, "-5"), ("합계", None, None, None, "195")]
 
 
 def test_rowmajor_detail_keeps_printed_summary_rows_without_filling_them_down(provider):
