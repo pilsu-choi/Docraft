@@ -2,14 +2,16 @@
 한 프로세스가 한 방식(--arm)을 맡는다. <out>/<arm>/<file>.json =
 {rows, first_rows, last_rows, misses, usage, elapsed_ms, calls, call_kinds, providers, statuses, finishes, chunks, turns, warnings, error}"""
 import argparse
+import contextvars
+import itertools
 import json
 import logging
 import os
 import sys
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from types import SimpleNamespace
 from pathlib import Path
 
 ap = argparse.ArgumentParser()
@@ -21,6 +23,7 @@ ap.add_argument("--doc-type", default="세부내역서")
 ap.add_argument("--workers", type=int, default=2)
 ap.add_argument("--only", nargs="+")
 ap.add_argument("--folder", default="", help="<out>/<arm>/<folder>/ 아래에 쓴다(grade_ab.py 모양)")
+ap.add_argument("--max-calls", type=int, default=0, help="이 프로세스의 provider 호출 상한(0이면 없음). 넘으면 그 문서를 오류로 멈춘다")
 args = ap.parse_args()
 os.environ["TABLE_EXTRACT"] = args.arm
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -28,12 +31,30 @@ import httpx  # noqa: E402
 
 from backend import doctypes, engine, rules, verify  # noqa: E402
 
-_local = threading.local()
+_doc = contextvars.ContextVar("doc", default=None)
+_sent = itertools.count(1)
+
+
+class _Local:
+    """문서별 기록. 쪽 묶음 병렬 호출(engine 의 ``parallel``)은 contextvars 를 넘겨받으므로 스레드가 달라도 같은 문서 기록에 쌓인다."""
+    def __getattr__(self, name):
+        if _doc.get() is None:
+            raise AttributeError(name)
+        return getattr(_doc.get(), name)
+
+
+class Budget(Exception):
+    """호출 상한 초과. RuntimeError 가 아니라 engine 의 쪽 실패 처리에 잡히지 않고 문서를 멈춘다."""
+
+
+_local = _Local()
 _stream, _extract = httpx.Client.stream, engine.extract
 
 
 @contextmanager
 def _timed_stream(self, *a, **kw):
+    if args.max_calls and next(_sent) > args.max_calls:
+        raise Budget(f"호출 상한 {args.max_calls}회를 넘었다")
     t0 = time.monotonic()
     with _stream(self, *a, **kw) as resp:
         buf, original = bytearray(), resp.iter_bytes
@@ -82,18 +103,20 @@ def run_doc(name):
     saved = json.loads((args.ocr / f"{name}.json").read_text(encoding="utf-8"))
     blocks = saved["blocks"]
     tables = set(doctypes.DOC_TYPES[args.doc_type]["tables"])
-    _local.log, _local.logs, _local.blocks, _local.extracts = [], [], blocks, []
+    _doc.set(SimpleNamespace(log=[], logs=[], blocks=blocks, extracts=[]))
+    started = time.monotonic()
     rows, error = None, None
     try:
         _, rows, _ = verify.read(str(args.imgs / name), args.doc_type, only=tables, auto_reprocess=False)
     except Exception as exc:
         error = f"{type(exc).__name__}: {str(exc)[:300]}"
+    wall_ms = round((time.monotonic() - started) * 1000)
     first = _local.extracts[0] if _local.extracts else None
     misses = rules.table_misses(args.doc_type, first, rules.apply(args.doc_type, {rules.ITEM_TABLE: first}, blocks)) if first else None
     log = _local.log
     record = {"rows": rows, "first_rows": first, "last_rows": _local.extracts[-1] if _local.extracts else None, "misses": misses, "extracts": len(_local.extracts),
               "usage": {k: sum(c["usage"].get(k, 0) for c in log) for k in ("prompt_tokens", "completion_tokens")},
-              "elapsed_ms": sum(c["ms"] for c in log), "calls": len(log), "call_kinds": [c["kind"] for c in log],
+              "elapsed_ms": sum(c["ms"] for c in log), "wall_ms": wall_ms, "call_ms": [c["ms"] for c in log], "call_tokens": [c["usage"].get("completion_tokens") for c in log], "calls": len(log), "call_kinds": [c["kind"] for c in log],
               "providers": sorted({c["provider"] for c in log if c["provider"]}), "statuses": [c["status"] for c in log],
               "finishes": [c["finish"] for c in log], "chunks": len(engine._page_chunks(blocks, engine.ai_settings()["chunk_chars"])),
               "turns": saved.get("turns") or {}, "warnings": _local.logs, "error": error}

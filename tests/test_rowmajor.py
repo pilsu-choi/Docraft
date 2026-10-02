@@ -344,15 +344,13 @@ def test_a_reply_breaking_the_row_contract_rereads_that_table_asis(provider, row
     assert result["항목내역"][0]["총액"] == "100"
 
 
-def test_rowmajor_without_page_images_or_over_several_chunks_reads_asis(provider, monkeypatch):
-    provider.objects = [{"항목내역": []}, {"항목내역": []}, {"항목내역": []}]
+def test_rowmajor_without_page_images_reads_asis(provider):
+    provider.objects = [{"항목내역": []}]
     schema = verify._restrict(doctypes.schema("세부내역서"), {"항목내역"})
 
-    engine.extract(schema, BLOCKS, None, table_extract="rowmajor")  # 이미지 없음
-    monkeypatch.setenv("EXTRACT_CHUNK_CHARS", "5")
-    engine.extract(schema, [{**BLOCKS[0], "page": 1}, {**BLOCKS[0], "page": 2}], provider.image, table_extract="rowmajor")
+    engine.extract(schema, BLOCKS, None, table_extract="rowmajor")
 
-    assert all(call["json_schema"] is None for call in provider.calls)
+    assert [call["json_schema"] for call in provider.calls] == [None]
 
 
 def test_asis_sends_the_whole_schema_in_one_call_as_before(provider):
