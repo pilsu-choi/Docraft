@@ -283,7 +283,7 @@ def test_table_refinement_discards_stale_ocr_cell_witnesses(tmp_path, monkeypatc
     parsed = parsers.block(original, "table", page=1, bbox=[0, 0, 100, 100], page_size=[100, 100],
                            source="paddleocr_remote", rows=[["원문"]], cells=[{"row": 0, "column": 0, "text": "원문"}])
     monkeypatch.setattr(parsers, "_remote_paddle", lambda *args, **kwargs: [parsed])
-    monkeypatch.setattr(parsers, "refine_table", lambda *args: corrected)
+    monkeypatch.setattr(parsers, "refine_tables", lambda tables, *args: [corrected for _ in tables])
 
     _, blocks = parse(path, path.name, "image/png", {"provider": "paddle"})
 
@@ -307,9 +307,9 @@ def test_table_refine_corrects_cell_text_but_never_the_grid(tmp_path, monkeypatc
     # Model replies with the bare {cell: text} object, blanks a cell, moves text from another cell and writes into the empty and image cells.
     monkeypatch.setattr(engine, "_provider", lambda messages, timeout: sent.append(messages) or
                         {"0": "진찰료", "1": "670925", "2": "", "3": "⑥", "4": "직인", "5": "현금승인번호", "6": "40,000"})
-    refined = engine.refine_table(block, str(path))
+    [refined] = engine.refine_tables([block], str(path))
     assert refined == ("<table><tr><td rowspan=\"2\">진찰료</td><td>670925</td><td>현금영수증</td><td>⑥</td></tr>"
                        "<tr><td><img src=\"seal.jpg\"></td><td>현금영수증</td><td></td></tr></table>")
     assert '"4"' not in sent[0][0]["content"][-1]["text"]  # the image cell is never sent
     monkeypatch.setenv("TABLE_REFINE", "false")
-    assert engine.refine_table(block, str(path)) is None
+    assert engine.refine_tables([block], str(path)) == [None]

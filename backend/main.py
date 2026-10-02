@@ -27,7 +27,7 @@ from jsonschema.exceptions import SchemaError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import bind_request, new_request_id, public_ai_settings
-from . import engine, jobs, master, reprocess, verify
+from . import engine, jobs, latency, master, reprocess, verify
 from .db import FILES, audit, connect, decode, init_db, now
 from .parsers import ParseError, parse
 
@@ -892,7 +892,8 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
         return fields, groundings, quality, recovery
 
     try:
-        (fields, groundings, quality, recovery), filename, started = await process_image(request, image, run_read)
+        with latency.track() as stages:
+            (fields, groundings, quality, recovery), filename, started = await process_image(request, image, run_read)
     except verify.Cancelled as exc:
         return cancelled_response(exc, "read", doc_type)
     except HTTPException:  # process_image가 낸 415·413·422(다중 페이지)는 그대로 올린다
@@ -909,7 +910,8 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
         groundings = {key: value for key, value in groundings.items() if key in only}
         quality = {key: value for key, value in quality.items() if key.split("/")[0] in only}
     elapsed_ms = round((time.monotonic() - started) * 1000)
-    logger.info("read finished: filename=%s doc_type=%s fields=%d elapsed_ms=%d", filename, doc_type, len(fields), elapsed_ms)
+    logger.info("read finished: filename=%s doc_type=%s fields=%d elapsed_ms=%d %s", filename, doc_type, len(fields), elapsed_ms,
+                " ".join(f"{name}={stages.get(name, 0)}" for name in ("ocr_ms", "ocr_wait_ms", "refine_ms", "extract_ms", "reprocess_ms", "cache_hit")))
     return {"doc_type": doc_type, "fields": fields, "groundings": groundings, "field_quality": quality,
             "elapsed_ms": elapsed_ms, "reprocess": recovery}
 

@@ -1,7 +1,9 @@
 import csv
 import io
 import base64
+import hashlib
 import html
+import json
 import logging
 import tempfile
 import time
@@ -15,8 +17,9 @@ import fitz
 import httpx
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from .config import ocr_settings
-from .engine import refine_table
+from . import latency
+from .config import ai_settings, ocr_settings
+from .engine import refine_tables
 from .table_grid import ruled_table
 
 logger = logging.getLogger(__name__)
@@ -123,7 +126,7 @@ def _html_table(content):
     return {key: table[key] for key in ("rows", "spans") if key in table}
 
 
-def _attach_lines(blocks, encoded, file_type, settings, page_map, timeout=None):
+def _attach_lines(blocks, encoded, file_type, settings, page_map, deadline=None):
     """Add PP-OCRv5 text line boxes (`block["lines"]`) so grounding can point at a line instead of a whole block.
 
     The layout pipeline only returns block coordinates; this plain OCR pipeline returns one box per
@@ -132,7 +135,7 @@ def _attach_lines(blocks, encoded, file_type, settings, page_map, timeout=None):
     started = time.monotonic()
     headers = {"Authorization": f"Bearer {settings['token']}"} if settings["token"] else {}
     try:
-        response = httpx.post(f"{settings['lines_url']}/ocr", json={"file": encoded, "fileType": file_type, "visualize": False}, headers=headers, timeout=min(settings["timeout"], timeout) if timeout is not None else settings["timeout"])
+        response = httpx.post(f"{settings['lines_url']}/ocr", json={"file": encoded, "fileType": file_type, "visualize": False}, headers=headers, timeout=latency.capped(settings["timeout"], deadline))
         response.raise_for_status()
         pages = response.json()["result"]["ocrResults"]
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
@@ -198,7 +201,9 @@ def _remote_paddle(path, file_type, page_map=None, expected_pages=None, timeout=
     logger.debug("paddleocr request: endpoint=%s file_type=%s bytes=%d", endpoint, file_type, len(payload["file"]))
     started = time.monotonic()
     try:
-        response = httpx.post(endpoint, json=payload, headers=headers, timeout=min(settings["timeout"], timeout) if timeout is not None else settings["timeout"])
+        with latency.ocr_slot(deadline):  # GPU 레이아웃 모델은 동시 2건에서 포화된다 — 몰리면 줄을 세운다
+            budget = min(settings["timeout"], timeout) if timeout is not None else settings["timeout"]
+            response = httpx.post(endpoint, json=payload, headers=headers, timeout=latency.capped(budget, deadline))
         response.raise_for_status()
         pages = response.json()["result"]["layoutParsingResults"]
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
@@ -230,8 +235,7 @@ def _remote_paddle(path, file_type, page_map=None, expected_pages=None, timeout=
     if not blocks:
         raise ParseError("PaddleOCR 원격 응답에서 텍스트를 찾지 못했습니다.")
     if settings["lines_url"] and (deadline is None or time.monotonic() < deadline):
-        remaining = deadline - time.monotonic() if deadline is not None else None
-        _attach_lines(blocks, encoded, file_type, settings, page_map, remaining)
+        _attach_lines(blocks, encoded, file_type, settings, page_map, deadline)
         _ruled_tables(blocks, path, file_type, page_map)
     return blocks
 
@@ -356,7 +360,19 @@ def _markdown(item, table_format="markdown"):
 
 
 def parse(path, filename, media_type, options=None):
+    """``(markdown, blocks)``. 원격 OCR(``provider="paddle"``) 결과는 같은 파일·설정의 동시·연이은 요청이 나눠 쓴다(``latency.shared``)."""
     options = options or {}
+    if options.get("provider") != "paddle":
+        return _parse(path, filename, media_type, options)
+    ocr, ai = ocr_settings(), ai_settings()
+    key = json.dumps([hashlib.sha256(Path(path).read_bytes()).hexdigest(), Path(filename).suffix.lower(), media_type,
+                      [options.get("pages"), options.get("table_format"), options.get("refine_tables", True)],
+                      [ocr[name] for name in ("base_url", "lines_url", "model")],
+                      [ai[name] for name in ("mode", "base_url", "model", "vision", "table_refine", "reasoning")]])
+    return latency.shared(key, lambda: _parse(path, filename, media_type, options), options.get("deadline"))
+
+
+def _parse(path, filename, media_type, options):
     pages, provider, table_format = options.get("pages"), options.get("provider", "auto"), options.get("table_format", "markdown")
     suffix = Path(filename).suffix.lower()
     if suffix == ".pdf":
@@ -377,8 +393,10 @@ def parse(path, filename, media_type, options=None):
         raise ParseError(f"지원하지 않는 파일 형식입니다: {suffix or media_type}")
     if not blocks:
         raise ParseError("문서에서 내용을 찾지 못했습니다.")
-    for item in blocks:
-        text = refine_table(item, path, options.get("deadline")) if options.get("refine_tables", True) and item["type"] == "table" and item.get("source") == "paddleocr_remote" else None
+    tables = [item for item in blocks if options.get("refine_tables", True) and item["type"] == "table" and item.get("source") == "paddleocr_remote"]
+    with latency.timed("refine_ms"):
+        refined = refine_tables(tables, path, options.get("deadline")) if tables else []
+    for item, text in zip(tables, refined):
         if text:
             # Refinement edits HTML cell text without updating OCR cell witnesses; do not reuse stale typed proof.
             item.pop("cells", None)

@@ -19,7 +19,7 @@ from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 
-from . import doctypes, engine, reprocess, rules
+from . import doctypes, engine, latency, reprocess, rules
 from .parsers import parse
 
 logger = logging.getLogger(__name__)
@@ -558,15 +558,16 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
     schema = _restrict(doctypes.schema(doc_type), only)
     row_filter = row_filter or {}
     extract_schema = _narrow_rows(schema, doc_type, row_filter) if row_filter else schema
-    if deadline is None:
-        result, groundings = engine.extract(extract_schema, blocks, source=image)
-    else:
-        initial_calls = 0
-        def count_initial():
-            nonlocal initial_calls
-            initial_calls += 1
-        result, groundings = engine.extract(extract_schema, blocks, source=image, deadline=deadline, cancel=cancel,
-                                            on_call=count_initial)
+    with latency.timed("extract_ms"):
+        if deadline is None:
+            result, groundings = engine.extract(extract_schema, blocks, source=image)
+        else:
+            initial_calls = 0
+            def count_initial():
+                nonlocal initial_calls
+                initial_calls += 1
+            result, groundings = engine.extract(extract_schema, blocks, source=image, deadline=deadline, cancel=cancel,
+                                                on_call=count_initial)
     _check(cancel)
     if deadline is not None and time.monotonic() >= deadline:
         raise TimeoutError("read deadline exceeded")
@@ -578,10 +579,11 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
     reprocess_schema = _restrict(schema, set(schema["properties"]) - set(row_filter)) if row_filter else schema
     recovered = recovery_groundings = recovered_quality = None
     if auto_reprocess is not False and Path(image).is_file() and reprocess_schema.get("properties"):
-        fields, recovery_groundings, recovered_quality, recovered = reprocess.run(
-            image, reprocess_schema, blocks, fields, normalize=lambda values, evidence: rules.apply(doc_type, values, evidence),
-            check_rules=lambda values, evidence: rules.check(doc_type, values, values, evidence),
-            cancel=cancel, deadline=deadline, enabled=auto_reprocess)
+        with latency.timed("reprocess_ms"):
+            fields, recovery_groundings, recovered_quality, recovered = reprocess.run(
+                image, reprocess_schema, blocks, fields, normalize=lambda values, evidence: rules.apply(doc_type, values, evidence),
+                check_rules=lambda values, evidence: rules.check(doc_type, values, values, evidence),
+                cancel=cancel, deadline=deadline, enabled=auto_reprocess)
     if recovered is None and with_reprocess:
         recovered = {"attempts": 0, "model_calls": 0, "stop_reason": "disabled" if auto_reprocess is False else "no_schema",
                      "elapsed_ms": 0, "trace": []}

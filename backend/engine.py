@@ -15,7 +15,8 @@ import fitz
 import httpx
 from jsonschema import Draft202012Validator
 
-from .config import ai_settings
+from .config import ai_settings, limit
+from .latency import parallel, remaining
 
 logger = logging.getLogger(__name__)
 
@@ -93,16 +94,22 @@ def _provider(messages, timeout=None, timeout_cap=None):
     images = sum(1 for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url")
     logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", settings["model"], len(messages), images, prompt_chars)
     started = time.monotonic()
-    with httpx.Client(timeout=timeout, transport=httpx.HTTPTransport(retries=0 if timeout_cap is not None else 2)) as client:
-        response = client.post(f"{settings['base_url']}/chat/completions", headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body)
-        elapsed = time.monotonic() - started
+    with httpx.Client(timeout=timeout, transport=httpx.HTTPTransport(retries=0 if timeout_cap is not None else 2)) as client, \
+            client.stream("POST", f"{settings['base_url']}/chat/completions", headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body) as response:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            logger.error("provider HTTP error: status=%s elapsed=%.2fs", response.status_code, elapsed)
+            logger.error("provider HTTP error: status=%s elapsed=%.2fs", response.status_code, time.monotonic() - started)
             raise RuntimeError(f"AI provider 요청 실패 (HTTP {response.status_code})") from exc
+        # httpx timeout은 바이트 사이 간격만 잰다. OpenRouter는 응답 전까지 keep-alive 공백을 흘려 보내므로 시한은 직접 잰다.
+        raw = b""
+        for chunk in response.iter_bytes():
+            raw += chunk
+            if timeout_cap is not None and time.monotonic() - started > max(0.1, timeout_cap):
+                raise TimeoutError("AI provider 응답이 요청 시한을 넘었습니다.")
+        elapsed = time.monotonic() - started
         try:
-            choice = response.json()["choices"][0]
+            choice = json.loads(raw)["choices"][0]
             finish_reason = choice.get("finish_reason")
             if finish_reason == "length":
                 logger.warning("provider response truncated: finish_reason=length elapsed=%.2fs", elapsed)
@@ -130,39 +137,84 @@ TABLE_REFINE_PROMPT = (
 )
 
 
-def refine_table(block, source, deadline=None):
-    """Correct the cell text of an OCR table HTML block against the table region of the page image (`TABLE_REFINE`).
+TABLE_PART_NOTE = "These are only some rows of the table; cell numbers count over the whole table. "
+
+
+def _row_parts(text, cells, max_cells):
+    """Split the sendable `cells` ({cell number: text}) into consecutive whole-row groups of at most `max_cells` cells.
+
+    Cell numbers keep counting over the whole table, so corrections from every group merge back unchanged. A row larger
+    than `max_cells` stays whole; `max_cells` 0 or an HTML without <tr> rows sends the table as one group."""
+    widths = [len(TABLE_CELL.findall(row)) for row in re.findall(r"<tr[^>]*>(.*?)</tr>", text, re.S)]
+    if not max_cells or len(cells) <= max_cells or sum(widths) != len(TABLE_CELL.findall(text)):
+        return [cells]
+    parts, start = [{}], 0
+    for width in widths:
+        row = {index: cells[index] for index in range(start, start + width) if index in cells}
+        if parts[-1] and len(parts[-1]) + len(row) > max_cells:
+            parts.append({})
+        parts[-1].update(row)
+        start += width
+    return [part for part in parts if part]
+
+
+def refine_tables(blocks, source, deadline=None):
+    """Correct the cell text of OCR table HTML blocks against the table region of the page image (`TABLE_REFINE`).
 
     The OCR model keeps a sound grid but misreads text; a larger VLM reads text well but loses the grid. So the model
-    only returns corrections keyed by cell number and unknown numbers are ignored: the grid never changes. Returns the
-    corrected HTML, or None when refinement is off, unavailable, failed or found nothing to correct."""
+    only returns corrections keyed by cell number and unknown numbers are ignored: the grid never changes. Every table,
+    and every `REFINE_MAX_CELLS` row group of a large table (the call time grows with the cell count), is one provider call;
+    up to `REFINE_CONCURRENCY` calls run at once. Returns the corrected HTML per block, None where refinement is off,
+    unavailable, failed or found nothing to correct. Raises TimeoutError once `deadline` has passed."""
     settings = ai_settings()
-    if not settings["table_refine"] or not settings["configured"] or settings["mode"] == "local" or not block.get("bbox") or not block.get("page_size"):
-        return None
-    # Cells holding markup (a seal or drug photo <img>) stay out: models blank them or write text into them.
-    texts = {index: html.unescape(cell) for index, (_, cell, _) in enumerate(TABLE_CELL.findall(block["text"])) if "<" not in cell}
-    started = time.monotonic()
+    if not settings["table_refine"] or not settings["configured"] or settings["mode"] == "local":
+        return [None] * len(blocks)
+    max_cells = limit("REFINE_MAX_CELLS", 300, 100000)
+    texts, calls = {}, []
     try:
         with fitz.open(source) as document:
-            page = document[(block["page"] or 1) - 1]
-            scale = page.rect.width / block["page_size"][0]  # OCR image pixels -> page points
-            clip = fitz.Rect([value * scale for value in block["bbox"]]) & page.rect
-            image = _data_url(page, clip, max_zoom=1 / scale)  # no upscaling beyond the OCR image resolution
-        remaining = deadline - time.monotonic() if deadline is not None else None
-        if remaining is not None and remaining <= 0:
-            raise TimeoutError("table refinement deadline exceeded")
-        messages = [_user(TABLE_REFINE_PROMPT + json.dumps(texts, ensure_ascii=False), [image])]
-        reply = _provider(messages, timeout=300, timeout_cap=remaining) if remaining is not None else _provider(messages, timeout=300)
-        reply = reply.get("corrections", reply)  # models also answer with the bare {cell number: text} object
-        corrections = {index: str(reply[str(index)]) for index, text in texts.items() if str(index) in reply and _edit(text, str(reply[str(index)]))}
+            for number, block in enumerate(blocks):
+                if not block.get("bbox") or not block.get("page_size"):
+                    continue
+                # Cells holding markup (a seal or drug photo <img>) stay out: models blank them or write text into them.
+                texts[number] = {index: html.unescape(cell) for index, (_, cell, _) in enumerate(TABLE_CELL.findall(block["text"])) if "<" not in cell}
+                page = document[(block["page"] or 1) - 1]
+                scale = page.rect.width / block["page_size"][0]  # OCR image pixels -> page points
+                clip = fitz.Rect([value * scale for value in block["bbox"]]) & page.rect
+                image = _data_url(page, clip, max_zoom=1 / scale)  # no upscaling beyond the OCR image resolution
+                parts = _row_parts(block["text"], texts[number], max_cells)
+                calls += [(number, image, part, len(parts) > 1) for part in parts]
     except Exception as exc:
-        logger.warning("table refine failed, keeping OCR text: %s", exc, exc_info=True)
-        return None
-    logger.info("table refine: page=%s cells=%d changed=%d elapsed=%.2fs", block["page"], len(texts), len(corrections), time.monotonic() - started)
-    if not corrections:
-        return None
-    index = iter(range(len(TABLE_CELL.findall(block["text"]))))
-    return TABLE_CELL.sub(lambda m: m[1] + (html.escape(corrections[i], quote=False) if (i := next(index)) in corrections else m[2]) + m[3], block["text"])
+        logger.warning("table refine skipped, keeping OCR text: %s", exc, exc_info=True)
+        return [None] * len(blocks)
+
+    def correct(call):
+        number, image, cells, partial = call
+        started = time.monotonic()
+        try:
+            messages = [_user(TABLE_REFINE_PROMPT + (TABLE_PART_NOTE if partial else "") + json.dumps(cells, ensure_ascii=False), [image])]
+            reply = _provider(messages, timeout=300) if deadline is None else _provider(messages, timeout=300, timeout_cap=remaining(deadline))
+            reply = reply.get("corrections", reply)  # models also answer with the bare {cell number: text} object
+            fixed = {index: str(reply[str(index)]) for index, text in cells.items() if str(index) in reply and _edit(text, str(reply[str(index)]))}
+        except Exception as exc:
+            logger.warning("table refine failed, keeping OCR text: %s", exc, exc_info=True)
+            return {}
+        logger.info("table refine: page=%s cells=%d changed=%d elapsed=%.2fs", blocks[number]["page"], len(cells), len(fixed), time.monotonic() - started)
+        return fixed
+
+    corrections = {}
+    for (number, *_), fixed in zip(calls, parallel(correct, calls, limit("REFINE_CONCURRENCY", 4, 32))):
+        corrections.setdefault(number, {}).update(fixed)
+    remaining(deadline)  # a call cut by the deadline must not leave a half-refined result behind as if it were complete
+    result = []
+    for number, block in enumerate(blocks):
+        fixed = corrections.get(number)
+        if not fixed:
+            result.append(None)
+            continue
+        index = iter(range(len(TABLE_CELL.findall(block["text"]))))
+        result.append(TABLE_CELL.sub(lambda m: m[1] + (html.escape(fixed[i], quote=False) if (i := next(index)) in fixed else m[2]) + m[3], block["text"]))
+    return result
 
 
 def _edit(old, new):

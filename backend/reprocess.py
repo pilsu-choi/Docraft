@@ -13,6 +13,7 @@ import fitz
 from PIL import Image, ImageOps
 
 from . import doctypes, engine, inference, rules, typed_evidence
+from .config import limit
 from .parsers import parse
 
 logger = logging.getLogger(__name__)
@@ -21,23 +22,18 @@ logger = logging.getLogger(__name__)
 _MISSING = object()
 
 
-def _limit(name, default, ceiling):
-    try:
-        return max(0, min(int(os.getenv(name, default)), ceiling))
-    except ValueError:
-        return default
-
-
 def settings():
     return {"enabled": os.getenv("REPROCESS_ENABLED", "true").lower() not in {"0", "false", "no"},
-            "max_ms": _limit("REPROCESS_MAX_MS", 60000, 180000),
-            "max_attempts": _limit("REPROCESS_MAX_ATTEMPTS", 4, 8),
-            "max_model_calls": _limit("REPROCESS_MAX_MODEL_CALLS", 2, 4)}
+            "max_ms": limit("REPROCESS_MAX_MS", 60000, 180000),
+            "max_attempts": limit("REPROCESS_MAX_ATTEMPTS", 4, 8),
+            "max_model_calls": limit("REPROCESS_MAX_MODEL_CALLS", 2, 4),
+            # 남은 시간이 이보다 적으면 원격 OCR·VLM 단계를 새로 시작하지 않는다(시작해도 시한에 잘린다)
+            "min_stage_ms": limit("REPROCESS_MIN_STAGE_MS", 30000, 180000)}
 
 
 def deadline_for(remaining_ms=None):
     """Total request deadline; a caller-supplied budget cannot increase the server ceiling."""
-    maximum = _limit("READ_MAX_MS", 180000, 600000)
+    maximum = limit("READ_MAX_MS", 180000, 600000)
     budget = maximum if remaining_ms is None else min(max(0, int(remaining_ms)), maximum)
     return time.monotonic() + budget / 1000
 
@@ -337,6 +333,7 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
     started = time.monotonic()
     config = settings()
     deadline = min(deadline or deadline_for(), started + config["max_ms"] / 1000)
+    min_stage = min(config["min_stage_ms"], config["max_ms"] / 2) / 1000  # 재처리 상한이 작으면 그 절반까지는 단계를 연다
     fields = deepcopy(result or {})
     quality, groundings = _quality(fields, schema, blocks)
     trace = []
@@ -474,6 +471,9 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                     continue
                 if stage.endswith("vlm") and calls >= config["max_model_calls"]:
                     stop = "model_budget"
+                    break
+                if stage != "rules" and deadline - time.monotonic() < min_stage:
+                    stop = "deadline"  # 원격 OCR·VLM 단계는 시작해도 시한에 잘린다
                     break
                 attempts += 1
                 try:
