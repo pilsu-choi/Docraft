@@ -17,7 +17,7 @@ from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit
 from . import table_layout
-from .latency import parallel, remaining
+from .latency import note, parallel, remaining
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +139,7 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_to
         try:
             return json.loads(content)
         except json.JSONDecodeError:
-            logger.error("provider json decode failed: len=%d finish_reason=%s", len(content), finish_reason)
+            logger.error("provider json decode failed: len=%d finish_reason=%s tail=%r", len(content), finish_reason, content[-200:])
             raise
 
 
@@ -460,40 +460,77 @@ ROWS_USER = (
 )
 
 
+TABLE_REPLY_TOKENS = 16000  # Reply cap a page group of one table aims under: half the provider output limit (32k).
+PAGES_NOTE = (" These are page(s) {pages} of a table printed over page(s) {span}: read only the rows printed on these pages. "
+              "A continuation page may have no header row; the fields above still give its columns in printed order.")
 ROW_AMOUNT = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?![\d,])|(?<![\d.,])\d{3,}(?![\d.,])")  # 금액 꼴 숫자('12,300'·'4500')
 
 
-def _read_rows(table, spec, doc_type, blocks, evidence, images, deadline=None, cancel=None, on_call=None):
-    """One table as positional rows (`TABLE_EXTRACT=rowmajor`): the model writes each row as a value array in the column
-    order `table_layout.plan` read from the document (the schema's column order when it cannot tell), and the values go
-    back under the schema's column keys. Raises RuntimeError when the reply has no row or a row of the wrong length.
+def _reply_cap(evidence, columns):
+    """Output token cap of a rowmajor reply: (amount-like numbers in the OCR evidence + 20) rows × (10 tokens per column + 20).
+    Every printed row carries an amount, and saved replies use at most half of it."""
+    return (len(ROW_AMOUNT.findall(evidence)) + 20) * (10 * columns + 20)
 
-    The reply is capped at (amount-like numbers in the OCR evidence + 20) rows × (10 tokens per column + 20): every printed
-    row carries an amount, and saved replies use at most half that budget. A longer reply repeats rows, so it stops at the
-    cap (finish_reason=length → RuntimeError) and the table is read asis instead of looping to the provider limit."""
+
+def _read_rows(table, spec, plan, evidence, images, part="", deadline=None, cancel=None, on_call=None):
+    """One table as positional rows (`TABLE_EXTRACT=rowmajor`): the model writes each row as a value array in the column
+    order of `plan` (`table_layout.plan`: printed columns read from the document; the schema's column order when it is None),
+    and the values go back under the schema's column keys. Raises RuntimeError when the reply has no row or a row of the
+    wrong length.
+
+    The reply is capped at `_reply_cap`: a longer reply repeats rows, so it stops at the cap (finish_reason=length →
+    RuntimeError) and the table is read asis instead of looping to the provider limit."""
     union = {key: prop.get("description", "") for key, prop in spec["items"]["properties"].items()}
-    description, columns, fill = table_layout.plan(doc_type, table, blocks, spec.get("description", ""), union) or (spec.get("description", ""), union, None)
+    description, columns, fill = plan or (spec.get("description", ""), union, None)
     names = list(columns)
     if cancel is not None and cancel.is_set():
         raise RuntimeError("extraction cancelled")
     if on_call is not None:
         on_call()
-    prompt = ROWS_USER.format(evidence=evidence, table=table, description=description,
+    prompt = ROWS_USER.format(evidence=evidence, table=table, description=description + part,
                               fields="\n".join(f"{index}. {key}: {text}" for index, (key, text) in enumerate(columns.items(), 1)),
                               order=", ".join(f"{index}={key}" for index, key in enumerate(names, 1)))
     row = {"type": "array", "minItems": len(names), "maxItems": len(names), "items": {"type": ["string", "null"]}}
     reply = _provider([{"role": "system", "content": ROWS_SYSTEM}, _user(prompt, images)], timeout_cap=remaining(deadline),
                       json_schema={"type": "object", "properties": {"rows": {"type": "array", "items": row}}, "required": ["rows"]},
-                      max_tokens=(len(ROW_AMOUNT.findall(evidence)) + 20) * (10 * len(names) + 20))
+                      max_tokens=_reply_cap(evidence, len(names)))
     rows = reply.get("rows") if isinstance(reply, dict) else None
     if not rows or not all(isinstance(values, list) and len(values) == len(names) for values in rows):
         raise RuntimeError(f"rowmajor 응답의 행이 없거나 열 수({len(names)})가 맞지 않습니다.")
-    logger.info("extract: rowmajor table=%s columns=%d planned=%s rows=%d", table, len(names), columns is not union, len(rows))
+    logger.info("extract: rowmajor table=%s columns=%d planned=%s rows=%d", table, len(names), plan is not None, len(rows))
     return [{key: dict(zip(names, values)).get(key, fill) for key in union} for values in rows]
 
 
-def _read_chunks(schema, chunks, source, budget, deadline=None, cancel=None, on_call=None):
-    """The schema read as one JSON object per chunk, merged by schema."""
+def _table_plan(doc_type, table, spec, blocks):
+    """The table's column plan (`table_layout.plan`) for the whole document. Each page is planned from its own blocks (pages
+    share coordinates, so mixing them blurs the header), and the plan most pages agree on wins (ties: more columns, then the
+    earlier page): a long table repeats one printed header, and a page whose header OCR misread a word or carries no header
+    (a continuation page) reads with the same plan as the others."""
+    union = {key: prop.get("description", "") for key, prop in spec["items"]["properties"].items()}
+    plans = [plan for _, group in groupby(blocks, key=lambda b: b.get("page"))
+             if (plan := table_layout.plan(doc_type, table, list(group), spec.get("description", ""), union))]
+    return max(plans, key=lambda plan: (plans.count(plan), len(plan[1])), default=None)
+
+
+def _table_pages(blocks, budget, columns):
+    """Consecutive whole pages grouped for reading one table so that each group's reply cap (`_reply_cap`) stays within
+    TABLE_REPLY_TOKENS, its text within the chunk budget and its pages within VISION_MAX_IMAGES. A page over the limits
+    alone is its own group."""
+    groups = []
+    for _, group in groupby(blocks, key=lambda b: b.get("page")):
+        group = list(group)
+        last = groups[-1] if groups else None
+        if (last and len(_pages(last)) < VISION_MAX_IMAGES
+                and len(text := "\n".join(b["text"] for b in last + group)) <= budget
+                and _reply_cap(text, columns) <= TABLE_REPLY_TOKENS):
+            last.extend(group)
+        else:
+            groups.append(group)
+    return groups
+
+
+def _read_chunk(schema, chunk, index, count, source, budget, deadline=None, cancel=None, on_call=None):
+    """The schema read as one JSON object from chunk `index` of `count`."""
     system = (
         "Extract values using document context and layout. Never invent values. Use null when allowed and absent. "
         "A total or sum field takes the value printed in the document's total row or labelled total cell, never a single line item's value. "
@@ -502,34 +539,37 @@ def _read_chunks(schema, chunks, source, budget, deadline=None, cancel=None, on_
     )
     if any(prop.get("type") == "array" for prop in schema.get("properties", {}).values()):
         system += TABLE_NOTE
-    results = []
-    for index, chunk in enumerate(chunks):
-        if cancel is not None and cancel.is_set():
-            raise RuntimeError("extraction cancelled")
-        left = deadline - time.monotonic() if deadline is not None else None
-        if left is not None and left <= 0:
-            raise TimeoutError("extraction deadline exceeded")
-        page_range = _page_range(chunk)
-        evidence = _chunk_text(chunk, budget)
-        images = _page_images(source, _pages(chunk), _turns(chunk))
-        logger.debug("extract: chunk %d/%d pages=%s blocks=%d evidence_chars=%d images=%d", index + 1, len(chunks), page_range, len(chunk), len(evidence), len(images))
-        chunk_system = system + (VISION_NOTE if images else "")
-        if len(chunks) > 1:
-            chunk_system += (
-                f" This is part {index + 1} of {len(chunks)} of the document, covering page(s) {page_range}; "
-                "return null/empty for fields not present in this part."
-            )
-        if on_call is not None:
-            on_call()
-        messages = [
-            {"role": "system", "content": chunk_system},
-            _user(f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks:\n{evidence}", images),
-        ]
-        result = _provider(messages, timeout_cap=left) if left is not None else _provider(messages)
-        if not isinstance(result, dict):
-            raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
-        results.append(result)
-    return _merge_chunk_results(results, schema)
+    if cancel is not None and cancel.is_set():
+        raise RuntimeError("extraction cancelled")
+    left = deadline - time.monotonic() if deadline is not None else None
+    if left is not None and left <= 0:
+        raise TimeoutError("extraction deadline exceeded")
+    page_range = _page_range(chunk)
+    evidence = _chunk_text(chunk, budget)
+    images = _page_images(source, _pages(chunk), _turns(chunk))
+    logger.debug("extract: chunk %d/%d pages=%s blocks=%d evidence_chars=%d images=%d", index + 1, count, page_range, len(chunk), len(evidence), len(images))
+    system += VISION_NOTE if images else ""
+    if count > 1:
+        system += (
+            f" This is part {index + 1} of {count} of the document, covering page(s) {page_range}; "
+            "return null/empty for fields not present in this part."
+        )
+    if on_call is not None:
+        on_call()
+    messages = [
+        {"role": "system", "content": system},
+        _user(f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks:\n{evidence}", images),
+    ]
+    result = _provider(messages, timeout_cap=left) if left is not None else _provider(messages)
+    if not isinstance(result, dict):
+        raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
+    return result
+
+
+def _read_chunks(schema, chunks, source, budget, deadline=None, cancel=None, on_call=None):
+    """The schema read as one JSON object per chunk, merged by schema."""
+    return _merge_chunk_results([_read_chunk(schema, chunk, index, len(chunks), source, budget, deadline, cancel, on_call)
+                                 for index, chunk in enumerate(chunks)], schema)
 
 
 def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=None, table_extract="asis"):
@@ -537,7 +577,12 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
 
     `table_extract="rowmajor"` reads each table field (array of objects) in its own call as positional rows (`_read_rows`),
     in parallel with one call for the other fields. It needs a single chunk with page images; otherwise, and for a table
-    whose rowmajor reply fails, the table is read as part of the JSON object (`asis`)."""
+    whose rowmajor reply fails, the table is read as part of the JSON object (`asis`).
+
+    A table whose pages do not fit one reply (`_table_pages` gives several page groups) is read page group by page group in
+    parallel (`TABLE_PAGE_CONCURRENCY`, default 4) and its rows are concatenated in page order: one call has to hold the
+    whole table otherwise, and a long table runs past the provider output limit. rowmajor reads each group with the column
+    plan most pages agree on (`_table_plan`), and a group whose reply fails is read asis alone."""
     if ai_settings()["mode"] == "local":
         logger.debug("extract: local mode blocks=%d", len(blocks))
         return _local_extract(schema, blocks)
@@ -550,32 +595,67 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     logger.info("extract: provider mode blocks=%d chunks=%d budget=%d pages=%s", len(blocks), len(chunks), budget, [_page_range(chunk) for chunk in chunks])
     properties = schema.get("properties", {})
     tables = [key for key, prop in properties.items() if prop.get("type") == "array" and prop.get("items", {}).get("type") == "object"]
-    images = _page_images(source, _pages(blocks), _turns(blocks)) if table_extract == "rowmajor" and tables and len(chunks) == 1 else []
-    if table_extract == "rowmajor" and tables and not images:
+    rowmajor = table_extract == "rowmajor"
+    plans = {table: _table_plan(schema.get("title"), table, properties[table], blocks) if rowmajor else None for table in tables}
+    groups = {table: _table_pages(blocks, budget, len(properties[table]["items"]["properties"])) for table in tables}
+    paged = [table for table in tables if len(groups[table]) > 1]
+    images = _page_images(source, _pages(blocks), _turns(blocks)) if rowmajor and len(paged) < len(tables) and len(chunks) == 1 else []
+    whole = [table for table in tables if table not in paged] if images else []
+    if rowmajor and len(whole) + len(paged) < len(tables):
         logger.info("extract: rowmajor needs one chunk with page images (chunks=%d), reading tables asis", len(chunks))
-    tables = tables if images else []
 
     def narrowed(keys):
         return {**schema, "properties": {key: prop for key, prop in properties.items() if key in keys},
                 "required": [key for key in schema.get("required", []) if key in keys]}
 
+    def read_group(table, group, index, count):
+        pages = _page_range(group)
+        if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group))):
+            try:
+                return _read_rows(table, properties[table], plans[table], _chunk_text(group, budget), group_images,
+                                  PAGES_NOTE.format(pages=pages, span=_page_range(blocks)), deadline, cancel, on_call)
+            except (RuntimeError, ValueError) as exc:  # a reply that broke the row contract: read these pages asis
+                if cancel is not None and cancel.is_set():
+                    raise
+                logger.warning("extract: rowmajor table=%s pages=%s failed, reading them asis: %s", table, pages, exc)
+        try:
+            return _read_chunk(narrowed({table}), group, index, count, source, budget, deadline, cancel, on_call).get(table) or []
+        except (RuntimeError, ValueError) as exc:  # one page group lost, not the whole table: counted as table_pages_failed
+            if cancel is not None and cancel.is_set():
+                raise
+            logger.warning("extract: table=%s pages=%s could not be read, its rows are missing: %s", table, pages, exc)
+            note("table_pages_failed", 1)
+            return exc
+
+    def read_pages(table):
+        count = len(groups[table])
+        logger.info("extract: table=%s read in %d page groups %s", table, count, [_page_range(group) for group in groups[table]])
+        parts = parallel(lambda item: read_group(table, item[1], item[0], count), enumerate(groups[table]), limit("TABLE_PAGE_CONCURRENCY", 4, 32))
+        if all(isinstance(part, Exception) for part in parts):
+            raise parts[-1]
+        return _merge_chunk_results([part for part in parts if not isinstance(part, Exception)], properties[table])
+
     def read(table):
         if table is None:
-            return _read_chunks(narrowed(set(properties) - set(tables)) if tables else schema, chunks, source, budget, deadline, cancel, on_call)
+            return _read_chunks(narrowed(set(properties) - set(separate)) if separate else schema, chunks, source, budget, deadline, cancel, on_call)
+        if table in paged:
+            return read_pages(table)
         try:
-            return _read_rows(table, properties[table], schema.get("title"), blocks, _chunk_text(blocks, budget), images, deadline, cancel, on_call)
+            return _read_rows(table, properties[table], plans[table],
+                              _chunk_text(blocks, budget), images, "", deadline, cancel, on_call)
         except (RuntimeError, ValueError) as exc:  # a reply that broke the row contract: read the table asis below
             logger.warning("extract: rowmajor table=%s failed, reading it asis: %s", table, exc)
             return None
 
-    parts = ([None] if len(tables) < len(properties) or not properties else []) + tables
+    separate = whole + paged
+    parts = ([None] if len(separate) < len(properties) or not properties else []) + separate
     read_parts = dict(zip(parts, parallel(read, parts, len(parts))))
     merged = read_parts.pop(None, None) or {}
     failed = [table for table, rows in read_parts.items() if rows is None]
     if failed:
         merged.update(_read_chunks(narrowed(set(failed)), chunks, source, budget, deadline, cancel, on_call))
     merged = {**merged, **{table: rows for table, rows in read_parts.items() if rows is not None}}
-    if tables:
+    if separate:
         merged = {key: merged.get(key) for key in properties}
     _drop_null_optionals(merged, schema)
     return merged, ground(merged, schema, blocks)

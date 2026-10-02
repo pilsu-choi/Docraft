@@ -519,13 +519,12 @@ def test_extract_merges_chunk_results_array_concat_and_scalar_first_non_null(mon
     configure(monkeypatch)
     monkeypatch.setenv("EXTRACT_CHUNK_CHARS", "35")
     install_responses(monkeypatch, [
-        json.dumps({"title": None, "items": [{"code": "A"}, {"code": "B"}]}, ensure_ascii=False),
-        json.dumps({"title": "문서 제목", "items": [{"code": "B"}, {"code": "C"}]}, ensure_ascii=False),
+        json.dumps({"title": None, "items": ["A", "B"]}, ensure_ascii=False),
+        json.dumps({"title": "문서 제목", "items": ["B", "C"]}, ensure_ascii=False),
     ])
-    schema = {"type": "object", "properties": {
-        "title": {"type": "string"},
-        "items": {"type": "array", "items": {"type": "object", "properties": {"code": {"type": "string"}}}},
-    }}
+    # A list of strings stays in the chunk call; a table (list of objects) over several pages is read page by page
+    # (test_pagewise.py).
+    schema = {"type": "object", "properties": {"title": {"type": "string"}, "items": {"type": "array", "items": {"type": "string"}}}}
     blocks = [{"text": "X" * 30, "page": 1, "bbox": None}, {"text": "Y" * 30, "page": 2, "bbox": None}]
 
     result, _ = engine.extract(schema, blocks)
@@ -533,7 +532,7 @@ def test_extract_merges_chunk_results_array_concat_and_scalar_first_non_null(mon
     assert len(FakeClient.requests) == 2
     # "title" keeps the first non-null value in document order; the "B" item duplicated at the chunk
     # boundary is dropped once, but a real repeat within a chunk's own list is never touched.
-    assert result == {"title": "문서 제목", "items": [{"code": "A"}, {"code": "B"}, {"code": "C"}]}
+    assert result == {"title": "문서 제목", "items": ["A", "B", "C"]}
 
 
 def test_extract_splits_an_oversize_page_at_block_boundaries(monkeypatch):
