@@ -50,11 +50,14 @@ def track():
 
 
 def note(name, value, add=True):
-    """``track`` 중이면 단계 값을 남긴다(``add``면 더한다 — 한 요청에서 같은 단계가 여러 번 돈다)."""
+    """``track`` 중이면 단계 값을 남긴다(``add``면 더한다 — 한 요청에서 같은 단계가 여러 번 돈다, ``None``이면 처음 값만)."""
     stats = _stats.get()
     if stats is not None:
         with _lock:
-            stats[name] = stats.get(name, 0) + value if add else value
+            if add is None:
+                stats.setdefault(name, value)
+            else:
+                stats[name] = stats.get(name, 0) + value if add else value
 
 
 @contextmanager
@@ -104,10 +107,11 @@ def shared(key, compute, deadline=None):
     """``compute()`` 결과를 ``key``로 잠시(``READ_CACHE_TTL_S``, 기본 180초) 기억해 같은 key 요청이 나눠 쓴다.
 
     같은 key가 계산 중이면 끝나기를 기다려 그 결과를 쓴다(single-flight). 먼저 온 계산이 실패하면 기다리던 쪽이
-    다시 계산한다 — 실패는 기억하지 않는다. ``READ_CACHE_SIZE``(기본 8)가 0이면 끈다. 호출자마다 사본을 준다."""
+    다시 계산한다 — 실패는 기억하지 않는다. ``READ_CACHE_SIZE``(기본 8)가 0이면 끈다. 호출자마다 사본을 준다.
+    ``cache_hit``은 요청의 첫 호출(페이지 OCR)만 남긴다 — 재처리 크롭 재OCR도 이 경로를 지나 덮어썼다(r9 17쌍 중 6쌍 오기록)."""
     size, ttl = limit("READ_CACHE_SIZE", 8, 1024), limit("READ_CACHE_TTL_S", 180, 3600)
     if not size or not ttl:
-        note("cache_hit", False, add=False)
+        note("cache_hit", False, add=None)
         return compute()
     while True:
         with _lock:
@@ -122,7 +126,7 @@ def shared(key, compute, deadline=None):
             if leader:
                 flight = _flights[key] = threading.Event()
         if cached:  # 저장된 값은 바뀌지 않고 사본만 나가므로 잠금 밖에서 복사한다
-            note("cache_hit", True, add=False)
+            note("cache_hit", True, add=None)
             return deepcopy(cached[1])
         if leader:
             break
@@ -138,5 +142,5 @@ def shared(key, compute, deadline=None):
         with _lock:
             _flights.pop(key, None)
         flight.set()
-    note("cache_hit", False, add=False)
+    note("cache_hit", False, add=None)
     return deepcopy(value)
