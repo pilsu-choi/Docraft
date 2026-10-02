@@ -45,6 +45,14 @@ def test_concurrent_same_key_computes_once_and_shares_copies(cache):
     assert results["leader"][1]["cache_hit"] is False and results["follower"][1]["cache_hit"] is True
 
 
+def test_cache_hit_keeps_the_page_call_not_later_crop_calls(cache):
+    latency.shared("page", lambda: {"blocks": [1]})
+    with latency.track() as stats:
+        latency.shared("page", lambda: {"blocks": [1]})  # 페이지 OCR — 다른 요청이 이미 계산
+        latency.shared("crop", lambda: {"blocks": [2]})  # 재처리 크롭 재OCR — 새로 계산
+    assert stats["cache_hit"] is True
+
+
 def test_failed_leader_is_not_shared_the_waiter_computes_again(cache):
     attempts, started = [], threading.Event()
 
