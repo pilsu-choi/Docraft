@@ -756,6 +756,8 @@ def test_edi_code_normalize(raw, expected):
     ("입원료_1인실", "입원료_1인실"),  # 하위 항목 밑줄은 ITEM_ALIASES가 되살리는 canonical 표기다
     ("입원료 상급병실", "입원료_상급병실"),  # 세로 병합된 '입원료' 상위 칸 + 하위 칸 '상급병실'
     ("선택항목_CT진단료", "CT진단료"),  # 서식 분류 칸 글자는 뗀다
+    ("100/100미만 50%", "100/100미만50%"),  # 구 요양급여 서식의 본인부담률별 행(인쇄 이름이 표준이다)
+    ("「국민건강보험법」제41\n/조의4", "선별급여"), ("끝수 조정금액", "끝수처리조정금액"),
 ])
 def test_receipt_item_name_drops_every_non_alphanumeric_character(raw, expected):
     assert rules.item(raw) == expected
@@ -1375,3 +1377,16 @@ def test_institution_type_checkbox_options_compare_exactly_but_plain_text_keeps_
     assert not rules.same(kind, "고상급종합병원", "종합병원") and not rules.same(kind, "상급종합병원", "종합병원")
     assert rules.same(kind, "종합 병원", "종합병원")
     assert rules.same("text", "고상급종합병원", "종합병원")
+
+
+@pytest.mark.parametrize("printed, expected", [("80/100", "80/100"), ("80%", "80/100"), ("100분의90", "90/100"), ("비급", "비급여"),
+                                               ("급", "급여"), ("100/100", "100/100")])
+def test_benefit_class_keeps_the_printed_rate(printed, expected):
+    """선별급여 80/100은 급여·비급여로 바꾸지 않고 원문을 남긴다(하네스가 급여로 해석해 금액 칸을 옮긴다)."""
+    assert rules._enum("급여구분", printed) == expected
+    assert "80/100" in doctypes.DOC_TYPES["세부내역서"]["tables"]["항목내역"]["급여구분"]["enum"]
+
+
+def test_receipt_item_row_accepts_printed_rate_names():
+    """구 요양급여 서식 행 이름(100/100미만50%)의 기호 때문에 파서 표 행 복원이 버리지 않는다."""
+    assert rules._receipt_item(["100/100미만50%"]) == "100/100미만50%"
