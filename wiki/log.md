@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-03 (여러 쪽 표 쪽 묶음 읽기)
+* **Creation**: [여러 쪽 표를 쪽 묶음별로 나눠 읽기](2026-10-03-pagewise-table.md)에 근본 원인·문제 유형·설계·테스트·5개 PDF 검증과 남은 유형(빽빽한 쪽의 깨진 JSON)을 기록했다. 브랜치 `feat/pagewise-table`, 워크트리 `.worktrees/pagewise-table`.
+* **Update**: [index](index.md)에 문서를 연결했다.
+
 ## 2026-09-30 (영수증 항목명 표기)
 * **Creation**: [진료비영수증 항목명 이름 규칙 보강(표준 표기 유지)](2026-09-30-receipt-item-names.md)를 기록했다. 표준 표기는 2026-09-24 결정대로 유지. 브랜치 `fix/receipt-item-names`, 워크트리 `.worktrees/receipt-item-names`.
 * **Update**: [index](index.md)에 문서를 연결했다.
