@@ -59,7 +59,7 @@ gpu 환경 더 필요하다면 /home/pilsu/projects/mirae-assets/harness-v2/depl
 ## AWS 테스트: 떠 있는 세션의 작업을 모아 한 번에 반영한다
 
 harness·Docraft의 이슈 대응·신규 기능 브랜치마다 따로 AWS에 올려 테스트하지 않는다. 브랜치별 독립 테스트는 외부 호출 건수를 불필요하게 늘린다.
-AWS 배포와 테스트 호출은 **배포 담당 세션 하나**(현재 `mirae-assets-9f`)만 한다. 역할 프롬프트: 상위 폴더 `prompts/aws-deploy-coordinator.md`.
+AWS 배포와 테스트 호출은 **배포 담당 세션 하나**(현재 `mirae-assets-6c`, 2026-10-02 09:31 배포까지는 `mirae-assets-9f`)만 한다. 역할 프롬프트: 상위 폴더 `prompts/aws-deploy-coordinator.md`.
 
 ### 일반 세션
 - AWS에 직접 배포하거나 테스트 호출을 하지 않는다.
