@@ -325,3 +325,5 @@
 - Creation: 2026-10-02 [/api/read 지연과 HTTP 408 대응](2026-10-02-read-지연-대응.md) — 같은 페이지 결과 공유(single-flight), 표 교정 병렬·분할, OCR_CONCURRENCY 세마포어, 재처리 시한 인식, 모델 호출 벽시계 시한, read finished 단계별 시간, 660 passed. 브랜치 `fix/read-latency`, 워크트리 `.worktrees/read-latency`.
 - Update: 2026-10-02 [index](index.md)에 문서를 연결했다.
 - Update: [/api/read 지연 대응](2026-10-02-read-지연-대응.md) — `cache_hit`가 재처리 크롭 재OCR로 덮어써지던 기록 오류 수정(첫 호출 값만 남김).
+- Creation: 2026-10-02 [돌아간 스캔의 방향 정규화](2026-10-02-scan-orientation.md) — 줄 상자·마침표 위치 판별기(정답지 59장+합성 177건 236/236), 돌아간 페이지만 재판독, 좌표는 원본 기준·`orientation` 표기, VLM 이미지·재처리 크롭 회전, 676 passed. 브랜치 `fix/scan-orientation`, 워크트리 `.worktrees/rotation-fix`.
+- Update: 2026-10-02 [index](index.md)에 문서를 연결하고 README 근거 좌표 설명에 `orientation`을 더했다.

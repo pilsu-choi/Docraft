@@ -8,6 +8,7 @@ import logging
 import tempfile
 import time
 import uuid
+from copy import deepcopy
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from docx import Document
 from openpyxl import load_workbook
 import fitz
 import httpx
+import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from . import latency
@@ -96,7 +98,7 @@ def parse_pdf(path, provider="auto", pages=None, deadline=None):
             subset.unlink(missing_ok=True)
     if not result:
         raise ParseError("PaddleOCR가 스캔 PDF에서 텍스트를 찾지 못했습니다.")
-    return result
+    return _upright(result, path, 0, deadline)
 
 
 def parse_image(path, provider="auto", timeout=None, deadline=None):
@@ -108,7 +110,8 @@ def parse_image(path, provider="auto", timeout=None, deadline=None):
         with Image.open(path) as source, tempfile.NamedTemporaryFile(suffix=".png") as normalized:
             ImageOps.exif_transpose(source).convert("RGB").save(normalized, format="PNG")
             normalized.flush()
-            return _remote_paddle(normalized.name, 1, expected_pages=1, timeout=timeout, deadline=deadline)
+            blocks = _remote_paddle(normalized.name, 1, expected_pages=1, timeout=timeout, deadline=deadline)
+            return _upright(blocks, normalized.name, 1, deadline)
     except UnidentifiedImageError:
         # OCR 자체가 지원하는 형식 및 기존 synthetic 호출 계약은 원격 오류에 맡긴다.
         return _remote_paddle(path, 1, expected_pages=1, timeout=timeout, deadline=deadline)
@@ -164,28 +167,157 @@ def _ruled_tables(blocks, path, file_type, page_map):
         return
     started = time.monotonic()
     try:
-        with fitz.open(path) if file_type == 0 else Image.open(path) as source:
-            for page_no in sorted({b["page"] for b in tables}):
-                width, height = next(b["page_size"] for b in tables if b["page"] == page_no)
-                if file_type == 0:
-                    page = source[page_map.index(page_no) if page_map else page_no - 1]
-                    pix = page.get_pixmap(matrix=fitz.Matrix(width / page.rect.width, height / page.rect.height), colorspace=fitz.csGRAY)
-                    image = Image.frombytes("L", (pix.width, pix.height), pix.samples)
-                else:
-                    image = source.convert("L").resize((round(width), round(height)))
-                for table in (b for b in tables if b["page"] == page_no):
-                    grid = ruled_table(image, table["bbox"], table["lines"], with_geometry=True)
-                    # Faint rules found only in part collapse many rows into a few; the VLM rows are then the better guess.
-                    if grid and len(grid[0]) * 2 >= len(table.get("rows") or []):
-                        rows, spans, cells = grid
-                        table.pop("spans", None)
-                        table.update(rows=rows, structure="ruled", **({"spans": spans} if spans else {}))
-                        table["cells"] = [{**cell, "page": page_no, "page_size": table["page_size"]} for cell in cells]
-                        table["text"] = _markdown(table, "html")
+        for page_no in sorted({b["page"] for b in tables}):
+            size = next(b["page_size"] for b in tables if b["page"] == page_no)
+            image = _page_image(path, file_type, page_map.index(page_no) if page_map else page_no - 1, size, "L")
+            for table in (b for b in tables if b["page"] == page_no):
+                grid = ruled_table(image, table["bbox"], table["lines"], with_geometry=True)
+                # Faint rules found only in part collapse many rows into a few; the VLM rows are then the better guess.
+                if grid and len(grid[0]) * 2 >= len(table.get("rows") or []):
+                    rows, spans, cells = grid
+                    table.pop("spans", None)
+                    table.update(rows=rows, structure="ruled", **({"spans": spans} if spans else {}))
+                    table["cells"] = [{**cell, "page": page_no, "page_size": table["page_size"]} for cell in cells]
+                    table["text"] = _markdown(table, "html")
     except (OSError, ValueError, RuntimeError) as exc:
         logger.warning("ruled table grid skipped, keeping VLM table structure: %s", exc, exc_info=True)
         return
     logger.debug("ruled tables: elapsed=%.2fs tables=%d ruled=%d", time.monotonic() - started, len(tables), sum(b.get("structure") == "ruled" for b in tables))
+
+
+def _page_image(path, file_type, index, size, mode):
+    """Page `index` (0-based) of a PDF (`file_type` 0) or the image file, rendered at the OCR page `size` in `mode`."""
+    width, height = (round(v) for v in size)
+    if file_type == 0:
+        with fitz.open(path) as pdf:
+            page = pdf[index]
+            pix = page.get_pixmap(matrix=fitz.Matrix(width / page.rect.width, height / page.rect.height),
+                                  colorspace=fitz.csGRAY if mode == "L" else fitz.csRGB, alpha=False)
+            return Image.frombytes(mode, (pix.width, pix.height), pix.samples)
+    with Image.open(path) as source:
+        return source.convert(mode).resize((width, height))
+
+
+TURNS = (0, 90, 180, 270)
+
+
+def _otsu(pixels):
+    """Otsu threshold of a uint8 array: pixels at or below it are ink."""
+    share = np.bincount(pixels.ravel(), minlength=256) / pixels.size
+    weight, mean = np.cumsum(share), np.cumsum(share * np.arange(256))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return int(np.nanargmax((mean[-1] * weight - mean) ** 2 / (weight * (1 - weight))))
+
+
+def _baseline_marks(ink):
+    """Positions (0 = top, 1 = bottom of the text band) of the small marks — '.', ',' — in one text line that runs along axis 1."""
+    rows = ink.sum(1)
+    band = np.flatnonzero(rows >= .25 * rows.max()) if rows.any() else []
+    if len(band) == 0 or band[-1] - band[0] < 7:
+        return []
+    top, height = band[0], band[-1] - band[0] + 1
+    edges = np.diff(np.concatenate(([0], ink.any(0).astype(np.int8), [0])))
+    marks = []
+    for start, end in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)):
+        hit = np.flatnonzero(ink[:, start:end].any(1))
+        low, high = hit[0], hit[-1]
+        if (0 < low and high < len(rows) - 1 and end - start <= .35 * height and high - low < .3 * height
+                and ink[:, start:end].sum() >= max(4, .01 * height * height)
+                and top - .2 * height <= low and high <= top + 1.2 * height):
+            marks.append(((low + high) / 2 - top) / (height - 1))
+    return marks
+
+
+def orientation(image, lines):
+    """Counter-clockwise turn (PIL ``rotate`` degrees, one of TURNS) that makes the page text upright.
+
+    Periods and commas sit on the baseline in Korean and Latin print alike, so each such mark near one long
+    edge of an OCR line box votes for that edge being the bottom; a tall box is text lying on its side. The
+    page turns only on a clear majority — anything else keeps it as scanned."""
+    pixels = np.asarray(image.convert("L"))
+    votes = dict.fromkeys(TURNS, 0)
+    for box in lines:
+        left, top, right, bottom = (int(round(v)) for v in box)
+        width, height = right - left, bottom - top
+        if min(width, height) < 6 or max(width, height) < 2 * min(width, height):
+            continue
+        crop = pixels[max(0, top):bottom, max(0, left):right]
+        if crop.size == 0 or int(crop.max()) - int(crop.min()) < 40:
+            continue
+        ink = crop <= _otsu(crop)
+        tall = height > width
+        for mark in _baseline_marks(ink.T if tall else ink):
+            if .25 < mark < .75:
+                continue
+            down = mark >= .75  # the mark sits at the far edge: bottom for a wide box, right for a tall one
+            votes[(270 if down else 90) if tall else (0 if down else 180)] += 1
+    turn = max(votes, key=votes.get)
+    others = sum(votes.values()) - votes[turn]
+    return turn if votes[turn] >= 4 and votes[turn] >= 3 * others else 0
+
+
+def unturn(blocks, turn):
+    """Map blocks read from a page turned by `turn` (counter-clockwise degrees) back to the unturned page.
+
+    Each block's `page_size` is the turned page it was read from; boxes, lines, cells and polygons come back in
+    the original frame with the original `page_size`, and `orientation` adds up the turns. A quarter turn keeps a
+    deskew `rotation_degrees` valid, because plane rotations commute."""
+    mapped = deepcopy(blocks)
+    for block in mapped:
+        if not turn or not block.get("page_size"):
+            continue
+        width, height = block["page_size"]
+        point = {90: lambda x, y: (height - y, x), 180: lambda x, y: (width - x, height - y),
+                 270: lambda x, y: (y, width - x)}[turn]
+        size = [height, width] if turn % 180 else [width, height]
+        def box(values):
+            corners = [point(x, y) for x in (values[0], values[2]) for y in (values[1], values[3])]
+            return [min(x for x, _ in corners), min(y for _, y in corners), max(x for x, _ in corners), max(y for _, y in corners)]
+        for item in (block, *(block.get("lines") or []), *(block.get("cells") or [])):
+            if item.get("polygon"):
+                item["polygon"] = [list(point(x, y)) for x, y in item["polygon"]]
+                item["bbox"] = [min(x for x, _ in item["polygon"]), min(y for _, y in item["polygon"]),
+                                max(x for x, _ in item["polygon"]), max(y for _, y in item["polygon"])]
+            elif item.get("bbox"):
+                item["bbox"] = box(item["bbox"])
+            if "page_size" in item:
+                item["page_size"] = size
+        block["orientation"] = (block.get("orientation", 0) + turn) % 360
+    return mapped
+
+
+def _upright(blocks, path, file_type, deadline=None):
+    """Re-read every page whose text is not upright (`orientation`) from an upright copy.
+
+    The re-read blocks keep the coordinate frame of the file as given (`bbox`, `page_size`) and carry the
+    `orientation` turn, so clients and image crops need no change. Without OCR lines nothing is judged; a
+    failed re-read keeps the first reading."""
+    pages = sorted({b["page"] for b in blocks if b.get("lines") and b.get("page_size")})
+    for page_no in pages:
+        current = [b for b in blocks if b["page"] == page_no]
+        size = next(b["page_size"] for b in current if b.get("page_size"))
+        try:
+            image = _page_image(path, file_type, page_no - 1, size, "RGB")
+            turn = orientation(image, [line["bbox"] for b in current for line in b.get("lines") or []])
+            if not turn:
+                continue
+            logger.info("page %d is turned, re-reading it rotated %d degrees counter-clockwise", page_no, turn)
+            with tempfile.NamedTemporaryFile(suffix=".png") as turned:
+                image.rotate(turn, expand=True).save(turned, format="PNG")
+                turned.flush()
+                remaining = deadline - time.monotonic() if deadline is not None else None
+                if remaining is not None and remaining <= 0:
+                    raise TimeoutError("parse deadline exceeded")
+                fresh = _remote_paddle(turned.name, 1, expected_pages=1, timeout=remaining, deadline=deadline)
+        except (ParseError, TimeoutError, OSError, ValueError) as exc:
+            logger.warning("upright re-read of page %d failed, keeping the scanned orientation: %s", page_no, exc)
+            continue
+        fresh = [{**b, "page": page_no} for b in unturn(fresh, turn)]
+        for cell in (cell for b in fresh for cell in b.get("cells") or []):
+            cell["page"] = page_no
+        at = blocks.index(current[0])
+        blocks = [*blocks[:at], *fresh, *(b for b in blocks[at:] if b["page"] != page_no)]
+    return blocks
 
 
 def _remote_paddle(path, file_type, page_map=None, expected_pages=None, timeout=None, deadline=None):

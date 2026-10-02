@@ -44,18 +44,19 @@ def _message_text(content):
     return "".join(part.get("text", "") for part in content) if isinstance(content, list) else content or ""
 
 
-def _data_url(page, clip=None, max_zoom=2.0):
-    """One rendered page (or its `clip` region) as a base64 JPEG data URL, scaled so its longest side stays within VISION_MAX_EDGE."""
+def _data_url(page, clip=None, max_zoom=2.0, turn=0):
+    """One rendered page (or its `clip` region) as a base64 JPEG data URL, scaled so its longest side stays within
+    VISION_MAX_EDGE and turned `turn` degrees counter-clockwise (the parser's `orientation`) so the text is upright."""
     area = clip or page.rect
     zoom = min(VISION_MAX_EDGE / max(area.width, area.height), max_zoom)
-    pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, alpha=False)
+    pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom).prerotate(-turn), clip=clip, alpha=False)
     return "data:image/jpeg;base64," + base64.b64encode(pixmap.tobytes("jpeg", jpg_quality=90)).decode()
 
 
-def _page_images(source, pages):
+def _page_images(source, pages, turns=None):
     """Page images of the document file `source` for the given 1-based page numbers (the same numbering the
-    parser puts on blocks). Empty when vision is off, the format has no page image (docx/xlsx/csv/txt/html),
-    or rendering fails — the call then falls back to the OCR text alone."""
+    parser puts on blocks), each turned upright by `turns` (page → `orientation`). Empty when vision is off, the
+    format has no page image (docx/xlsx/csv/txt/html), or rendering fails — the call then falls back to the OCR text alone."""
     if not source or not ai_settings()["vision"] or Path(source).suffix.lower() not in VISION_SUFFIXES:
         return []
     pages = list(pages)
@@ -64,7 +65,7 @@ def _page_images(source, pages):
         pages = pages[:VISION_MAX_IMAGES]
     try:
         with fitz.open(source) as document:
-            return [_data_url(document[number - 1]) for number in pages if 1 <= number <= len(document)]
+            return [_data_url(document[number - 1], turn=(turns or {}).get(number, 0)) for number in pages if 1 <= number <= len(document)]
     except Exception as exc:
         logger.warning("vision: page image rendering failed for %s: %s", Path(source).name, exc, exc_info=True)
         return []
@@ -444,7 +445,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
             raise TimeoutError("extraction deadline exceeded")
         page_range = _page_range(chunk)
         evidence = _chunk_text(chunk, budget)
-        images = _page_images(source, _pages(chunk))
+        images = _page_images(source, _pages(chunk), {b["page"]: b["orientation"] for b in chunk if b.get("orientation")})
         logger.debug("extract: chunk %d/%d pages=%s blocks=%d evidence_chars=%d images=%d", index + 1, len(chunks), page_range, len(chunk), len(evidence), len(images))
         chunk_system = system + (VISION_NOTE if images else "")
         if len(chunks) > 1:
