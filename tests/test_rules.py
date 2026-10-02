@@ -1500,3 +1500,110 @@ def test_fill_down_is_idempotent():
     blocks = [block("05.검사료\nn0\nn1\n06.영상\nn2")]
     first = rules.apply("세부내역서", {"항목내역": rows, "환자정보(진료시작일)": "20230102"}, blocks)
     assert rules.apply("세부내역서", first, blocks) == first
+
+
+# ── 세부내역서 통째로 맞바뀐 열(값 꼴·인쇄 자리) ─────────────────────────────────────
+
+DETAIL_HEAD = [("항목", 0), ("코드", 150), ("명칭", 300), ("단가", 500), ("일수", 600), ("총액", 700), ("본인부담금", 850), ("공단부담금", 1000)]
+
+
+def detail_blocks(*rows, head=DETAIL_HEAD):
+    """머리글 줄과 본문 줄(값, x) 행으로 만든 세부내역서 표 블록 하나."""
+    lines = [{"text": text, "bbox": [x - 30, 0, x + 30, 20]} for text, x in head]
+    lines += [{"text": text, "bbox": [x - 30, 40 * (index + 1), x + 30, 40 * (index + 1) + 20]}
+              for index, row in enumerate(rows) for text, x in row]
+    return [block(kind="table", lines=lines)]
+
+
+def paid_rows(pairs, total=None):
+    rows = [{"항목": "검사료", "총액": str(a + b), "본인부담": str(a), "공단부담": str(b)} for a, b in pairs]
+    return rows + ([{"항목": "합계", "총액": str(sum(total)), "본인부담": str(total[0]), "공단부담": str(total[1])}] if total else [])
+
+
+PAID = [(2000, 8000), (1000, 4000), (400, 1600), (1400, 5600)]
+
+
+@pytest.mark.parametrize("crossed,swapped,flagged", [
+    (4, True, False),  # 네 행 모두 본인부담 값이 공단부담 머리글 아래 찍혔다 → 맞바꾼다(합계 행까지)
+    (3, False, True),  # 넷 중 셋(바른 행의 네 배 미만, 근거가 약하다) → 알리기만 한다
+    (2, False, False),  # 엇갈린 행이 바른 행보다 많지 않다
+    (0, False, False),  # 머리글 자리와 맞다
+])
+def test_detail_payer_columns_are_swapped_only_on_consistent_print_positions(crossed, swapped, flagged):
+    printed = [[(f"{a:,}", 850), (f"{b:,}", 1000)] for a, b in PAID]
+    read = [(b, a) if index < crossed else (a, b) for index, (a, b) in enumerate(PAID)]  # 앞 crossed 행을 엇갈려 읽었다
+    blocks = detail_blocks(*printed)
+
+    out = rules.apply("세부내역서", {"항목내역": paid_rows(read, total=(0, 0))}, blocks)["항목내역"]
+    flags = [flag for flag in rules.check("세부내역서", {"항목내역": out}, {"항목내역": out}, blocks) if flag["code"] == "column_swap"]
+
+    expected = [(b, a) for a, b in read] if swapped else read
+    assert [(int(row["본인부담"]), int(row["공단부담"])) for row in out[:4]] == expected
+    assert bool(flags) == flagged
+
+
+def test_detail_payer_share_alone_only_flags():
+    # 머리글 자리 근거가 없는데 본인부담이 넷 중 셋을 넘는다(본인부담률은 20~60%): 값은 그대로 두고 알린다
+    rows = paid_rows([(b, a) for a, b in PAID])
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
+
+    assert [row["본인부담"] for row in out] == [row["본인부담"] for row in rows]
+    assert [flag["column"] for flag in rules.check("세부내역서", {"항목내역": out}, {"항목내역": out}, []) if flag["code"] == "column_swap"] == ["본인부담"]
+
+
+CODES = [("HOS-01", "AA157"), ("XJ-77", "AL200"), ("DBENO", "650100422"), ("WICEVA", "N0021001")]  # (원내코드, EDI코드) 제자리
+
+
+@pytest.mark.parametrize("codes,swapped,flagged", [
+    ([(b, a) for a, b in CODES], True, False),  # 원내코드 칸이 모두 EDI 꼴, EDI코드 칸은 아니다 → 맞바꾼다
+    ([(b, a) for a, b in CODES[:2]], False, True),  # 두 행뿐 → 알리기만
+    ([(b, a) for a, b in CODES[:3]] + [("XY-1", "ZZ-2")], False, True),  # 원내코드 칸의 EDI 꼴이 8할 미만 → 알리기만
+    ([(b, a) for a, b in CODES[:2]] + CODES[2:], False, False),  # 반만 엇갈렸다  # EDI코드 칸도 EDI 꼴이 섞였다(차이 0.5 미만) → 알리기만
+    (CODES, False, False),  # 제자리
+])
+def test_hospital_and_edi_code_columns_are_told_apart_by_edi_code_shape(codes, swapped, flagged):
+    head = [*DETAIL_HEAD[:1], ("원내코드", 100), ("EDI코드", 200), *DETAIL_HEAD[2:]]
+    rows = [{"항목": "검사료", "원내코드": a, "EDI코드": b, "총액": "100"} for a, b in codes]
+    blocks = detail_blocks(head=head)
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]
+    flags = [flag for flag in rules.check("세부내역서", {"항목내역": out}, {"항목내역": out}, blocks) if flag["code"] == "column_swap"]
+
+    got = [(row["원내코드"], row["EDI코드"]) for row in out]
+    pairs = [(b, a) for a, b in codes] if swapped else codes
+    assert got == [(rules.normalize("edi", a), rules.normalize("edi", b)) for a, b in pairs]
+    assert bool(flags) == flagged
+
+
+def test_two_codes_printed_in_one_header_cell_are_one_edi_value():
+    # '코드' 아래 '{수가코드}'(한 칸 두 줄): 코드 열이 하나라 두 줄을 EDI코드 한 값으로 잇고 원내코드는 비운다(정답지 관례)
+    head = [*DETAIL_HEAD[:2], ("{수가코드}", 150), *DETAIL_HEAD[2:]]
+    head = [(text, x) for text, x in head]
+    lines = [{"text": text, "bbox": [x - 30, 30 if text == "{수가코드}" else 0, x + 30, 50 if text == "{수가코드}" else 20]} for text, x in head]
+    rows = [{"항목": "진찰료", "원내코드": "AIAU211", "EDI코드": "AU211", "총액": "100"}] * 3
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, [block(kind="table", lines=lines)])["항목내역"]
+
+    assert [(row["원내코드"], row["EDI코드"]) for row in out] == [(None, "AU211AIAU211")] * 3
+
+
+def test_a_single_code_column_without_a_stacked_header_does_not_join_values():
+    # 코드 열 하나(쌓인 머리글 없음)에 모델이 명칭을 원내코드에 적었다: 다른 열 값을 이어 붙이지 않는다
+    rows = [{"항목": "주사료", "원내코드": "수액주사", "EDI코드": "KK052", "총액": "100"}] * 3
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, detail_blocks())["항목내역"]
+
+    assert [row["EDI코드"] for row in out] == ["KK052"] * 3
+
+
+def test_codes_are_not_swapped_with_a_column_holding_names():
+    # 원내코드 칸에 EDI 꼴 코드, EDI코드 칸에 명칭(모델이 열을 밀었다): 코드와 명칭을 맞바꾸지 않고 알리기만 한다
+    head = [*DETAIL_HEAD[:1], ("원내코드", 100), ("EDI코드", 200), *DETAIL_HEAD[2:]]
+    rows = [{"항목": "주사료", "원내코드": code, "EDI코드": name, "총액": "100"}
+            for code, name in (("KK052", "수액주사 KO50"), ("KK053", "수액주사 KD100"), ("MO077", "글리세린 관장"))]
+    blocks = detail_blocks(head=head)
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]
+
+    assert [row["원내코드"] for row in out] == ["KK052", "KK053", "MO077"]
+    assert [flag["column"] for flag in rules.check("세부내역서", {"항목내역": out}, {"항목내역": out}, blocks) if flag["code"] == "column_swap"] == ["원내코드"]

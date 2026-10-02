@@ -9,7 +9,7 @@ import fitz
 import httpx
 import pytest
 
-from backend import doctypes, engine, rules, table_layout, verify
+from backend import doctypes, engine, latency, rules, table_layout, verify
 
 DETAIL = list(doctypes.DOC_TYPES["세부내역서"]["tables"]["항목내역"])
 RECEIPT = list(doctypes.DOC_TYPES["진료비영수증"]["tables"]["항목내역"])
@@ -89,7 +89,7 @@ def test_header_splits_merged_words_and_joins_split_words():
 
     columns = printed(blocks, DETAIL)
 
-    assert columns[columns.index("단가"):] == ["단가", "투여량", "횟수", "일수", "총액", "급여구분", "비급여"]
+    assert columns[columns.index("단가"):] == ["단가", "투여량", "횟수", "일수", "총액", "급여구분"]  # 비급여 머리글 근거 없음
 
 
 def test_group_title_is_dropped_when_sub_columns_sit_below_it():
@@ -98,7 +98,7 @@ def test_group_title_is_dropped_when_sub_columns_sit_below_it():
 
     columns = printed(blocks, DETAIL)
 
-    assert "급여" not in columns and columns[-3:] == ["본인부담", "공단부담", "비급여"]
+    assert "급여" not in columns and columns[-2:] == ["본인부담", "공단부담"] and "비급여" not in columns
 
 
 def test_header_without_four_columns_on_one_line_falls_back():
@@ -108,21 +108,70 @@ def test_header_without_four_columns_on_one_line_falls_back():
     assert table_layout.plan("세부내역서", "항목내역", rotated, "표", dict.fromkeys(DETAIL, "")) is None
 
 
-def test_unread_required_columns_stay_in_union_place_and_unread_optional_columns_are_dropped():
-    blocks = header(("항목", 0, 0), ("명칭", 200, 0), ("단가", 300, 0), ("횟수", 400, 0), ("총액", 600, 0))
+@pytest.mark.parametrize("extra,inserted", [
+    ((), []),  # 머리글 낱말이 다 읽혔다: 못 읽은 필수 열(일자·코드)을 끼우지 않는다
+    ((("가나다라", 100, 0),), ["시작일자", "종료일자", "원내코드", "EDI코드"]),  # 항목·명칭 사이 읽지 못한 글자 → 그 자리 필수 열과 짝
+    ((("버", 100, 0),), ["시작일자", "종료일자", "원내코드", "EDI코드"]),  # 한 글자 조각도 근거다
+    ((("가나다라", 500, 0),), []),  # 근거가 다른 자리(횟수·총액 사이)에 있으면 그 자리 필수 열이 아니다
+])
+def test_unread_required_columns_are_inserted_only_where_the_header_shows_unread_text(extra, inserted):
+    blocks = header(("항목", 0, 0), ("명칭", 200, 0), ("단가", 300, 0), ("횟수", 400, 0), ("일수", 450, 0), ("총액", 600, 0), *extra)
 
     columns = printed(blocks, DETAIL)
 
-    # 못 읽은 일자·코드(필수)는 제자리에, 그 개념 낱말을 하나도 못 읽었으니 짝 열(종료일자·원내코드)도 함께 둔다
-    assert columns[:5] == ["항목", "시작일자", "종료일자", "원내코드", "EDI코드"]
-    assert "일수" in columns and "투여량" not in columns and "선택진료료" not in columns
+    assert columns[1:1 + len(inserted)] == inserted and columns[1 + len(inserted)] == "EDI명칭"
+    assert "투여량" not in columns and "선택진료료" not in columns
+
+
+def test_a_wide_gap_between_header_words_is_evidence_of_a_column_ocr_missed():
+    # 코드(200)와 단가(1200) 사이가 머리글 간격 중앙값의 2.5배보다 넓다: OCR이 '명칭'을 통째로 놓쳤다
+    blocks = header(("항목", 0, 0), ("일자", 100, 0), ("코드", 200, 0), ("단가", 1200, 0), ("횟수", 1300, 0), ("일수", 1400, 0), ("총액", 1500, 0))
+
+    assert printed(blocks, DETAIL)[:4] == ["항목", "시작일자", "EDI코드", "EDI명칭"]
+
+
+@pytest.mark.parametrize("words,expected", [
+    (("금액",), ["총액"]),  # 금액 열 하나 = 행 금액(합계가 이 열을 더한다)
+    (("단가",), ["단가"]),
+    (("단가", "금액"), ["단가", "총액"]),
+    (("금액", "총액"), ["단가", "총액"]),  # 총액 열이 따로 있으면 금액은 단가다
+    (("금액", "총맥"), ["단가", "총액"]),  # '총맥'(총액·총투 사이 오독)도 총액 자리를 차지할 수 있다
+])
+def test_a_lone_amount_column_named_geumaek_is_the_row_total(words, expected):
+    names = ["항목", "코드", "명칭", "횟수", "일수", *words]
+    blocks = header(*[(word, index * 100, 0) for index, word in enumerate(names)])
+
+    assert [column for column in printed(blocks, DETAIL) if column in ("단가", "총액")] == expected
+
+
+def test_stacked_header_words_of_one_concept_are_one_column():
+    # '코드' 아래 '{수가코드}', '명칭' 아래 '{수가명칭}'(한 칸 두 줄)는 한 열이다. '총액'은 칸이 높아 한 줄 위에 있다
+    blocks = header(("항목", 0, 30), ("일자", 100, 30), ("코드", 200, 0), ("{수가코드}", 200, 30), ("명칭", 400, 0),
+                    ("{수가명칭}", 400, 30), ("금액", 600, 0), ("횟수", 700, 0), ("일수", 800, 0), ("총액", 900, -30))
+
+    assert printed(blocks, DETAIL) == ["항목", "시작일자", "EDI코드", "EDI명칭", "단가", "횟수", "일수", "총액"]
+
+
+def test_header_rows_of_another_table_above_a_value_row_are_not_read():
+    blocks = header(("입원일자", 600, -60), ("퇴원일자", 700, -60), ("20220304", 600, -30),
+                    ("항목", 0, 0), ("명칭", 200, 0), ("단가", 300, 0), ("횟수", 400, 0), ("일수", 450, 0), ("총액", 600, 0))
+
+    assert "시작일자" not in printed(blocks, DETAIL)
+
+
+def test_header_words_in_table_cells_are_read_when_ocr_gave_no_line_boxes():
+    blocks = cells(["환자 성명", "환자 성명", "진료 기간"], ["항목", "일자", "코드", "명칭", "금액", "횟수", "일수", "총액"],
+                   ["진찰료", "22.02.11", "10100", "초진진찰료", "14,080", "1", "1", "14,080"])
+
+    assert printed(blocks, DETAIL) == ["항목", "시작일자", "EDI코드", "EDI명칭", "단가", "횟수", "일수", "총액"]
 
 
 @pytest.mark.parametrize("words,expected", [
     (["코드"], ["EDI코드"]),  # 코드 낱말 하나 = 코드 열 하나(EDI코드)
     (["처방코드", "EDI코트"], ["원내코드", "EDI코드"]),  # '…코드' 끝말·오독도 코드 열이라 둘을 센다
     (["서발코드", "EDI 코드"], ["원내코드", "EDI코드"]),  # 앞말 오독, 떨어진 'EDI 코드'
-    ([], ["원내코드", "EDI코드"]),  # 코드 낱말을 못 읽으면 코드 열 수를 몰라 둘 다 둔다
+    ([], []),  # 머리글이 다 읽혔는데 코드 낱말이 없으면 코드 열이 없는 서식이다
+    (["버리"], ["원내코드", "EDI코드"]),  # 코드 자리에 읽지 못한 글자: 코드 열 수를 몰라 둘 다 둔다
 ])
 def test_code_columns_are_dropped_only_when_the_header_counted_them(words, expected):
     names = ["항목", "일자", *words, "명칭", "단가", "횟수", "일수", "총액"]
@@ -131,7 +180,7 @@ def test_code_columns_are_dropped_only_when_the_header_counted_them(words, expec
     columns = printed(blocks, DETAIL)
 
     assert [column for column in columns if column in ("원내코드", "EDI코드")] == expected
-    assert columns.index("EDI명칭") == columns.index("EDI코드") + 1
+    assert not expected or columns.index("EDI명칭") == columns.index("EDI코드") + 1
 
 
 HEAD = (("항목", 0, 0), ("일자", 200, 0), ("코드", 700, 0), ("명칭", 900, 0), ("단가", 1200, 0), ("일수", 1300, 0), ("총액", 1400, 0))
@@ -263,7 +312,7 @@ def test_rowmajor_reads_tables_as_positional_rows_beside_one_call_for_the_other_
     rows_call = next(call for call in provider.calls if call["json_schema"])
     item = rows_call["json_schema"]["properties"]["rows"]["items"]
     assert item["minItems"] == item["maxItems"] == len(columns)
-    assert "Position order: 1=항목, 2=시작일자" in rows_call["messages"][1]["content"][-1]["text"]
+    assert "Position order: 1=항목, 2=EDI명칭, 3=단가" in rows_call["messages"][1]["content"][-1]["text"]
     other = next(call for call in provider.calls if not call["json_schema"])
     assert len(provider.calls) == 2 and '"항목내역"' not in other["messages"][1]["content"][-1]["text"]
     assert result["환자성명"] == "홍길동" and list(result) == ["환자성명", "항목내역"]
@@ -509,3 +558,105 @@ def test_rowmajor_page_image_is_turned_upright(provider, monkeypatch):
     engine.extract(detail_schema(), blocks, provider.image, table_extract="rowmajor")
 
     assert turns and all(t == {1: 90} for t in turns)
+
+
+def test_read_records_the_table_plan_gate_and_turn_as_request_diagnostics(monkeypatch, read_calls):
+    monkeypatch.setenv("TABLE_EXTRACT", "rowmajor")
+    monkeypatch.setenv("TABLE_RECHECK_RATIO", "0.3")
+    read_calls.first = shifted_rows(3, 7)
+    turned = [{"type": "text", "text": "x", "page": 1, "orientation": 90}]
+    monkeypatch.setattr(verify, "parse", lambda *args, **kwargs: ("", turned))
+
+    with latency.track() as stages:
+        verify.read("scan.png", "세부내역서", only={"항목내역"}, auto_reprocess=False)
+
+    assert stages["table_gate"] >= 0.3 and stages["table_reread"] is True and stages["turned"] == {"1": 90}
+
+
+def test_rowmajor_extract_records_the_plan_source_and_a_fallback_reason(provider):
+    provider.rows = [["a"]]  # 열 수가 틀린 행: 표를 asis로 다시 읽는다
+    with latency.track() as stages:
+        engine.extract(detail_schema(), BLOCKS, provider.image, table_extract="rowmajor")
+
+    assert stages["table_plan"] == "header" and stages["table_plan_reason"] is None
+    assert "열 수" in stages["rowmajor_fallback"]
+
+
+def test_rowmajor_extract_records_why_the_header_was_not_read(provider):
+    blocks = [{**BLOCKS[0], "lines": BLOCKS[0]["lines"][:2]}]
+    provider.rows = [[None] * len(DETAIL)]
+    with latency.track() as stages:
+        engine.extract(detail_schema(), blocks, provider.image, table_extract="rowmajor")
+
+    assert (stages["table_plan"], stages["table_plan_reason"]) == ("union", "few_header_columns")
+
+
+# --- 머리글을 못 읽은 표: 셀 값 꼴로 열 순서 ---------------------------------------------
+
+ROW = ["진찰료", "2023-03-03", "AA157", "초진진찰료", "16,650", "1", "1", "16,650", "9,990", "6,660", "0", "0"]
+
+
+def body(*rows):
+    return cells(*rows) + [{"type": "table", "lines": [{"text": "x", "bbox": [0, 0, 1, 1]}], "rows": []}]
+
+
+@pytest.mark.parametrize("rows,expected", [
+    ([ROW] * 4, ["항목", "시작일자", "EDI코드", "EDI명칭", "단가", "횟수", "일수", "총액", "본인부담", "공단부담", "전액본인부담", "비급여"]),
+    ([[ROW[0], "2023-03-03 ~ 2023-03-05", *ROW[2:10]]] * 3,  # 기간이 찍힌 날짜 열은 시작·종료 두 키
+     ["항목", "시작일자", "종료일자", "EDI코드", "EDI명칭", "단가", "횟수", "일수", "총액", "본인부담", "공단부담"]),
+    ([ROW[:2] + ["2023-03-03 ~ 2023-03-05"] + ROW[2:9]] * 3, None),  # 날짜 열 셋째 키는 없다
+    ([[*ROW[:4], "16,650", "0.5", "1", "1", "8,325", "2,500", "5,825"]] * 3,  # 수 세 열 = 투여량·횟수·일수
+     ["항목", "시작일자", "EDI코드", "EDI명칭", "단가", "투여량", "횟수", "일수", "총액", "본인부담", "공단부담"]),
+    ([[*ROW[:4], "1", "1", "16,650", "0", "0", "0", "16,650"]] * 3,  # 단가 없이 수 → 총액. 0만 있는 열도 총액 뒤 금액이다
+     ["항목", "시작일자", "EDI코드", "EDI명칭", "횟수", "일수", "총액", "본인부담", "공단부담", "전액본인부담", "비급여"]),
+    ([["진찰료", "2023-03-03", "AA157", "AL200X01", "초진진찰료", "16,650", "1", "1", "16,650"]] * 3,  # 코드 둘: EDI 꼴이 많은 쪽이 EDI코드
+     ["항목", "시작일자", "EDI코드", "원내코드", "EDI명칭", "단가", "횟수", "일수", "총액"]),
+    ([[*ROW[:8], "9,990"]] * 3, None),  # 총액 뒤 금액 한 열은 어느 열인지 모른다
+    ([ROW] * 2, None),  # 행이 셋 미만
+    ([["진찰료", "검사료", "AA157", "초진", "16,650", "1", "1", "16,650"]] * 3, None),  # 날짜·코드 앞 글자 열이 둘
+])
+def test_value_shapes_order_the_columns_of_a_table_without_a_readable_header(rows, expected):
+    blocks = body(*rows)
+
+    assert table_layout.shaped_columns(blocks, DETAIL) == (dict.fromkeys(expected) if expected else None)
+
+
+def test_a_table_without_a_readable_header_is_planned_from_value_shapes_and_says_why():
+    plan, source, reason = table_layout.planned("세부내역서", "항목내역", body(*[ROW] * 4), "표.", dict.fromkeys(DETAIL, "설명"))
+
+    assert source == "value" and reason == "no_header_words" and list(plan[1])[:3] == ["항목", "시작일자", "EDI코드"]
+    assert plan[0] == "표." + table_layout.NOTE
+
+
+@pytest.mark.parametrize("blocks,source,reason", [
+    ([], "union", "no_table_text"),
+    (header(("항목", 0, 0), ("명칭", 100, 0)), "union", "few_header_columns"),
+    (header(("항목", 0, 0), ("명칭", 100, 0), ("단가", 200, 0), ("총액", 300, 0)), "header", None),
+])
+def test_planned_names_the_plan_source_and_the_header_failure(blocks, source, reason):
+    assert table_layout.planned("세부내역서", "항목내역", blocks, "", dict.fromkeys(DETAIL, ""))[1:] == (source, reason)
+    assert table_layout.planned("진료비영수증", "항목내역", cells(["항목", "금액"]), "", dict.fromkeys(RECEIPT, ""))[1:] == ("union", "unknown_form")
+
+
+@pytest.mark.parametrize("words,expected", [
+    (("총투", "일수"), ["횟수", "일수"]),  # 곱하는 두 열은 횟수·일수(표준 서식)
+    (("총투", "횟수", "일수"), ["투여량", "횟수", "일수"]),
+    (("횟수", "일수"), ["횟수", "일수"]),
+])
+def test_two_multiplying_columns_are_counts_and_days(words, expected):
+    names = ["항목", "코드", "명칭", "단가", *words, "총액"]
+    blocks = header(*[(word, index * 100, 0) for index, word in enumerate(names)])
+
+    assert [column for column in printed(blocks, DETAIL) if column in ("투여량", "횟수", "일수")] == expected
+
+
+def test_a_group_date_row_fills_the_dates_of_a_table_without_a_date_column():
+    rows = [{"항목": "진찰료", "EDI코드": "AA154", "EDI명칭": "초진진찰료", "총액": "100"},
+            {"항목": "검사", "EDI코드": "E6660", "EDI명칭": "정밀안저검사", "총액": "200"}]
+    table = {"type": "table", "page": 1, "text": "2022-02-25 (보험외래)\nAA154 초진진찰료\n2022-03-04\nE6660 정밀안저검사"}
+    issued = {"type": "text", "page": 1, "text": "2021-11-23"}  # 표 밖 날짜(발행일)는 무리 날짜가 아니다
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, [issued, table])["항목내역"]
+
+    assert [(row["시작일자"], row["종료일자"]) for row in out] == [("20220225", "20220225"), ("20220304", "20220304")]
+    assert rules.apply("세부내역서", {"항목내역": rows}, [{**issued, "text": "2021-11-23\nAA154 초진진찰료"}])["항목내역"][0]["시작일자"] is None

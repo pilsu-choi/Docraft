@@ -42,6 +42,8 @@ MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
 ACTIVE = {"parsing": ("parsing",), "extracting": ("extracting", "validating")}
 RUNNING_STATUSES = {"parsing", "extracting", "validating"}  # 실행 중인 잡이 있는 상태(취소는 다음 단계 경계에서)
 PROCESSING_STATUSES = {"queued", *RUNNING_STATUSES}  # 삭제 금지·취소 대상 문서 상태
+# /api/read 응답 diagnostics·로그에 남기는 표 읽기 운영 지표(verify._note_table·engine·rules가 남긴다)
+TABLE_STAGES = ("table_plan", "table_plan_reason", "table_gate", "table_reread", "rowmajor_fallback", "column_swaps", "turned")
 
 
 @asynccontextmanager
@@ -911,9 +913,10 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
         quality = {key: value for key, value in quality.items() if key.split("/")[0] in only}
     elapsed_ms = round((time.monotonic() - started) * 1000)
     logger.info("read finished: filename=%s doc_type=%s fields=%d elapsed_ms=%d %s", filename, doc_type, len(fields), elapsed_ms,
-                " ".join(f"{name}={stages.get(name, 0)}" for name in ("ocr_ms", "ocr_wait_ms", "refine_ms", "extract_ms", "reprocess_ms", "cache_hit")))
+                " ".join(f"{name}={stages.get(name, 0)}" for name in ("ocr_ms", "ocr_wait_ms", "refine_ms", "extract_ms", "reprocess_ms", "cache_hit")
+                         + tuple(name for name in TABLE_STAGES if name in stages)))
     return {"doc_type": doc_type, "fields": fields, "groundings": groundings, "field_quality": quality,
-            "elapsed_ms": elapsed_ms, "reprocess": recovery}
+            "elapsed_ms": elapsed_ms, "reprocess": recovery, "diagnostics": dict(stages)}
 
 
 @app.post("/api/admin/cancel-all", dependencies=[Depends(auth)])

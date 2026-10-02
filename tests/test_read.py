@@ -171,7 +171,8 @@ def test_read_route_returns_the_contract_shape_with_all_fields_when_keys_is_omit
     body = response.json()
 
     assert response.status_code == 200
-    assert set(body) == {"doc_type", "fields", "groundings", "field_quality", "elapsed_ms", "reprocess"}
+    assert set(body) == {"doc_type", "fields", "groundings", "field_quality", "elapsed_ms", "reprocess", "diagnostics"}
+    assert isinstance(body["diagnostics"], dict)  # 운영 지표(단계 시간·표 읽기). 하네스는 모르는 키를 무시한다
     assert body["doc_type"] == "진단서"
     assert isinstance(body["elapsed_ms"], int)
     assert body["fields"] == DOCRAFT  # 스텁의 고정 docraft(전체 필드), AO 비교·판정 정보 없음
