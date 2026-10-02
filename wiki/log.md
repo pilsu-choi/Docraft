@@ -337,3 +337,5 @@
 - Update: 2026-10-02 [index](index.md)에 문서를 연결하고 README `TABLE_RECHECK_RATIO`(0.6) 설명을 고쳤다.
 - Creation: 2026-10-03 [rowmajor 열 배치 근거화와 세부내역서 열 맞바꿈](2026-10-03-colplan-evidence.md) — 근거 없는 열 추가 제거·여러 줄 머리글·값 꼴 배치·코드/본인·공단 맞바꿈·운영 지표, OpenRouter 42회(59건 92.74→93.14%), 821 passed. 브랜치 `feat/colplan`, 워크트리 `.worktrees/colplan`.
 - Update: 2026-10-03 [index](index.md)에 문서를 연결하고 README `/api/read` 응답에 `diagnostics`를 적었다.
+- Creation: 2026-10-03 [세부내역서 집계 행·급여 인쇄값만](2026-10-03-summary-rows-printed-benefit.md) — keep_totals 세부내역서·DETAIL_HINT·집계 라벨 표준화·급여=총액 지우기 삭제, OpenRouter 29회(59건 93.14→96.24%), 848 passed. 브랜치 `fix/summary-rows-benefit`, 워크트리 `.worktrees/summary-rows-benefit`.
+- Update: 2026-10-03 [index](index.md)에 문서를 연결하고 README 집계 행 비교 설명을 고쳤다. [표 행 번호](2026-10-03-dense-page-row-number.md)는 정답지 시험 결과로 dev 병합을 보류했다(브랜치 `fix/dense-page-json`에 기록).
