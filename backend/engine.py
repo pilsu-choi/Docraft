@@ -16,6 +16,7 @@ import httpx
 from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit
+from . import table_layout
 from .latency import parallel, remaining
 
 logger = logging.getLogger(__name__)
@@ -44,18 +45,24 @@ def _message_text(content):
     return "".join(part.get("text", "") for part in content) if isinstance(content, list) else content or ""
 
 
-def _data_url(page, clip=None, max_zoom=2.0):
-    """One rendered page (or its `clip` region) as a base64 JPEG data URL, scaled so its longest side stays within VISION_MAX_EDGE."""
+def _data_url(page, clip=None, max_zoom=2.0, turn=0):
+    """One rendered page (or its `clip` region) as a base64 JPEG data URL, scaled so its longest side stays within
+    VISION_MAX_EDGE and turned `turn` degrees counter-clockwise (the parser's `orientation`) so the text is upright."""
     area = clip or page.rect
     zoom = min(VISION_MAX_EDGE / max(area.width, area.height), max_zoom)
-    pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, alpha=False)
+    pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom).prerotate(-turn), clip=clip, alpha=False)
     return "data:image/jpeg;base64," + base64.b64encode(pixmap.tobytes("jpeg", jpg_quality=90)).decode()
 
 
-def _page_images(source, pages):
+def _turns(blocks):
+    """page → `orientation` of the blocks the parser read from a turned page."""
+    return {b["page"]: b["orientation"] for b in blocks if b.get("orientation")}
+
+
+def _page_images(source, pages, turns=None):
     """Page images of the document file `source` for the given 1-based page numbers (the same numbering the
-    parser puts on blocks). Empty when vision is off, the format has no page image (docx/xlsx/csv/txt/html),
-    or rendering fails — the call then falls back to the OCR text alone."""
+    parser puts on blocks), each turned upright by `turns` (page → `orientation`). Empty when vision is off, the
+    format has no page image (docx/xlsx/csv/txt/html), or rendering fails — the call then falls back to the OCR text alone."""
     if not source or not ai_settings()["vision"] or Path(source).suffix.lower() not in VISION_SUFFIXES:
         return []
     pages = list(pages)
@@ -64,7 +71,7 @@ def _page_images(source, pages):
         pages = pages[:VISION_MAX_IMAGES]
     try:
         with fitz.open(source) as document:
-            return [_data_url(document[number - 1]) for number in pages if 1 <= number <= len(document)]
+            return [_data_url(document[number - 1], turn=(turns or {}).get(number, 0)) for number in pages if 1 <= number <= len(document)]
     except Exception as exc:
         logger.warning("vision: page image rendering failed for %s: %s", Path(source).name, exc, exc_info=True)
         return []
@@ -77,7 +84,7 @@ def _user(text, images):
     return {"role": "user", "content": [*({"type": "image_url", "image_url": {"url": url}} for url in images), {"type": "text", "text": text}]}
 
 
-def _provider(messages, timeout=None, timeout_cap=None):
+def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_tokens=None):
     # 호출마다 준 값과 AI_TIMEOUT(기본 90초) 중 큰 값 — 느린 GPU(L40S 요청당 약 16 tok/s)에서는 긴 응답(스키마 생성·
     # 행 많은 표)이 90초를 넘는다.
     timeout = max(timeout or 0, float(os.getenv("AI_TIMEOUT", "90")))
@@ -87,9 +94,17 @@ def _provider(messages, timeout=None, timeout_cap=None):
     if not settings["configured"] or settings["mode"] == "local":
         raise ProviderConfigurationError("AI provider가 설정되지 않았습니다. AI_BASE_URL, AI_API_KEY, AI_VLM_MODEL을 확인해 주세요.")
     body = {"model": settings["model"], "messages": messages, "temperature": 0, "response_format": {"type": "json_object"}}
-    if not settings["reasoning"]:
+    if json_schema is not None:
+        # The server constrains the reply to the schema (vLLM structured outputs, OpenRouter json_schema). OpenRouter routes
+        # only to providers honoring it (require_parameters); none of those for qwen3-vl takes `reasoning`, so it is left
+        # out (an instruct model has no reasoning mode). vLLM ignores the unknown `provider` field.
+        body["response_format"] = {"type": "json_schema", "json_schema": {"name": "response", "schema": json_schema}}
+        body["provider"] = {"require_parameters": True}
+    elif not settings["reasoning"]:
         # OpenRouter standard param; providers/models without reasoning support just ignore it.
         body["reasoning"] = {"enabled": False}
+    if max_tokens:
+        body["max_tokens"] = max_tokens
     prompt_chars = sum(len(_message_text(m.get("content"))) for m in messages)
     images = sum(1 for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url")
     logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", settings["model"], len(messages), images, prompt_chars)
@@ -181,7 +196,7 @@ def refine_tables(blocks, source, deadline=None):
                 page = document[(block["page"] or 1) - 1]
                 scale = page.rect.width / block["page_size"][0]  # OCR image pixels -> page points
                 clip = fitz.Rect([value * scale for value in block["bbox"]]) & page.rect
-                image = _data_url(page, clip, max_zoom=1 / scale)  # no upscaling beyond the OCR image resolution
+                image = _data_url(page, clip, max_zoom=1 / scale, turn=block.get("orientation", 0))  # no upscaling beyond the OCR resolution; upright like the re-read page
                 parts = _row_parts(block["text"], texts[number], max_cells)
                 calls += [(number, image, part, len(parts) > 1) for part in parts]
     except Exception as exc:
@@ -417,16 +432,68 @@ def _drop_null_optionals(value, schema):
     return value
 
 
-def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=None):
-    """`source` is the original document file path; its page images are attached to each chunk call when available."""
-    if ai_settings()["mode"] == "local":
-        logger.debug("extract: local mode blocks=%d", len(blocks))
-        return _local_extract(schema, blocks)
-    budget = ai_settings()["chunk_chars"]
-    if budget <= 0:
-        raise ValueError("EXTRACT_CHUNK_CHARS는 양수여야 합니다.")
-    chunks = _page_chunks(blocks, budget) or [[]]
-    logger.info("extract: provider mode blocks=%d chunks=%d budget=%d pages=%s", len(blocks), len(chunks), budget, [_page_range(chunk) for chunk in chunks])
+ROWS_SYSTEM = (  # rowmajor table reading: one value array per row, field i always at position i.
+    "You will be given a document image and, in the user message, a table to find and a list of fields (in a fixed order) "
+    "to use for every row of that table.\n\nOutput rules:\n"
+    "- Output one array per data row (exclude header/title rows) — never a JSON object keyed by field name.\n"
+    "- Each row array must have exactly as many values as fields given, in that exact position order. Position i in every "
+    "row array is always field i from the list — never output field names, only values, and never reorder them. If a cell "
+    "is empty, put null at that position — never skip or shorten the array.\n"
+    "- Default: copy each value as shown in the document. Exception: if a position's own field description (given in the "
+    "user message) requires a specific format or exclusion (e.g. a date format, dropping a foreign-script gloss or a "
+    "parenthetical annotation), write the value in that format instead. This changes formatting only — never which row a "
+    "value belongs to, never its position. Unsure whether the description applies? Copy raw. Emit rows top-to-bottom in "
+    "the same order they appear in the image. Stop once you reach the last data row — do not pad with extra empty rows, "
+    "invent rows, or repeat rows.\n"
+    "- A subtotal or grand-total row (its first column reads e.g. 소계, 합계, 계, or 끝수처리금액/끝처리 조정금액) is still a "
+    "data row — output it too, in its place in the top-to-bottom order, even though most of its other cells are blank and "
+    "only a label plus one or two totals are filled in. This applies whether it sits between item groups or as the very "
+    "last row of the table — do not treat it as a footer and stop before it."
+)
+ROWS_USER = (
+    "Reference OCR text (extracted separately from this document by a different OCR system; it may contain OCR errors or "
+    "misaligned columns — the image is still the primary source of truth for structure and cell values, but use this text "
+    "to double-check that you have not missed or duplicated any row):\n[[SOURCE_START]]\n{evidence}\n[[SOURCE_END]]\n\n"
+    "Find and transcribe this table: {table} — {description}\n"
+    "Fields, in the exact order you must use for every row (do not reorder, rename, invent, or translate):\n{fields}\n\n"
+    "Position order: {order}.\n\nExtract this table now."
+)
+
+
+ROW_AMOUNT = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?![\d,])|(?<![\d.,])\d{3,}(?![\d.,])")  # 금액 꼴 숫자('12,300'·'4500')
+
+
+def _read_rows(table, spec, doc_type, blocks, evidence, images, deadline=None, cancel=None, on_call=None):
+    """One table as positional rows (`TABLE_EXTRACT=rowmajor`): the model writes each row as a value array in the column
+    order `table_layout.plan` read from the document (the schema's column order when it cannot tell), and the values go
+    back under the schema's column keys. Raises RuntimeError when the reply has no row or a row of the wrong length.
+
+    The reply is capped at (amount-like numbers in the OCR evidence + 20) rows × (10 tokens per column + 20): every printed
+    row carries an amount, and saved replies use at most half that budget. A longer reply repeats rows, so it stops at the
+    cap (finish_reason=length → RuntimeError) and the table is read asis instead of looping to the provider limit."""
+    union = {key: prop.get("description", "") for key, prop in spec["items"]["properties"].items()}
+    description, columns, fill = table_layout.plan(doc_type, table, blocks, spec.get("description", ""), union) or (spec.get("description", ""), union, None)
+    names = list(columns)
+    if cancel is not None and cancel.is_set():
+        raise RuntimeError("extraction cancelled")
+    if on_call is not None:
+        on_call()
+    prompt = ROWS_USER.format(evidence=evidence, table=table, description=description,
+                              fields="\n".join(f"{index}. {key}: {text}" for index, (key, text) in enumerate(columns.items(), 1)),
+                              order=", ".join(f"{index}={key}" for index, key in enumerate(names, 1)))
+    row = {"type": "array", "minItems": len(names), "maxItems": len(names), "items": {"type": ["string", "null"]}}
+    reply = _provider([{"role": "system", "content": ROWS_SYSTEM}, _user(prompt, images)], timeout_cap=remaining(deadline),
+                      json_schema={"type": "object", "properties": {"rows": {"type": "array", "items": row}}, "required": ["rows"]},
+                      max_tokens=(len(ROW_AMOUNT.findall(evidence)) + 20) * (10 * len(names) + 20))
+    rows = reply.get("rows") if isinstance(reply, dict) else None
+    if not rows or not all(isinstance(values, list) and len(values) == len(names) for values in rows):
+        raise RuntimeError(f"rowmajor 응답의 행이 없거나 열 수({len(names)})가 맞지 않습니다.")
+    logger.info("extract: rowmajor table=%s columns=%d planned=%s rows=%d", table, len(names), columns is not union, len(rows))
+    return [{key: dict(zip(names, values)).get(key, fill) for key in union} for values in rows]
+
+
+def _read_chunks(schema, chunks, source, budget, deadline=None, cancel=None, on_call=None):
+    """The schema read as one JSON object per chunk, merged by schema."""
     system = (
         "Extract values using document context and layout. Never invent values. Use null when allowed and absent. "
         "A total or sum field takes the value printed in the document's total row or labelled total cell, never a single line item's value. "
@@ -439,12 +506,12 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     for index, chunk in enumerate(chunks):
         if cancel is not None and cancel.is_set():
             raise RuntimeError("extraction cancelled")
-        remaining = deadline - time.monotonic() if deadline is not None else None
-        if remaining is not None and remaining <= 0:
+        left = deadline - time.monotonic() if deadline is not None else None
+        if left is not None and left <= 0:
             raise TimeoutError("extraction deadline exceeded")
         page_range = _page_range(chunk)
         evidence = _chunk_text(chunk, budget)
-        images = _page_images(source, _pages(chunk))
+        images = _page_images(source, _pages(chunk), _turns(chunk))
         logger.debug("extract: chunk %d/%d pages=%s blocks=%d evidence_chars=%d images=%d", index + 1, len(chunks), page_range, len(chunk), len(evidence), len(images))
         chunk_system = system + (VISION_NOTE if images else "")
         if len(chunks) > 1:
@@ -458,11 +525,58 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
             {"role": "system", "content": chunk_system},
             _user(f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks:\n{evidence}", images),
         ]
-        result = _provider(messages, timeout_cap=remaining) if remaining is not None else _provider(messages)
+        result = _provider(messages, timeout_cap=left) if left is not None else _provider(messages)
         if not isinstance(result, dict):
             raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
         results.append(result)
-    merged = _merge_chunk_results(results, schema)
+    return _merge_chunk_results(results, schema)
+
+
+def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=None, table_extract="asis"):
+    """`source` is the original document file path; its page images are attached to each chunk call when available.
+
+    `table_extract="rowmajor"` reads each table field (array of objects) in its own call as positional rows (`_read_rows`),
+    in parallel with one call for the other fields. It needs a single chunk with page images; otherwise, and for a table
+    whose rowmajor reply fails, the table is read as part of the JSON object (`asis`)."""
+    if ai_settings()["mode"] == "local":
+        logger.debug("extract: local mode blocks=%d", len(blocks))
+        return _local_extract(schema, blocks)
+    if table_extract not in ("asis", "rowmajor"):
+        raise ValueError("TABLE_EXTRACT는 asis 또는 rowmajor여야 합니다.")
+    budget = ai_settings()["chunk_chars"]
+    if budget <= 0:
+        raise ValueError("EXTRACT_CHUNK_CHARS는 양수여야 합니다.")
+    chunks = _page_chunks(blocks, budget) or [[]]
+    logger.info("extract: provider mode blocks=%d chunks=%d budget=%d pages=%s", len(blocks), len(chunks), budget, [_page_range(chunk) for chunk in chunks])
+    properties = schema.get("properties", {})
+    tables = [key for key, prop in properties.items() if prop.get("type") == "array" and prop.get("items", {}).get("type") == "object"]
+    images = _page_images(source, _pages(blocks), _turns(blocks)) if table_extract == "rowmajor" and tables and len(chunks) == 1 else []
+    if table_extract == "rowmajor" and tables and not images:
+        logger.info("extract: rowmajor needs one chunk with page images (chunks=%d), reading tables asis", len(chunks))
+    tables = tables if images else []
+
+    def narrowed(keys):
+        return {**schema, "properties": {key: prop for key, prop in properties.items() if key in keys},
+                "required": [key for key in schema.get("required", []) if key in keys]}
+
+    def read(table):
+        if table is None:
+            return _read_chunks(narrowed(set(properties) - set(tables)) if tables else schema, chunks, source, budget, deadline, cancel, on_call)
+        try:
+            return _read_rows(table, properties[table], schema.get("title"), blocks, _chunk_text(blocks, budget), images, deadline, cancel, on_call)
+        except (RuntimeError, ValueError) as exc:  # a reply that broke the row contract: read the table asis below
+            logger.warning("extract: rowmajor table=%s failed, reading it asis: %s", table, exc)
+            return None
+
+    parts = ([None] if len(tables) < len(properties) or not properties else []) + tables
+    read_parts = dict(zip(parts, parallel(read, parts, len(parts))))
+    merged = read_parts.pop(None, None) or {}
+    failed = [table for table, rows in read_parts.items() if rows is None]
+    if failed:
+        merged.update(_read_chunks(narrowed(set(failed)), chunks, source, budget, deadline, cancel, on_call))
+    merged = {**merged, **{table: rows for table, rows in read_parts.items() if rows is not None}}
+    if tables:
+        merged = {key: merged.get(key) for key in properties}
     _drop_null_optionals(merged, schema)
     return merged, ground(merged, schema, blocks)
 

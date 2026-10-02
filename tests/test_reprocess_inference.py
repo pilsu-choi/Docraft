@@ -58,17 +58,19 @@ def test_rotation_requires_dominant_vertical_boxes_and_maps_back():
     assert reprocess._vertical_ocr([{"lines": vertical}])
     assert not reprocess._vertical_ocr([{"lines": horizontal}])
     assert not reprocess._vertical_ocr([{"lines": vertical[:14]}])
-    blocks = [{"bbox": [20, 40, 30, 50], "lines": [{"bbox": [20, 40, 30, 50]}]}]
-    mapped = reprocess._remap_rotation(blocks, 90, (100, 80))
-    assert mapped[0]["bbox"] == [50, 20, 60, 30]
+    # 원본 100x80 페이지를 반시계 90도 돌린 80x100 페이지에서 읽은 좌표를 원본 좌표로 되돌린다.
+    blocks = [{"bbox": [20, 40, 30, 50], "page_size": [80, 100], "lines": [{"bbox": [20, 40, 30, 50]}]}]
+    mapped = reprocess.unturn(blocks, 90)
+    assert mapped[0]["bbox"] == [50, 20, 60, 30] and mapped[0]["page_size"] == [100, 80]
     assert mapped[0]["lines"][0]["bbox"] == [50, 20, 60, 30]
     assert blocks[0]["bbox"] == [20, 40, 30, 50]
-    cell = {"bbox": [20, 40, 30, 50], "polygon": [[20, 40], [30, 40], [30, 50], [20, 50]],
+    cell = {"bbox": [20, 40, 30, 50], "polygon": [[20, 40], [30, 40], [30, 50], [20, 50]], "page_size": [80, 100],
             "rotation_degrees": 1.0, "blank": True, "verified": True}
-    rotated = reprocess._remap_rotation([{"cells": [cell]}], 90, (100, 80))[0]["cells"][0]
+    rotated = reprocess.unturn([{"page_size": [80, 100], "cells": [cell]}], 90)[0]["cells"][0]
     assert rotated["bbox"] == [50, 20, 60, 30]
     assert rotated["polygon"][0] == [60, 20]
-    assert rotated["verified"] is False and rotated["blank"] is False
+    # 90도 단위 회전은 기울기 보정 각도와 교환되므로 빈칸 근거는 그대로 유효하다.
+    assert rotated["verified"] is True and rotated["blank"] is True and rotated["page_size"] == [100, 80]
     roi = reprocess._remap([{"page_size": [100, 80], "cells": [cell]}], 1, [100, 80],
                            (10, 20, 40, 40))[0]["cells"][0]
     assert roi["polygon"][0] == [18, 40] and roi["bbox"] == [18, 40, 22, 45]
@@ -102,8 +104,8 @@ def test_reprocess_adopts_whole_proven_sum_without_model_calls(monkeypatch):
     monkeypatch.setenv("REPROCESS_MAX_ATTEMPTS", "4")
     monkeypatch.setenv("REPROCESS_MAX_MODEL_CALLS", "0")
     monkeypatch.setattr(reprocess, "_vertical_ocr", lambda blocks: True)
-    monkeypatch.setattr(reprocess, "_rotated", lambda *args: (200, 200))
-    monkeypatch.setattr(reprocess, "_remap_rotation", lambda blocks, *args: blocks)
+    monkeypatch.setattr(reprocess, "_rotated", lambda *args: None)
+    monkeypatch.setattr(reprocess, "unturn", lambda blocks, *args: blocks)
     monkeypatch.setattr(reprocess, "parse", lambda *args, **kwargs: ("", _form_lines()))
     fields = {TOTAL: "95", PARTS[0]: "40", PARTS[1]: "50", PARTS[2]: "0"}
     schema = doctypes.schema("약제비영수증")

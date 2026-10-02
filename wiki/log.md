@@ -325,3 +325,9 @@
 - Creation: 2026-10-02 [/api/read 지연과 HTTP 408 대응](2026-10-02-read-지연-대응.md) — 같은 페이지 결과 공유(single-flight), 표 교정 병렬·분할, OCR_CONCURRENCY 세마포어, 재처리 시한 인식, 모델 호출 벽시계 시한, read finished 단계별 시간, 660 passed. 브랜치 `fix/read-latency`, 워크트리 `.worktrees/read-latency`.
 - Update: 2026-10-02 [index](index.md)에 문서를 연결했다.
 - Update: [/api/read 지연 대응](2026-10-02-read-지연-대응.md) — `cache_hit`가 재처리 크롭 재OCR로 덮어써지던 기록 오류 수정(첫 호출 값만 남김).
+- Creation: 2026-10-02 [표 rowmajor 추출 이식](2026-10-02-table-rowmajor-port.md) — TABLE_EXTRACT(기본 rowmajor)·TABLE_RECHECK_RATIO, table_layout·table_layouts.yaml, 원내코드 후퇴 수정(짝 열 유지·…코드 끝말), 59건 오프라인 90.29%(asis 89.67%), 696 passed. 브랜치 `feat/rowmajor-table`, 워크트리 `.worktrees/rowmajor-table`.
+- Update: 2026-10-02 [index](index.md)에 문서를 연결했다.
+- Creation: 2026-10-02 [돌아간 스캔의 방향 정규화](2026-10-02-scan-orientation.md) — 줄 상자·마침표 위치 판별기(정답지 59장+합성 177건 236/236), 돌아간 페이지만 재판독, 좌표는 원본 기준·`orientation` 표기, VLM 이미지·재처리 크롭 회전, 676 passed. 브랜치 `fix/scan-orientation`, 워크트리 `.worktrees/rotation-fix`.
+- Update: 2026-10-02 [index](index.md)에 문서를 연결하고 README 근거 좌표 설명에 `orientation`을 더했다.
+- Creation: 2026-10-02 [rowmajor 열 배치·게이트 보강과 무리 값 채우기](2026-10-02-rowmajor-rotation-fixes.md) — 정답 없는 98건에서 나온 유형 수정 5가지와 무리 값 채우기, OpenRouter 39회로 검증(59건 92.47%, 98건 일치 93.0%), 762 passed. 브랜치 `feat/rowmajor-rotation`, 워크트리 `.worktrees/rowmajor-rotation`.
+- Update: 2026-10-02 [index](index.md)에 문서를 연결하고 README `TABLE_RECHECK_RATIO`(0.6) 설명을 고쳤다.
