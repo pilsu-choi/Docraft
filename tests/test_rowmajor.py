@@ -660,3 +660,43 @@ def test_a_group_date_row_fills_the_dates_of_a_table_without_a_date_column():
 
     assert [(row["시작일자"], row["종료일자"]) for row in out] == [("20220225", "20220225"), ("20220304", "20220304")]
     assert rules.apply("세부내역서", {"항목내역": rows}, [{**issued, "text": "2021-11-23\nAA154 초진진찰료"}])["항목내역"][0]["시작일자"] is None
+
+
+# --- 세부내역서 집계 행(2026-10-03 정책: 소계·계·합계·끝수처리 조정금액도 행으로) ------------------------------
+
+SUMMARY = [("진찰료", "AA157", "초진진찰료", "2023-03-03", "100"), (None, "AA158", "재진진찰료", None, "50"),
+           ("소계", None, None, None, "150"), ("검사료", "B1010", "혈액검사", "2023-03-04", "30"), (None, "B1011", "소변검사", None, "20"),
+           (None, None, "끝수처리 조정금액", None, "-5"), ("합계", None, None, None, "195")]
+
+
+def summary_rows(columns):
+    keys = ("항목", "EDI코드", "EDI명칭", "시작일자", "총액")
+    return [[dict(zip(keys, values)).get(column) for column in columns] for values in SUMMARY]
+
+
+def assert_summary_kept(rows):
+    assert [(r["항목"], r["EDI명칭"], r["시작일자"], r["종료일자"], r["총액"]) for r in rows] == [
+        ("진찰료", "초진진찰료", "20230303", "20230303", "100"), ("진찰료", "재진진찰료", "20230303", "20230303", "50"),
+        ("소계", None, None, None, "150"), ("검사료", "혈액검사", "20230304", "20230304", "30"), ("검사료", "소변검사", "20230304", "20230304", "20"),
+        ("끝수처리 조정금액", None, None, None, "-5"), ("합계", None, None, None, "195")]
+
+
+def test_rowmajor_detail_keeps_printed_summary_rows_without_filling_them_down(provider):
+    """명칭 자리에 인쇄된 라벨은 항목으로 옮기고, 항목·일자 이어 채우기와 종료일자 채우기는 집계 행을 건너뛴다."""
+    provider.rows = summary_rows(DETAIL)
+    plain = [{"page": 1, "type": "text", "text": "x", "lines": []}]  # 머리글 없음: 스키마 19열 그대로
+
+    result, _ = engine.extract(verify._restrict(doctypes.schema("세부내역서"), {"항목내역"}), plain, provider.image, table_extract="rowmajor")
+
+    assert_summary_kept(rules.apply("세부내역서", result, plain)["항목내역"])
+
+
+def test_asis_detail_asks_for_summary_rows_and_keeps_them(provider):
+    provider.objects = [{"항목내역": [dict(zip(DETAIL, row)) for row in summary_rows(DETAIL)]}]
+    schema = verify._restrict(doctypes.schema("세부내역서"), {"항목내역"})
+
+    result, _ = engine.extract(schema, [{"page": 1, "type": "text", "text": "x", "lines": []}], provider.image, table_extract="asis")
+
+    sent = provider.calls[0]["messages"][1]["content"][-1]["text"]
+    assert doctypes.DETAIL_HINT.split(".")[0] in sent and "'소계' 행과 머리글 행은 넣지 않는다" not in sent
+    assert_summary_kept(rules.apply("세부내역서", result, [])["항목내역"])

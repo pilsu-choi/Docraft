@@ -460,8 +460,8 @@ def test_run_keeps_a_genuinely_corrected_text_field_unchanged(monkeypatch):
     assert (field_out["value"], field_out["source"], field_out["reason"]) == ("정형외과", "corrected", "이미지에 정형외과로 적혀있다")
 
 
-def test_decide_drops_total_rows_ao_excludes_via_apply_reuse():
-    """Judge가 AO에 없던 '계'·'끝수처리 조정금액' 같은 합계행을 끼워 넣어도 rules.apply 재사용으로 걸러진다."""
+def test_decide_keeps_printed_total_rows_of_a_detail_table_via_apply_reuse():
+    """세부내역서 집계 행('계'·'끝수처리 조정금액')은 인쇄된 행이라 rules.apply 재사용 뒤에도 남는다(2026-10-03 정책)."""
     verdict = {"source": "corrected", "reason": "합계행을 함께 읽었다", "rows": [
         {"항목": "진찰료", "본인부담": "1,000"},
         {"항목": "계", "본인부담": "9,000"},
@@ -470,7 +470,7 @@ def test_decide_drops_total_rows_ao_excludes_via_apply_reuse():
 
     rows, source, reason = verify._decide("세부내역서", "항목내역", verdict, [], [], "rows")
 
-    assert [row["항목"] for row in rows] == ["진찰료"]  # 합계행 두 개 모두 빠졌다
+    assert [row["항목"] for row in rows] == ["진찰료", "계", "끝수처리 조정금액"]
     assert rows[0]["본인부담"] == "1000"  # kind별 정규화(콤마 제거)도 함께 적용된다
     assert source == "corrected" and reason == "합계행을 함께 읽었다"
 
@@ -872,17 +872,17 @@ def test_balance_keeps_a_judgement_when_the_other_reading_is_empty_or_no_better(
     assert rules.sum_errors("진료비영수증", {"항목내역": HANBANG_DOCRAFT, "진료비총액": "371270"}) > 0
 
 
-def test_run_keeps_the_printed_subtotal_rows_of_a_detail_table(monkeypatch):
-    """0922 재테스트: Docraft는 세부내역서 집계 행을 뽑지 않으므로 Judge가 Docraft 표를 골라도 AO의 인쇄된
-    소계·합계 행은 원래 자리에 남아야 한다(지우면 인쇄된 행이 사라진다)."""
+def test_run_keeps_the_printed_subtotal_rows_of_a_detail_table_once(monkeypatch):
+    """세부내역서 집계 행은 Docraft도 읽는다(2026-10-03 정책). Judge가 Docraft 표를 고르면 인쇄된 소계·합계 행이
+    제자리에 한 번만 남는다(AO 집계 행을 따로 되돌려 겹치지 않는다). 집계 행도 판정 대상이다."""
     columns = ["항목", "EDI코드", "EDI명칭", "총액"]
     rows = [["진찰료", "AA157", "초진진찰료", "18000"], ["소계", None, None, "18000"],
             ["검사료", "B1010", "일반혈액검사", "900"], ["소계", None, None, "900"], ["합계", None, None, "18900"]]
     ao = {"documents": [{"doc_type": "세부내역서", "extracted_fields": [], "extracted_tables": [{
         "key": "항목내역", "headers": columns, "rows": [[{"key": column, "value": value} for column, value in zip(columns, row)]
                                                     for row in rows]}]}]}
-    docraft = {"항목내역": [{"항목": "진찰료", "EDI코드": "AA157", "EDI명칭": "초진진찰료", "총액": "18000"},
-                        {"항목": "검사료", "EDI코드": "B1010", "EDI명칭": "일반혈액검사", "총액": "990"}]}
+    docraft = {"항목내역": [dict(zip(columns, row)) for row in [*rows[:2], ["검사료", "B1010", "일반혈액검사", "990"],
+                                                             ["소계", None, None, "990"], ["합계", None, None, "18990"]]]}
     seen = []
     real_stub(monkeypatch, docraft, {"항목내역": {"source": "docraft", "reason": "이미지"}})
     monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes, **kwargs: seen.append(disputes) or
@@ -892,8 +892,8 @@ def test_run_keeps_the_printed_subtotal_rows_of_a_detail_table(monkeypatch):
 
     names = [row[0]["value"] for row in table["rows"]]
     assert names == ["진찰료", "소계", "검사료", "소계", "합계"]
-    assert [row[3]["value"] for row in table["rows"]] == ["18000", "18000", "990", "900", "18900"]
-    assert not any(rules.is_total(row) for row in seen[0]["항목내역"]["ao"])  # 집계 행은 판정에 보내지 않는다
+    assert [row[3]["value"] for row in table["rows"]] == ["18000", "18000", "990", "990", "18990"]
+    assert sum(rules.is_total(row) for row in seen[0]["항목내역"]["ao"]) == 3
 
 
 def test_run_keeps_each_row_on_its_own_original_cells_when_a_row_is_inserted(monkeypatch):

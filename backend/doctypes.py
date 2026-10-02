@@ -23,6 +23,10 @@ KINDS = ("text", "date", "dates", "amount", "number", "idnum", "phone", "code", 
 # 표 공통 힌트: twin reader가 합계행을 표에서 빼고 합계 필드로 옮기는 동작을 LLM 쪽에도 알린다.
 TABLE_HINT = "개별 항목 행만 담는다. '합계'·'계'·'총계'·'소계' 행과 머리글 행은 넣지 않는다. 값이 없는 열은 null."
 
+# 세부내역서 표 힌트: 인쇄된 집계 행(소계·계·합계·끝수처리 조정금액)도 인쇄된 값 그대로 행으로 받는다(2026-10-03 정책).
+DETAIL_HINT = ("인쇄된 소계·계·합계·끝수처리 조정금액 행도 인쇄된 자리에 넣고 라벨은 항목 칸에 적는다. 머리글 행은 넣지 않는다. "
+               "인쇄되지 않은 칸은 계산하지 않고 null.")
+
 # 세부내역서 합계 그룹: AO가 항목에서 계산해 채운 값을 인쇄값으로 오인하지 않게 한다.
 TOTAL_HINT = "합계 라벨이 인쇄된 칸만 읽는다. 소계·항목 행·쪽 번호 값은 쓰지 않는다. 합계가 인쇄되지 않았으면 null."
 
@@ -108,29 +112,29 @@ _RECEIPT_ITEM = {  # 진료비영수증 항목내역 열(항목 외에는 모두
 }
 
 _DETAIL_ITEM = {  # 세부내역서 항목내역 19열
-    "항목": ("text", "진료 항목 구분명. 합계·소계 행은 표에 넣지 않는다."),
-    "시작일자": ("date", "항목 시작일. YYYYMMDD. " + TABLE_HINT),
-    "종료일자": ("date", "항목 종료일. 종료일 칸이 따로 없으면 시작일자와 같다. YYYYMMDD. " + TABLE_HINT),
-    "원내코드": ("edi", "원내(병원 자체) 코드. 코드 열이 하나뿐이면 그 값은 EDI코드에 적고 여기는 null. " + TABLE_HINT),
-    "EDI코드": ("edi", "EDI 코드. '코드'·'청구코드'·'표준코드'·'수가코드'·'EDI코드' 열. " + TABLE_HINT),
+    "항목": ("text", "진료 항목 구분명. 집계 행은 인쇄된 라벨(소계·계·합계·끝수처리 조정금액 등). " + DETAIL_HINT),
+    "시작일자": ("date", "항목 시작일. YYYYMMDD. " + DETAIL_HINT),
+    "종료일자": ("date", "항목 종료일. 종료일 칸이 따로 없으면 시작일자와 같다. YYYYMMDD. " + DETAIL_HINT),
+    "원내코드": ("edi", "원내(병원 자체) 코드. 코드 열이 하나뿐이면 그 값은 EDI코드에 적고 여기는 null. " + DETAIL_HINT),
+    "EDI코드": ("edi", "EDI 코드. '코드'·'청구코드'·'표준코드'·'수가코드'·'EDI코드' 열. " + DETAIL_HINT),
     "EDI명칭": ("text", "EDI 명칭. '명칭'·'항목명'·'EDI명칭' 열. 표준 수가 명칭으로 바꾸지 않는다. "
-                        "[UNK] 표기는 지운다. " + TABLE_HINT),
-    "투여량": ("number", "1회 투여량. 소수 가능. " + TABLE_HINT),
-    "단가": ("amount", "단가. '금액'·'단가' 열. 숫자만. " + TABLE_HINT),
-    "횟수": ("number", "1일 투여(실시) 횟수. " + TABLE_HINT),
-    "일수": ("number", "투여(실시) 일수. " + TABLE_HINT),
-    "총액": ("amount", "항목 총액(금액). 숫자만. " + TABLE_HINT),
+                        "[UNK] 표기는 지운다. " + DETAIL_HINT),
+    "투여량": ("number", "1회 투여량. 소수 가능. " + DETAIL_HINT),
+    "단가": ("amount", "단가. '금액'·'단가' 열. 숫자만. " + DETAIL_HINT),
+    "횟수": ("number", "1일 투여(실시) 횟수. " + DETAIL_HINT),
+    "일수": ("number", "투여(실시) 일수. " + DETAIL_HINT),
+    "총액": ("amount", "항목 총액(금액). 숫자만. " + DETAIL_HINT),
     "급여구분": ("enum", "급여구분 열(구분·급/비·비급 등)에 인쇄된 값만. 칸이 비었거나 열이 없으면 null. "
                         "금액 열·항목으로 추정하지 않는다. '비급'은 비급여로 본다. 본인부담률 표기(80/100·50/100·100/100 등)는 "
-                        "급여·비급여로 바꾸지 말고 인쇄된 그대로 답한다. " + TABLE_HINT),
+                        "급여·비급여로 바꾸지 말고 인쇄된 그대로 답한다. " + DETAIL_HINT),
     "급여": ("amount", "급여 값 칸이 인쇄된 서식만 채운다. 급여가 본인부담·공단부담·전액본인부담을 묶는 "
-                       "머리글이면 null. 총액에서 계산하지 않는다. 숫자만. " + TABLE_HINT),
-    "본인부담": ("amount", "급여 본인부담금. 숫자만. " + TABLE_HINT),
-    "공단부담": ("amount", "급여 공단부담금. 숫자만. " + TABLE_HINT),
-    "전액본인부담": ("amount", "급여 전액본인부담금. 숫자만. " + TABLE_HINT),
-    "비급여": ("amount", "비급여 금액. 숫자만. " + TABLE_HINT),
-    "선택진료료": ("amount", "선택진료료. 숫자만. " + TABLE_HINT),
-    "선택진료료외": ("amount", "선택진료료 외. 숫자만. " + TABLE_HINT),
+                       "머리글이면 null. 총액에서 계산하지 않는다. 숫자만. " + DETAIL_HINT),
+    "본인부담": ("amount", "급여 본인부담금. 숫자만. " + DETAIL_HINT),
+    "공단부담": ("amount", "급여 공단부담금. 숫자만. " + DETAIL_HINT),
+    "전액본인부담": ("amount", "급여 전액본인부담금. 숫자만. " + DETAIL_HINT),
+    "비급여": ("amount", "비급여 금액. 숫자만. " + DETAIL_HINT),
+    "선택진료료": ("amount", "선택진료료. 숫자만. " + DETAIL_HINT),
+    "선택진료료외": ("amount", "선택진료료 외. 숫자만. " + DETAIL_HINT),
 }
 
 _SPEC = {  # 진단서 계열 4종은 AO 스키마가 같다(값이 없는 표는 AO가 "[]" 스칼라로 내도 같은 키다).
@@ -240,7 +244,7 @@ DOC_TYPES: dict[str, dict] = {
 
 
 # 유형별 표 힌트. 없으면 TABLE_HINT. 항목 행이 서식마다 다른 두 유형에만 근거 제약을 덧붙인다.
-HINTS = {"진료비영수증": f"{RECEIPT_HINT} {GROUND_HINT}", "세부내역서": f"{TABLE_HINT} {GROUND_HINT}"}
+HINTS = {"진료비영수증": f"{RECEIPT_HINT} {GROUND_HINT}", "세부내역서": f"{DETAIL_HINT} {GROUND_HINT}"}
 
 
 def _property(meta):

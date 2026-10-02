@@ -270,7 +270,7 @@ def test_total_row_moves_to_total_fields():
     rows = [{"항목": "진찰료", "본인부담": "1,000", "공단부담": "2,000"},
             {"항목": "합 계", "본인부담": "5,000", "공단부담": "7,000"}]
     out = rules.apply("세부내역서", {"항목내역": rows}, [])
-    assert [row["항목"] for row in out["항목내역"]] == ["진찰료"]
+    assert [row["항목"] for row in out["항목내역"]] == ["진찰료", "합 계"]  # 세부내역서 집계 행은 인쇄된 라벨 그대로 남는다
     assert (out["급여_본인부담총액"], out["급여_공단부담총액"]) == ("5000", "7000")
 
 
@@ -779,15 +779,15 @@ def test_detail_item_columns_follow_the_ao_convention():
     assert (out[1]["비급여"], out[1]["급여"]) == ("60000", None)
 
 
-def test_detail_paid_column_keeps_a_printed_value_but_drops_a_copied_total():
-    """독립 '급여' 값 열이 보이는 서식은 모델이 읽은 인쇄값을 두되, 총액을 옮긴 값은 지운다(라벨 관례 ⑨)."""
+def test_detail_paid_column_keeps_printed_values_even_when_equal_to_the_total():
+    """독립 '급여' 값 열이 보이는 서식은 모델이 읽은 인쇄값을 둔다. 총액과 같아도 인쇄된 값이다(2026-10-03 정책: '급여액' 서식)."""
     blocks = [{"rows": [["항목", "코드", "총액", "급여", "비급여"],
                         ["진찰료", "AA100", "12380", "", ""]]}]
     rows = [{"급여구분": "급여", "총액": "12380", "급여": "8666"}, {"급여구분": "급여", "총액": "5000", "급여": "5000"}]
 
     out = rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]
 
-    assert (out[0]["급여"], out[1]["급여"]) == ("8666", None)
+    assert (out[0]["급여"], out[1]["급여"]) == ("8666", "5000")
 
 
 def test_detail_paid_column_stays_null_when_it_only_groups_the_share_columns():
@@ -1607,3 +1607,38 @@ def test_codes_are_not_swapped_with_a_column_holding_names():
 
     assert [row["원내코드"] for row in out] == ["KK052", "KK053", "MO077"]
     assert [flag["column"] for flag in rules.check("세부내역서", {"항목내역": out}, {"항목내역": out}, blocks) if flag["code"] == "column_swap"] == ["원내코드"]
+
+
+@pytest.mark.parametrize("label", ["소계", "계", "합계", "총합계", "합 계", "끝수처리조정금액", "끝수처리 조정금액", "끝처리 조정금액",
+                                   "끝수처리조정금", "조정금액", "(Total)", "투약및조제료 소계"])
+def test_detail_summary_row_variants_are_kept_and_not_summed(label):
+    """세부내역서 집계 행은 인쇄된 라벨 그대로 표에 남고(2026-10-03 정책), 금액 합 검사에서는 빠진다."""
+    rows = [{"항목": "진찰료", "EDI코드": "AA157", "총액": "100"}, {"항목": label, "총액": "100"}]
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
+
+    assert [row["항목"] for row in out] == ["진찰료", label] and rules.is_total(out[1]) and not rules.is_total(out[0])
+
+
+def test_a_coded_row_named_like_a_total_is_an_item_row():
+    assert not rules.is_total({"항목": "검사료", "EDI코드": "B1010", "EDI명칭": "소계"})
+    assert rules.is_total({"항목": "검사료", "EDI명칭": "소계"})
+
+
+def test_detail_paid_column_stays_blank_on_summary_rows_when_not_printed():
+    """급여 열이 인쇄되지 않은 서식(급여가 묶음 제목)은 항목 행·집계 행 모두 급여를 비운다 — 0도 총액 복사도 아니다."""
+    blocks = [{"rows": [["항목", "총액", "급여", "급여", "비급여"], ["", "", "본인부담", "공단부담", ""]]}]
+    rows = [{"항목": "진찰료", "급여구분": "급여", "총액": "100", "급여": "100"}, {"항목": "소계", "총액": "100", "급여": "0"}]
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]
+
+    assert [row["급여"] for row in out] == [None, None]
+    assert [row["급여"] for row in rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]] == [None, None]  # 머리글 근거 없음
+
+
+def test_detail_printed_paid_column_keeps_summary_row_values():
+    """'급여액' 열이 인쇄된 서식은 집계 행의 급여도 인쇄값 그대로다."""
+    blocks = [{"rows": [["항목", "코드", "명칭", "급여액", "비급여"], ["진찰료", "AA100", "초진", "100", ""]]}]
+    rows = [{"항목": "진찰료", "EDI코드": "AA100", "총액": "100", "급여": "100"}, {"항목": "소계", "총액": "100", "급여": "100"}]
+
+    assert [row["급여"] for row in rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]] == ["100", "100"]
