@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import fitz
 import pytest
 
-from backend import doctypes, engine, latency, rules, verify
+from backend import doctypes, engine, latency, rules, table_layout, verify
 
 HEADER = (("항목", 0), ("명칭", 100), ("단가", 200), ("일수", 300), ("총액", 400), ("본인부담", 500))
 
@@ -55,8 +55,8 @@ def provider(monkeypatch, tmp_path):
 
 
 def names(blocks):
-    """첫 쪽 머리글로 정한 열 순서."""
-    return list(engine._page_plans("세부내역서", "항목내역", table_schema()["properties"]["항목내역"], blocks)[1][1])
+    """문서 머리글로 정한 열 순서."""
+    return list(engine._table_plan("세부내역서", "항목내역", table_schema()["properties"]["항목내역"], blocks)[1])
 
 
 def row(columns, **values):
@@ -70,8 +70,8 @@ def amounts(number, count):
     return {"page": number, "type": "text", "text": " ".join(["1,000"] * count)}
 
 
-def grouped(blocks, budget=10 ** 6, plans=None):
-    return [engine._pages(group) for group in engine._table_pages(blocks, budget, 1, plans or {})]
+def grouped(blocks, budget=10 ** 6):
+    return [engine._pages(group) for group in engine._table_pages(blocks, budget, 1)]
 
 
 def test_pages_are_grouped_while_the_reply_cap_stays_under_the_limit(monkeypatch):
@@ -88,24 +88,24 @@ def test_a_group_holds_at_most_the_image_limit_and_fits_the_chunk_budget(monkeyp
     assert grouped(blocks, budget=len(blocks[0]["text"]) * 2 + 1) == [[1, 2], [3, 4], [5, 6]]
 
 
-def test_a_page_over_the_limits_is_its_own_group_and_a_new_plan_starts_a_group(monkeypatch):
+def test_a_page_over_the_limits_is_its_own_group(monkeypatch):
     monkeypatch.setattr(engine, "TABLE_REPLY_TOKENS", (40 + 20) * 30)
     blocks = [amounts(1, 1), amounts(2, 100), amounts(3, 1), amounts(4, 1)]
     assert grouped(blocks) == [[1], [2], [3, 4]]
-    assert grouped([amounts(n, 1) for n in range(1, 5)], plans={1: "a", 2: "a", 3: "b", 4: "b"}) == [[1, 2], [3, 4]]
 
 
 # --- 머리글 없는 이어진 쪽 ------------------------------------------------------------
 
 
-def test_headerless_continuation_pages_reuse_the_nearest_earlier_header():
+def test_one_plan_for_the_document_from_the_header_most_pages_agree_on():
     spec = table_schema()["properties"]["항목내역"]
-    other = (("항목", 0), ("명칭", 100), ("투여량", 200), ("일수", 300), ("총액", 400))
-    plans = engine._page_plans("세부내역서", "항목내역", spec, [page(1, None), page(2), page(3, None), page(4, other), page(5, None)])
+    misread = tuple(word for word in HEADER if word[0] != "본인부담")  # OCR이 한 낱말을 놓친 쪽
+    plan = engine._table_plan("세부내역서", "항목내역", spec, [page(1, None), page(2), page(3, None), page(4, misread), page(5)])
+    alone = table_layout.plan("세부내역서", "항목내역", [page(2)], spec["description"],
+                              {key: prop.get("description", "") for key, prop in spec["items"]["properties"].items()})
 
-    assert plans[2] is not None and plans[1] == plans[2] == plans[3]  # 첫 머리글 앞쪽도 그 머리글을 쓴다
-    assert plans[4] == plans[5] != plans[2] and "투여량" in plans[4][1]
-    assert engine._page_plans("세부내역서", "항목내역", spec, [page(1, None), page(2, None)]) == {1: None, 2: None}
+    assert plan == alone and "본인부담" in plan[1]  # 머리글 없는 쪽(1·3)과 오독한 쪽(4)도 이 배치로 읽는다
+    assert engine._table_plan("세부내역서", "항목내역", spec, [page(1, None), page(2, None)]) is None
 
 
 # --- 이어 붙이기 ---------------------------------------------------------------------

@@ -139,7 +139,7 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_to
         try:
             return json.loads(content)
         except json.JSONDecodeError:
-            logger.error("provider json decode failed: len=%d finish_reason=%s", len(content), finish_reason)
+            logger.error("provider json decode failed: len=%d finish_reason=%s tail=%r", len(content), finish_reason, content[-200:])
             raise
 
 
@@ -501,29 +501,26 @@ def _read_rows(table, spec, plan, evidence, images, part="", deadline=None, canc
     return [{key: dict(zip(names, values)).get(key, fill) for key in union} for values in rows]
 
 
-def _page_plans(doc_type, table, spec, blocks):
-    """page → the table's column plan (`table_layout.plan`). Each page is planned from its own header; a page without a
-    readable header (a continuation page) takes the plan of the nearest earlier page, and pages before the first readable
-    header take that first plan. Plans come from one page each: pages share coordinates, so mixing them blurs the header."""
+def _table_plan(doc_type, table, spec, blocks):
+    """The table's column plan (`table_layout.plan`) for the whole document. Each page is planned from its own blocks (pages
+    share coordinates, so mixing them blurs the header), and the plan most pages agree on wins (ties: more columns, then the
+    earlier page): a long table repeats one printed header, and a page whose header OCR misread a word or carries no header
+    (a continuation page) reads with the same plan as the others."""
     union = {key: prop.get("description", "") for key, prop in spec["items"]["properties"].items()}
-    own = {page: table_layout.plan(doc_type, table, list(group), spec.get("description", ""), union)
-           for page, group in groupby(blocks, key=lambda b: b.get("page"))}
-    last = next((plan for plan in own.values() if plan), None)
-    plans = {}
-    for page, plan in own.items():
-        plans[page] = last = plan or last
-    return plans
+    plans = [plan for _, group in groupby(blocks, key=lambda b: b.get("page"))
+             if (plan := table_layout.plan(doc_type, table, list(group), spec.get("description", ""), union))]
+    return max(plans, key=lambda plan: (plans.count(plan), len(plan[1])), default=None)
 
 
-def _table_pages(blocks, budget, columns, plans):
+def _table_pages(blocks, budget, columns):
     """Consecutive whole pages grouped for reading one table so that each group's reply cap (`_reply_cap`) stays within
-    TABLE_REPLY_TOKENS, its text within the chunk budget and its pages within VISION_MAX_IMAGES; a group also ends where
-    the page's column plan changes. A page over the limits alone is its own group."""
+    TABLE_REPLY_TOKENS, its text within the chunk budget and its pages within VISION_MAX_IMAGES. A page over the limits
+    alone is its own group."""
     groups = []
-    for page, group in groupby(blocks, key=lambda b: b.get("page")):
+    for _, group in groupby(blocks, key=lambda b: b.get("page")):
         group = list(group)
         last = groups[-1] if groups else None
-        if (last and len(_pages(last)) < VISION_MAX_IMAGES and plans.get(page) == plans.get(last[0].get("page"))
+        if (last and len(_pages(last)) < VISION_MAX_IMAGES
                 and len(text := "\n".join(b["text"] for b in last + group)) <= budget
                 and _reply_cap(text, columns) <= TABLE_REPLY_TOKENS):
             last.extend(group)
@@ -585,7 +582,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     A table whose pages do not fit one reply (`_table_pages` gives several page groups) is read page group by page group in
     parallel (`TABLE_PAGE_CONCURRENCY`, default 4) and its rows are concatenated in page order: one call has to hold the
     whole table otherwise, and a long table runs past the provider output limit. rowmajor reads each group with the column
-    plan of its pages (`_page_plans`), and a group whose reply fails is read asis alone."""
+    plan most pages agree on (`_table_plan`), and a group whose reply fails is read asis alone."""
     if ai_settings()["mode"] == "local":
         logger.debug("extract: local mode blocks=%d", len(blocks))
         return _local_extract(schema, blocks)
@@ -599,8 +596,8 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     properties = schema.get("properties", {})
     tables = [key for key, prop in properties.items() if prop.get("type") == "array" and prop.get("items", {}).get("type") == "object"]
     rowmajor = table_extract == "rowmajor"
-    plans = {table: _page_plans(schema.get("title"), table, properties[table], blocks) if rowmajor else {} for table in tables}
-    groups = {table: _table_pages(blocks, budget, len(properties[table]["items"]["properties"]), plans[table]) for table in tables}
+    plans = {table: _table_plan(schema.get("title"), table, properties[table], blocks) if rowmajor else None for table in tables}
+    groups = {table: _table_pages(blocks, budget, len(properties[table]["items"]["properties"])) for table in tables}
     paged = [table for table in tables if len(groups[table]) > 1]
     images = _page_images(source, _pages(blocks), _turns(blocks)) if rowmajor and len(paged) < len(tables) and len(chunks) == 1 else []
     whole = [table for table in tables if table not in paged] if images else []
@@ -615,7 +612,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         pages = _page_range(group)
         if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group))):
             try:
-                return _read_rows(table, properties[table], plans[table].get(group[0].get("page")), _chunk_text(group, budget), group_images,
+                return _read_rows(table, properties[table], plans[table], _chunk_text(group, budget), group_images,
                                   PAGES_NOTE.format(pages=pages, span=_page_range(blocks)), deadline, cancel, on_call)
             except (RuntimeError, ValueError) as exc:  # a reply that broke the row contract: read these pages asis
                 if cancel is not None and cancel.is_set():
@@ -644,7 +641,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         if table in paged:
             return read_pages(table)
         try:
-            return _read_rows(table, properties[table], plans[table].get(blocks[0].get("page")) if blocks else None,
+            return _read_rows(table, properties[table], plans[table],
                               _chunk_text(blocks, budget), images, "", deadline, cancel, on_call)
         except (RuntimeError, ValueError) as exc:  # a reply that broke the row contract: read the table asis below
             logger.warning("extract: rowmajor table=%s failed, reading it asis: %s", table, exc)
