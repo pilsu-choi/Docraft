@@ -1390,3 +1390,16 @@ def test_benefit_class_keeps_the_printed_rate(printed, expected):
 def test_receipt_item_row_accepts_printed_rate_names():
     """구 요양급여 서식 행 이름(100/100미만50%)의 기호 때문에 파서 표 행 복원이 버리지 않는다."""
     assert rules._receipt_item(["100/100미만50%"]) == "100/100미만50%"
+
+
+@pytest.mark.parametrize(("value", "expected"), [
+    ("[✓]병원급", "병원급"), ("의원급", "의원급·보건기관"), ("의원급・보건기관", "의원급·보건기관"),
+    ("고상급종합병원", "상급종합병원"), ("종합병원", "종합병원"), ("V", None),
+])
+def test_institution_type_maps_to_four_checkbox_values(value, expected):
+    assert rules._enum("의료기관정보-요양기관종류", value) == expected
+
+
+def test_institution_type_schema_lists_four_values():
+    assert doctypes.spec("진료비영수증")["fields"]["의료기관정보-요양기관종류"]["enum"] == sorted(
+        ["의원급·보건기관", "병원급", "종합병원", "상급종합병원"])
