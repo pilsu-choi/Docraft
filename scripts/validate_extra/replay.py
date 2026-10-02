@@ -3,7 +3,7 @@
 문서마다: rowmajor 응답(--new에 있으면 그것, 없으면 --rowmajor 저장본) → rules.apply → table_misses ≥ TABLE_RECHECK_RATIO면
 asis 저장본(--asis)으로 바꾼다(실제 verify.read 의 다시 읽기와 같다. 지연·호출·토큰은 두 응답을 더한다). asis 저장본도 같은 규칙으로 다시 적용해
 <out>/asis 에 쓴다. 저장본의 응답 행은 ``first_rows``(정규화 전)를 쓰고, 없으면(정답지 이식 결과) ``rows``(규칙 적용 뒤)에 규칙을 다시 적용한다
-(규칙은 다시 적용해도 같은 값이다). --no-filldown 은 무리 값 채우기(섹션 제목·생략 칸·진료기간→행)를 끄고 적용한다.
+(규칙은 다시 적용해도 같은 값이다). 기록에 맞바꾸거나 의심한 열(column_swaps)을 더한다. --no-filldown 은 무리 값 채우기(섹션 제목·생략 칸·진료기간→행)를 끄고 적용한다.
   replay.py --ocr <ocr> --rowmajor <dir> --asis <dir> [--new <dir>] --out <dir> [--doc-type 세부내역서] [--no-filldown]"""
 import argparse
 import json
@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from backend import engine, rules  # noqa: E402
+from backend import engine, latency, rules  # noqa: E402
 
 ap = argparse.ArgumentParser()
 for name in ("--ocr", "--rowmajor", "--asis", "--out"):
@@ -46,7 +46,12 @@ def rows_of(rec):
 
 
 def applied(rec, blocks):
-    return {**rec, "rows": rules.apply(args.doc_type, {rules.ITEM_TABLE: rows_of(rec)}, blocks) if rows_of(rec) is not None else rec.get("rows")}
+    """규칙을 다시 적용한 기록. 맞바꾸거나 의심한 열(``column_swaps``)도 남긴다."""
+    if rows_of(rec) is None:
+        return {**rec, "column_swaps": None}
+    with latency.track() as stages:
+        rows = rules.apply(args.doc_type, {rules.ITEM_TABLE: rows_of(rec)}, blocks)
+    return {**rec, "rows": rows, "column_swaps": stages.get("column_swaps")}
 
 
 ratio = engine.ai_settings()["table_recheck_ratio"]
@@ -60,7 +65,7 @@ for path in sorted(args.ocr.glob("*.json")):
     gated = bool(raw) and not first.get("error") and rules.table_misses(args.doc_type, raw, out["rows"]) >= ratio
     if gated and asis:
         again = applied(asis, blocks)
-        out = {**out, "rows": again["rows"], "elapsed_ms": first["elapsed_ms"] + asis["elapsed_ms"], "calls": first["calls"] + asis["calls"],
+        out = {**out, "rows": again["rows"], "column_swaps": again["column_swaps"], "elapsed_ms": first["elapsed_ms"] + asis["elapsed_ms"], "calls": first["calls"] + asis["calls"],
                "usage": {k: first["usage"][k] + asis["usage"][k] for k in first["usage"]}}
     out.update(extracts=1 + gated, misses=rules.table_misses(args.doc_type, raw, applied(first, blocks)["rows"]) if raw else None,
                source="new" if load(args.new, name) else "saved")

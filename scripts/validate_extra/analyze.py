@@ -31,16 +31,9 @@ def pct(values, p):
 
 
 def plan_reason(blocks):
-    """머리글 열 순서 판별 결과와 실패 사유."""
-    union = {k: (v or {}).get("description", "") if isinstance(v, dict) else "" for k, v in SPEC.items()}
-    if not any(b.get("type") == "table" for b in blocks):
-        return "표 블록 없음"
-    if not any(b.get("type") == "table" and b.get("lines") for b in blocks):
-        return "표 줄 상자 없음"
-    if table_layout.plan(DOC, TABLE, blocks, "", union):
-        return "판별"
-    tokens = [t for t in table_layout._tokens(table_layout._lines(blocks)) if table_layout._concepts(t["text"])[0]]
-    return "머리글 낱말 없음" if not tokens else "한 줄에 4열 미만"
+    """열 배치 출처(header·value), 못 정했으면 머리글을 못 읽은 사유(``table_layout.planned``)."""
+    _, source, reason = table_layout.planned(DOC, TABLE, blocks, "", dict.fromkeys(SPEC, ""))
+    return source if source != "union" else reason
 
 
 def arith(fields):
