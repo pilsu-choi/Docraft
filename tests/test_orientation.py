@@ -203,3 +203,19 @@ def test_roi_crop_of_a_turned_page_is_read_upright_and_mapped_back(tmp_path):
     local = [{"bbox": _forward([0, 0, 10, 5], 90, unturned), "page_size": [unturned[1], unturned[0]]}]
     [mapped] = reprocess._remap(unturn(local, 90), 1, [100, 80], crop)
     assert mapped["bbox"] == pytest.approx([crop[0], crop[1], crop[0] + 10, crop[1] + 5])
+
+
+def test_table_refine_crop_of_a_turned_page_is_sent_upright(tmp_path, monkeypatch):
+    path = tmp_path / "scan.png"
+    Image.new("RGB", (200, 100), "white").save(path)  # 원본(돌아간) 페이지: 가로로 긴 표 영역
+    block = {"type": "table", "page": 1, "bbox": [0, 0, 200, 100], "page_size": [200, 100], "orientation": 90,
+             "text": "<table><tr><td>진 찰 로</td></tr></table>"}
+    for name, value in {"AI_MODE": "provider", "TABLE_REFINE": "true", "AI_BASE_URL": "http://ai.invalid",
+                        "AI_API_KEY": "key", "AI_VLM_MODEL": "vlm"}.items():
+        monkeypatch.setenv(name, value)
+    sent = []
+    monkeypatch.setattr(engine, "_provider", lambda messages, timeout: sent.append(messages) or {})
+    engine.refine_tables([block], str(path))
+    url = sent[0][0]["content"][0]["image_url"]["url"]
+    with Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))) as image:
+        assert image.height > image.width  # 반시계 90도로 바로 세운 크롭

@@ -194,7 +194,7 @@ def refine_tables(blocks, source, deadline=None):
                 page = document[(block["page"] or 1) - 1]
                 scale = page.rect.width / block["page_size"][0]  # OCR image pixels -> page points
                 clip = fitz.Rect([value * scale for value in block["bbox"]]) & page.rect
-                image = _data_url(page, clip, max_zoom=1 / scale)  # no upscaling beyond the OCR image resolution
+                image = _data_url(page, clip, max_zoom=1 / scale, turn=block.get("orientation", 0))  # no upscaling beyond the OCR resolution; upright like the re-read page
                 parts = _row_parts(block["text"], texts[number], max_cells)
                 calls += [(number, image, part, len(parts) > 1) for part in parts]
     except Exception as exc:
