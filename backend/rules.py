@@ -20,7 +20,7 @@
   진료비영수증 항목내역에 금액 겹침·없는 열·합계 베끼기·합계 불일치·열 바뀜·행 밀림·행 누락을 본다.
 - ``run(doc_type, ao, docraft, blocks)``: 검사하고 확실한 이상을 룰의 교정(``Rule.fix``)으로 Judge 없이 고치기를
   고칠 것이 없을 때까지 되풀이하고, 룰별 실행 기록(trace)을 남긴다.
-- ``arith_misses(doc_type, fields)``: 세부내역서 행 산술이 어긋난 행 비율. rowmajor 표를 asis로 다시 읽을지 정한다.
+- ``table_misses(doc_type, rows, fields)``: 세부내역서 rowmajor 표가 망가진 정도(행 산술 실패·금액 빈 행·열 종류가 안 맞는 행 비율). asis로 다시 읽을지 정한다.
 - ``sum_errors(doc_type, fields)``: 합계식 불일치 수. Judge 판정이 합계식을 더 어기면 되돌리는 데 쓴다.
 
 룰은 데이터 표(``rulesets/rules.yaml``·``FIELD_RULES``·doctypes.ENUMS)와 공통 엔진으로 나눠 둔다.
@@ -35,6 +35,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date as _calendar_date
 from functools import cached_property
+from html import unescape
 from pathlib import Path
 
 import yaml
@@ -150,6 +151,7 @@ _EDI_DIGITS = str.maketrans({"O": "0", "I": "1", "L": "1"})
 _EDI_LETTERS = str.maketrans({"S": "5", "B": "8"})  # 실제 코드에도 쓰이는 글자('B1020B'·'MX122S1')라 마스터로 확인해 바꾼다
 _DEPARTMENT = re.compile(r"^(?!.*(?:\d|병동|실|호|외래|입원))[가-힣,/\s-]*과[가-힣,/\s-]*$")  # 진료과 이름('외과'·'내과혈액종양')
 _SECTION_TITLE = re.compile(r"^[0-9A-Z]{1,2}\s*\.\s*\S")  # 세부내역서 섹션 제목 행('01.진찰료', 'B0.100분의100미만본인부담')
+_SECTION_LINE = re.compile(r"^[0-9A-Z]{1,2}\s*\.\s*(?=.*[가-힣A-Za-z])\S.{0,24}$")  # OCR 줄 하나 전체가 섹션 제목인지(안내문 '1.진료비 계산서…'·금액 '6.350' 제외)
 
 # ── kind별 정규화 ───────────────────────────────────────────────────────────
 
@@ -897,13 +899,18 @@ def _receipt_table(doc_type, out, blocks):
 
 
 def _period(out):
-    """진료기간 칸이 비면 표의 시작·종료일자에서 채운다."""
-    for key in out:
-        if out.get(key) or not isinstance(key, str):
-            continue
-        column = "시작일자" if "진료시작일" in key else "종료일자" if "진료종료일" in key else None
-        dates = sorted(row[column] for row in out.get(ITEM_TABLE) or [] if column and row.get(column))
-        if dates:
+    """진료기간 칸이 비면 표의 시작·종료일자에서 채우고, 세부내역서 표에 날짜가 하나도 없으면 반대로 진료기간 칸에서 행을 채운다."""
+    rows = [row for row in out.get(ITEM_TABLE) or [] if not is_total(row)]
+    keys = {column: next((key for key in out if isinstance(key, str) and mark in key), None)
+            for column, mark in (("시작일자", "진료시작일"), ("종료일자", "진료종료일"))}
+    start = out.get(keys["시작일자"])
+    if rows and start and "시작일자" in rows[0] and not any(row.get("시작일자") or row.get("종료일자") for row in rows):
+        end = out.get(keys["종료일자"]) or start
+        for row in rows:
+            row["시작일자"], row["종료일자"] = start, end
+    for column, key in keys.items():
+        dates = sorted(row[column] for row in rows if row.get(column))
+        if key and not out.get(key) and dates:
             out[key] = dates[0] if column == "시작일자" else dates[-1]
 
 
@@ -1433,15 +1440,28 @@ def _row_arith(doc):
     return sorted(found, key=lambda flag: flag["row"])
 
 
-def arith_misses(doc_type: str, fields: dict) -> float:
-    """항목내역에서 총액이 있는 행 가운데 행 산술(``_row_arith``)이 맞지 않는 행의 비율. 그 룰을 보지 않는 유형은 0.
-    열이 통째로 밀린 표는 이 비율이 크다 — rowmajor로 읽은 표를 asis로 다시 읽을지(``verify.read``) 정한다."""
+def table_misses(doc_type: str, rows: list, fields: dict) -> float:
+    """rowmajor로 읽은 항목내역이 망가진 정도: 아래 세 비율 중 큰 값. 그 룰(``_row_arith``)을 보지 않는 유형은 0.
+    ``rows``는 정규화 전 모델 응답 행, ``fields``는 그 응답을 ``apply``한 결과다. rowmajor 표를 asis로 다시 읽을지(``verify.read``) 정한다.
+
+    - 총액이 있는 행 가운데 행 산술이 맞지 않는 행(행당 한 번): 열이 통째로 밀렸다.
+    - 항목 행 가운데 금액 칸이 모두 빈 행: 금액 열을 통째로 비웠다(총액이 없어 행 산술로는 못 본다).
+    - 응답 행 가운데 열 종류(날짜·코드·금액·수·선택값)에 맞지 않는 값이 두 칸 이상인 행: 행이 무너져 값이 이웃 열로
+      흘렀다(정규화하면 그 값이 지워져 보이지 않으므로 응답 그대로 본다)."""
     doc = _Doc(doc_type, fields, {}, [])
     rule = next(rule for rule in RULES if rule.detect is _row_arith)
-    checkable = sum(_money(row.get("총액")) is not None for row in doc.rows)
-    if not checkable or not doc.sees(rule):
+    if not doc.sees(rule):
         return 0.0
-    return len({flag["row"] for flag in rule.detect(doc)}) / checkable
+    columns = doctypes.spec(doc_type)["tables"][ITEM_TABLE]
+    amounts = [column for column in columns if doctypes.kind(doc_type, column, ITEM_TABLE) == "amount"]
+    items = [row for row in doc.rows if not is_total(row)]
+    checkable = sum(_money(row.get("총액")) is not None for row in doc.rows)
+    misread = [sum(value not in (None, "") and doctypes.kind(doc_type, column, ITEM_TABLE) != "text"
+                   and _value(doc_type, column, value, ITEM_TABLE) is None for column, value in row.items() if column in columns)
+               for row in rows or [] if isinstance(row, dict)]
+    return max(len({flag["row"] for flag in rule.detect(doc)}) / checkable if checkable else 0.0,
+               sum(all(_money(row.get(column)) is None for column in amounts) for row in items) / len(items) if items else 0.0,
+               sum(count >= 2 for count in misread) / len(misread) if misread else 0.0)
 
 
 def _low_quality(doc):
@@ -1479,21 +1499,67 @@ def _blank(value):
     return normalize("text", value) is None
 
 
-def _section_items(rows):
-    """세부내역서에서 항목에 제 EDI명칭을 베낀 행과 바로 위 섹션 제목 행('01.진찰료', 코드·명칭·총액 없이 항목만 있는 행)의
-    제목 ``(행 번호, 제목)``. 라벨 관례상 항목은 섹션명이다."""
-    title = None
+def _title_lines(blocks):
+    """OCR 블록을 읽는 순서로 펼친 줄 ``[(줄 key, 바로 위 섹션 제목)]``. HTML 표는 칸 순서대로, 한 칸에 겹친 여러 행은 줄로 나눈다."""
+    out, title = [], None
+    for block in blocks:
+        text = block.get("text") or ""
+        parts = re.split(r"<t[dh][^>]*>|</t[dh]>|</?tr>|</?table>|<br\s*/?>", text) if _HTML.search(text) else [text]
+        for line in (unescape(line).strip() for part in parts for line in part.split("\n")):
+            if _SECTION_LINE.match(line):
+                title = re.sub(r"^([0-9A-Z]{1,2})\s*\.\s*", r"\1.", line)
+            elif line:
+                out.append((_key(line).lower(), title))
+    return out
+
+
+def _section_items(rows, blocks=()):
+    """세부내역서에서 항목이 섹션 제목이어야 할 행의 ``(행 번호, 제목)``. 라벨 관례상 항목은 섹션명이다.
+
+    제목은 두 곳에서 읽는다. (가) 출력에 남은 섹션 제목 행('01.진찰료', 코드·명칭·총액 없이 항목만 있는 행) 아래에서
+    제 EDI명칭을 베낀 행. (나) OCR 섹션 제목 줄 — 모델이 제목 행을 버려도 각 행의 코드·명칭 앞 8자가 처음 나오는 줄
+    (앞 행 위치부터 앞으로만 찾는다) 바로 위 제목. 항목이 비었거나 명칭·코드를 베꼈거나 한글이 없을 때만 바꾸고,
+    제목 꼴('15.SONO')인 항목은 두며 합계 행은 건너뛴다."""
+    seen, title = set(), None
     for index, row in enumerate(rows):
         name = row.get("항목")
         if name and _SECTION_TITLE.match(str(name)) and all(_blank(row.get(column)) for column in ("원내코드", "EDI코드", "EDI명칭", "총액")):
             title = name
         elif title and name and _key(name) == _key(row.get("EDI명칭") or ""):
+            seen.add(index)
+            yield index, title
+    lines, cursor = _title_lines(blocks), 0
+    for index, row in enumerate(rows):
+        if is_total(row):
+            continue
+        keys = [_key(row.get(column) or "").lower() for column in ("EDI코드", "원내코드")]
+        keys = [key for key in keys if len(key) >= 4] + [_key(row.get("EDI명칭") or "").lower()[:8]]
+        hit = next((i for i in range(cursor, len(lines)) if any(key and key in lines[i][0] for key in keys)), None)
+        if hit is None:
+            continue
+        cursor, title = hit, lines[hit][1]
+        name = _key(row.get("항목") or "")
+        copied = not re.search("[가-힣]", name) or name in {_key(row.get(c) or "") for c in ("EDI명칭", "EDI코드", "원내코드")}
+        if title and index not in seen and copied and row.get("항목") != title and not _SECTION_TITLE.match(str(row.get("항목") or "")):
             yield index, title
 
 
+def _carry(rows, column):
+    """무리 첫 행에만 인쇄된 열의 빈 칸을 위 값으로 채운다. 채워진 이웃 칸이 하나도 같지 않을 때(매 행 되풀이하는 서식이 아닐 때)만,
+    첫 값 위의 빈 칸(앞 쪽에서 이어진 행)과 합계 행은 두고 값이 둘 이상일 때만 한다."""
+    items = [row for row in rows if not is_total(row)]
+    values = [row[column] for row in items if row.get(column)]
+    if len(values) < 2 or any(a == b for a, b in zip(values, values[1:])):
+        return
+    last = None
+    for row in items:
+        last = row.get(column) or last
+        row[column] = last if last else row.get(column)
+
+
 def _section_checks(doc):
-    return [_flag("section_item", f"{index}행 항목 '{doc.rows[index].get('항목')}'은 EDI명칭을 베낀 것이다. 섹션 제목 '{title}'을 쓴다.",
-                  row=index, column="항목", value=title) for index, title in _section_items(doc.rows)]
+    return [_flag("section_item", f"{index}행 항목 '{doc.rows[index].get('항목') or ''}'은 섹션 제목이 아니다. 섹션 제목 '{title}'을 쓴다.",
+                  row=index, column="항목", value=title) for index, title in _section_items(doc.rows, doc.blocks)]
 
 
 def _empty_cells(doc):
@@ -1762,8 +1828,11 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     if doc_type == "진료비영수증":  # 통째로 맞바뀐 이웃 금액 열을 합계 행에 맞춰 되돌린다
         out[ITEM_TABLE] = _swap(out[ITEM_TABLE], _swaps(out[ITEM_TABLE]))
     _period(out)
-    for index, title in list(_section_items(out[ITEM_TABLE]) if doc_type == "세부내역서" else ()):
-        out[ITEM_TABLE][index]["항목"] = title
     out = derive(doc_type, out)  # derive는 라벨 정리(verify_label.conform)도 쓰므로 마스터 교정은 그 뒤에 한다
     _master_names(out)
+    if doc_type == "세부내역서":  # 무리마다 한 번만 인쇄된 값(섹션 제목·분류·날짜)을 항목 행마다 채운다
+        for index, title in list(_section_items(out[ITEM_TABLE], blocks or [])):
+            out[ITEM_TABLE][index]["항목"] = title
+        for column in ("항목", "시작일자", "종료일자"):
+            _carry(out[ITEM_TABLE], column)
     return out

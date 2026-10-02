@@ -1403,3 +1403,100 @@ def test_institution_type_maps_to_four_checkbox_values(value, expected):
 def test_institution_type_schema_lists_four_values():
     assert doctypes.spec("진료비영수증")["fields"]["의료기관정보-요양기관종류"]["enum"] == sorted(
         ["의원급·보건기관", "병원급", "종합병원", "상급종합병원"])
+
+
+# ── 무리 값 채우기(섹션 제목·생략 칸·진료기간) ─────────────────────────────────
+
+def fd_rows(*names, **extra):
+    return [{"항목": None, "EDI코드": f"A{n:04d}", "EDI명칭": name, "총액": "100", **extra} for n, name in enumerate(names, 1)]
+
+
+def fd_items(rows, blocks):
+    return [row["항목"] for row in rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]]
+
+
+def test_section_title_from_a_text_block_fills_the_empty_item():
+    blocks = [block("05.검사료\nGlucose test\nBilirubin total\n06 .영상\nChest PA")]
+    assert fd_items(fd_rows("Glucose test", "Bilirubin total", "Chest PA"), blocks) == ["05.검사료", "05.검사료", "06.영상"]
+
+
+def test_section_title_from_a_table_cell_and_overlapping_rows_in_one_cell():
+    html = "<table><tr><td>05.검사료</td></tr><tr><td>Glucose test<br>Bilirubin total</td><td>A0001</td></tr></table>"
+    assert fd_items(fd_rows("Glucose test", "Bilirubin total"), [block(html, kind="table")]) == ["05.검사료"] * 2
+    assert fd_items(fd_rows("Glucose test", "Bilirubin total"), [block("05.검사료\nGlucose test\nBilirubin total")]) == ["05.검사료"] * 2
+
+
+def test_item_copying_the_code_takes_the_section_title():
+    rows = fd_rows("Glucose test")
+    rows[0]["항목"] = "A0001"
+    assert fd_items(rows, [block("05.검사료\nGlucose test")]) == ["05.검사료"]
+
+
+def test_title_shaped_item_is_kept():
+    rows = fd_rows("Glucose test")
+    rows[0]["항목"] = "15.SONO"
+    assert fd_items(rows, [block("05.검사료\nGlucose test")]) == ["15.SONO"]
+
+
+@pytest.mark.parametrize("line", ["1.진료비 계산서 영수증은 소득공제 신청 시 사용할 수 있습니다", "6.350"])
+def test_notice_and_amount_lines_are_not_section_titles(line):
+    assert fd_items(fd_rows("Glucose test"), [block(f"{line}\nGlucose test")]) == [None]
+
+
+def test_section_titles_search_forward_only_and_skip_total_rows():
+    rows = [{"항목": "소계", "EDI명칭": "Glucose test", "총액": "100"}, *fd_rows("Glucose test")]
+    assert list(rules._section_items(rows, [block("05.검사료\nGlucose test")])) == [(1, "05.검사료")]
+
+
+def test_section_checks_use_ocr_titles_too():
+    ao = {"항목내역": fd_rows("Glucose test")}
+    flags = rules.check("세부내역서", ao, {}, [block("05.검사료\nGlucose test")])
+    assert any(flag["rule"] == "DETAIL.SECTION_ITEM" and flag["value"] == "05.검사료" for flag in flags)
+
+
+def dated(*values):
+    return [{"항목": "x", "EDI코드": f"A{n:04d}", "EDI명칭": f"n{n}", "총액": "1", "시작일자": value, "종료일자": value} for n, value in enumerate(values)]
+
+
+def test_carry_fills_values_printed_only_on_the_first_row_of_a_group():
+    rows = dated("20230101", None, None, "20230102", None)
+    for row, item in zip(rows, ("가", None, None, "나", None)):
+        row["항목"] = item
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
+    assert [row["항목"] for row in out] == ["가", "가", "가", "나", "나"]
+    assert [row["시작일자"] for row in out] == ["20230101"] * 3 + ["20230102"] * 2
+
+
+def test_carry_keeps_blanks_of_formats_that_print_every_row_and_blanks_above_the_first_value():
+    rows = dated("20230101", "20230101", None, "20230102")
+    assert [row["시작일자"] for row in rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]] == ["20230101", "20230101", None, "20230102"]
+    rows = dated(None, "20230101", None, "20230102")
+    assert [row["시작일자"] for row in rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]][:2] == [None, "20230101"]
+
+
+def test_period_fills_rows_without_dates_and_ends_on_the_start_when_no_end():
+    rows = dated(None, None)
+    out = rules.apply("세부내역서", {"항목내역": rows, "환자정보(진료시작일)": "2023-01-02"}, [])["항목내역"]
+    assert [(row["시작일자"], row["종료일자"]) for row in out] == [("20230102", "20230102")] * 2
+    both = {"항목내역": dated(None, None), "환자정보(진료시작일)": "20230102", "환자정보(진료종료일)": "20230110"}
+    assert rules.apply("세부내역서", both, [])["항목내역"][1]["종료일자"] == "20230110"
+
+
+def test_period_is_not_applied_when_only_some_rows_have_dates():
+    out = rules.apply("세부내역서", {"항목내역": dated("20230103", None), "환자정보(진료시작일)": "20230102"}, [])["항목내역"]
+    assert out[0]["시작일자"] == "20230103"
+
+
+def test_admission_period_label_fills_the_detail_period_and_rows():
+    blocks = [block(kind="table", rows=[["입원기간", "2020-07-03 ~ 2020-07-11"]])]
+    out = rules.apply("세부내역서", {"항목내역": dated(None)}, blocks)
+    assert (out["환자정보(진료시작일)"], out["환자정보(진료종료일)"]) == ("20200703", "20200711")
+    assert (out["항목내역"][0]["시작일자"], out["항목내역"][0]["종료일자"]) == ("20200703", "20200711")
+
+
+def test_fill_down_is_idempotent():
+    rows = dated(None, None, None)
+    rows[0]["항목"] = "A0001"
+    blocks = [block("05.검사료\nn0\nn1\n06.영상\nn2")]
+    first = rules.apply("세부내역서", {"항목내역": rows, "환자정보(진료시작일)": "20230102"}, blocks)
+    assert rules.apply("세부내역서", first, blocks) == first
