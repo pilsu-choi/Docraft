@@ -10,6 +10,7 @@ rowmajor는 행마다 값 배열만 받으므로 열 자리가 문서에 인쇄�
 """
 
 import re
+from functools import lru_cache
 from pathlib import Path
 from statistics import median
 
@@ -24,7 +25,8 @@ SUBS = set(_DATA["header"]["subs"])
 KEYS = {concept: tuple(keys) for concept, keys in _DATA["header"]["keys"].items()}
 SINGLE = _DATA["header"]["single"]
 OPTIONAL = set(_DATA["header"]["optional"])
-PAIRS = {key: {other for other in keys if other != key} for keys in KEYS.values() for key in keys}  # 짝 열(같은 개념의 다른 열)
+PAIRS = {key: set(group) - {key} for group in _DATA["header"]["pairs"] for key in group}
+SPANS = {concept: (span["keys"], re.compile(span["value"])) for concept, span in _DATA["header"]["spans"].items()}
 FILL = _DATA["layout"]["fill"]
 FORMS = _DATA["layout"]["forms"]
 
@@ -48,6 +50,8 @@ def receipt_form(blocks):
 
 
 def _distance(a, b):
+    if abs(len(a) - len(b)) > 1:  # 거리 1 이하만 쓰므로 길이가 둘 이상 다르면 계산하지 않는다
+        return 2
     row = list(range(len(b) + 1))
     for i, ca in enumerate(a, 1):
         prev, row[0] = row[0], i
@@ -67,13 +71,16 @@ def _concepts(text):
     return ([concept for concept, d in near.items() if d == best], best) if best <= 1 and len(text) >= 2 else ([], best)
 
 
+@lru_cache(maxsize=4096)
 def _segment(text):
-    """띄어쓰기 없이 붙은 머리글('수량횟수일수')을 머리글 낱말 여럿으로 나눈다. 다 못 나누면 None."""
+    """띄어쓰기 없이 붙은 머리글('수량횟수일수', OCR이 한 줄로 읽은 '본인부당금공단부담금')을 머리글 낱말 여럿으로 나눈다.
+    네 글자 이상 조각은 한 글자 오독까지 받는다. 다 못 나누면 None."""
     if not text:
-        return []
-    for word in sorted(WORDS, key=len, reverse=True):
-        if text.startswith(word) and (rest := _segment(text[len(word):])) is not None:
-            return [word, *rest]
+        return ()
+    for size in range(len(text), 1, -1):
+        piece = text[:size]
+        if (piece in WORDS or size >= 4 and _concepts(piece)[0]) and (rest := _segment(text[size:])) is not None:
+            return (piece, *rest)
     return None
 
 
@@ -83,44 +90,89 @@ def _words(text):
     while i < len(parts):
         k = next((k for k in (3, 2) if "".join(parts[i:i + k]) in WORDS), 1)
         word, i = "".join(parts[i:i + k]), i + k
-        split = _segment(word) or []
+        bare = re.sub(r"\W", "", word)
+        split = _segment(bare) or () if len(bare) <= 16 and not re.search(r"\d", bare) else ()
         out += split if not _concepts(word)[0] and len(split) > 1 else [word]
     return out
 
 
-def _tokens(blocks):
-    """표 블록 줄을 머리글 낱말로 쪼갠 {text, x, y, h}. 한 줄에 낱말이 여럿이면 글자 수로 줄 폭을 나눠 x를 정한다.
-    돌아간 페이지의 블록(``orientation``)은 좌표가 원본 기준이므로 바로 선 페이지 좌표로 돌려서 본다."""
+def _lines(blocks):
+    """표 블록 OCR 줄(바로 선 페이지 좌표). 돌아간 페이지의 블록(``orientation``)은 좌표가 원본 기준이라 돌려서 본다.
+    두 줄로 갈려 인쇄된 머리글 낱말('전액'/'본인부담')은 위아래로 붙고 합친 글자가 머리글 낱말이면 한 줄로 합친다."""
     from .parsers import unturn  # parsers → engine → table_layout 순환을 피한다
-    out = []
+    lines = []
     for block in blocks:
         if block.get("type") != "table":
             continue
         if block.get("orientation"):
             block = unturn([block], 360 - block["orientation"])[0]
-        for line in block.get("lines") or []:
-            x0, y0, x1, y1 = line["bbox"]
-            words = _words(line["text"])
-            total, at = sum(map(len, words)) or 1, 0
-            for word in words:
-                out.append({"text": word, "x": x0 + (x1 - x0) * (at + len(word) / 2) / total, "y": (y0 + y1) / 2, "h": y1 - y0})
-                at += len(word)
+        lines += [{"text": line["text"], "bbox": list(line["bbox"])} for line in block.get("lines") or [] if line.get("bbox")]
+    short = [line for line in lines if len(re.sub(r"\W", "", line["text"])) <= 6]
+    for top in short:
+        x0, y0, x1, y1 = top["bbox"]
+        below = next((line for line in short if line is not top and line["text"] and 0 <= line["bbox"][1] - y1 <= (y1 - y0)
+                      and x0 <= (line["bbox"][0] + line["bbox"][2]) / 2 <= x1
+                      and re.sub(r"\W", "", top["text"] + line["text"]) in WORDS), None)
+        if top["text"] and below:
+            top["text"], top["bbox"] = top["text"] + below["text"], [min(x0, below["bbox"][0]), y0, max(x1, below["bbox"][2]), below["bbox"][3]]
+            below["text"] = ""
+    return [line for line in lines if line["text"]]
+
+
+def _tokens(lines):
+    """줄을 머리글 낱말로 쪼갠 {text, x, y, h}. 한 줄에 낱말이 여럿이면 글자 수로 줄 폭을 나눠 x를 정한다."""
+    out = []
+    for line in lines:
+        x0, y0, x1, y1 = line["bbox"]
+        words = _words(line["text"])
+        total, at = sum(map(len, words)) or 1, 0
+        for word in words:
+            out.append({"text": word, "x": x0 + (x1 - x0) * (at + len(word) / 2) / total, "y": (y0 + y1) / 2, "h": y1 - y0})
+            at += len(word)
     return out
 
 
+def _spans(concept, x, head, lines):
+    """머리글 낱말 하나 아래 칸이 값을 둘씩 싣는지('일자' 칸의 '시작 ~ 종료'): 그 열 x 범위(이웃 머리글과의 가운데까지)의
+    본문 줄을 행(y)으로 묶어, ``SPANS`` 값 꼴을 둘 이상 담은 행이 둘 이상(값 있는 행이 하나면 그 행)이면 그렇다 — 기간을 찍는
+    행이 일부뿐인 서식도 그 칸은 두 값을 싣는다. 범위 표시(~·-)로 시작하거나 끝나는 줄은 한 칸에 두 줄로 쌓인 범위
+    ('2021-08-19' / '~2021-08-21')라 이웃 줄과 한 행이다."""
+    keys, value = SPANS[concept]
+    xs = sorted(t["x"] for t in head)
+    at = xs.index(x)
+    lo, hi = (xs[at - 1] + x) / 2 if at else float("-inf"), (xs[at + 1] + x) / 2 if at + 1 < len(xs) else float("inf")
+    top = min(t["y"] for t in head)
+    rows = []  # 본문 행: [y, 글자]
+    for line in sorted(lines, key=lambda line: line["bbox"][1] + line["bbox"][3]):
+        x0, y0, x1, y1 = line["bbox"]
+        if (y0 + y1) / 2 > top and lo <= (x0 + x1) / 2 <= hi:
+            if rows and ((y0 + y1) / 2 - rows[-1][0] <= (y1 - y0) * 0.6 or re.match(r"\s*[~∼-]", line["text"])
+                         or re.search(r"[~∼-]\s*$", rows[-1][1])):
+                rows[-1][1] += " " + line["text"]
+            else:
+                rows.append([(y0 + y1) / 2, line["text"]])
+    counts = [n for _, text in rows if (n := len(value.findall(text)))]
+    return keys if sum(n >= 2 for n in counts) >= min(2, len(counts) or 1) else None
+
+
 def printed_columns(blocks, union, min_columns=4):
-    """머리글 줄에서 읽은 열을 인쇄 순서로 둔 합집합 열의 부분열. 머리글 줄에서 열을 ``min_columns``개 미만으로 읽으면 None.
+    """머리글 줄에서 읽은 열을 인쇄 순서로 둔 합집합 열의 부분열 → 같은 개념의 열이 여럿일 때 그 열의 머리글 글자
+    ('수가코드'·'청구코드', '단가'·'금액'. 열 설명만으로는 어느 쪽인지 가를 수 없다). 그 밖의 열은 None.
+    머리글 줄에서 열을 ``min_columns``개 미만으로 읽으면 None.
 
     못 읽은 열은 ``OPTIONAL``이면 서식에 없다고 보고 빼고, 아니면 OCR 오독으로 보고 합집합 순서의 제자리에 둔다.
-    다만 열이 없다는 판단은 그 개념의 머리글 낱말을 읽어 열 수를 셌을 때만 한다. 한 개념의 열(예: 원내코드·EDI코드)을
-    하나도 못 읽어 짝 열을 제자리에 넣었으면 그 개념의 열 수를 모르므로 못 읽은 짝도 그 옆에 둔다(코드 열이 하나뿐인
-    서식은 ``rules``가 원내코드를 EDI코드로 모은다)."""
-    tokens = [{**t, "hits": hits, "exact": d == 0} for t in _tokens(blocks) for hits, d in [_concepts(t["text"])] if hits]
+    다만 열이 없다는 판단은 근거가 있을 때만 한다. 짝 열(``PAIRS``)은 짝이 없다는 근거가 없으면 짝 옆에 함께 둔다.
+    - 짝(예: 원내코드·EDI코드)의 개념 낱말을 하나도 못 읽어 짝을 제자리에 넣었으면 열 수를 세지 못했다(코드 열이 하나뿐인
+      서식은 ``rules``가 원내코드를 EDI코드로 모은다).
+    - 짝의 머리글 칸에 머리글 낱말로 읽지 못한 글자가 있으면 그 칸에 열이 더 있을 수 있다.
+    한 칸이 두 열의 값을 싣는 개념(``SPANS``, '일자' 한 칸의 진료기간)은 본문이 그렇게 찍혔으면 두 열을 함께 묻는다."""
+    lines = _lines(blocks)
+    tokens = [{**t, "hits": hits, "exact": d == 0} for t in _tokens(lines) for hits, d in [_concepts(t["text"])]]
     exact = {t["hits"][0] for t in tokens if t["exact"] and len(t["hits"]) == 1}
     for t in tokens:  # 두 개념과 같은 거리의 오독('임수' = 일수·횟수)은 이미 정확히 읽힌 개념을 뺀 쪽이다
         rest = set(t["hits"]) - exact
         t["c"] = t["hits"][0] if len(t["hits"]) == 1 else rest.pop() if len(rest) == 1 else None
-    tokens = [t for t in tokens if t["c"]]
+    unread, tokens = [t for t in tokens if not t["c"] and len(re.findall(r"[가-힣A-Za-z]", t["text"])) >= 2], [t for t in tokens if t["c"]]
     if not tokens:
         return None
     height = median(t["h"] for t in tokens)
@@ -137,28 +189,49 @@ def printed_columns(blocks, union, min_columns=4):
     for row in rows[head + 1:head + 3]:  # 묶음 제목 아래 하위 열 줄
         if row[0]["y"] - picked[-1]["y"] <= height * 3:
             picked += [t for t in row if t["c"] in SUBS]
-    concepts = [t["c"] for t in sorted(picked, key=lambda t: t["x"])]
-    if SUBS & set(concepts):
-        concepts = [c for c in concepts if c != "급여"]  # 하위 열이 있으면 급여는 묶음 제목이다
-    seen, columns = {}, []
-    for concept in concepts:
+    picked.sort(key=lambda t: t["x"])
+    if SUBS & {t["c"] for t in picked}:
+        picked = [t for t in picked if t["c"] != "급여"]  # 하위 열이 있으면 급여는 묶음 제목이다
+    concepts = [t["c"] for t in picked]
+    seen, columns, at, words = {}, [], {}, {}
+    for t in picked:
+        concept = t["c"]
         n = seen[concept] = seen.get(concept, 0) + 1
-        key = (SINGLE[concept] if concept in SINGLE and concepts.count(concept) == 1
-               else KEYS[concept][n - 1] if n <= len(KEYS[concept]) else None)
-        if key in union and key not in columns:
-            columns.append(key)
+        once = concepts.count(concept) == 1
+        keys = ((once and concept in SPANS and _spans(concept, t["x"], picked, lines)) or
+                [SINGLE[concept] if once and concept in SINGLE else KEYS[concept][n - 1] if n <= len(KEYS[concept]) else None])
+        for key in keys:
+            if key in union and key not in columns:
+                columns.append(key)
+                at[key] = t["x"]
+                if len(KEYS[concept]) > 1 and not once:  # 한 개념의 열이 여럿이면(코드 둘·단가와 금액) 머리글 글자를 남긴다
+                    words[key] = word if (word := re.sub(r"\W", "", t["text"])) in WORDS else None
     if len(columns) < min_columns:
         return None
-    read = set(columns)
+    read, xs = set(columns), sorted(at.values())
+    band = [t for t in unread  # 머리글 줄의 읽지 못한 글자: x가 가장 가까운 머리글 낱말과 같은 줄에 있다
+            if abs(t["y"] - min(picked, key=lambda p: abs(p["x"] - t["x"]))["y"]) <= height * 0.6]
+
+    def unreadable(key, pair):
+        """짝 열 머리글 칸의 key 쪽 절반(이웃 머리글과의 가운데까지)에 key 개념 낱말과 두 글자 이상 겹치는, 머리글 낱말로
+        읽지 못한 글자가 있다('단민부금' = 본인부담금 오독)."""
+        i = xs.index(at[pair])
+        left = union.index(key) < union.index(pair)
+        lo = (xs[i - 1] + xs[i]) / 2 if left and i else float("-inf") if left else xs[i]
+        hi = xs[i] if left else (xs[i] + xs[i + 1]) / 2 if i + 1 < len(xs) else float("inf")
+        own = [word for word, concept in WORDS.items() if key in KEYS[concept]]
+        return any(lo <= t["x"] <= hi and any(len(set(t["text"]) & set(word)) >= 2 for word in own) for t in band)
     for key in sorted((key for key in union if key not in columns), key=lambda key: key in OPTIONAL):  # 못 읽은 필수 열 먼저
-        pair = next((other for other in columns if other in PAIRS[key] and other not in read), None) if key in OPTIONAL else None
+        pair = next((other for other in columns if other in PAIRS.get(key, ()) and (other not in read or unreadable(key, other))),
+                    None) if key in OPTIONAL else None
         if pair is not None:
-            at = columns.index(pair)
-            columns.insert(at if union.index(key) < union.index(pair) else at + 1, key)
+            i = columns.index(pair)
+            columns.insert(i if union.index(key) < union.index(pair) else i + 1, key)
         elif key not in OPTIONAL:
             before = [columns.index(other) for other in union[:union.index(key)] if other in columns]
             columns.insert(before[-1] + 1 if before else 0, key)
-    return columns
+    named = None not in words.values() and len(set(words.values())) == len(words)  # 오독했거나 같은 글자('금액'·'금액')면 못 가른다
+    return {key: words.get(key) if named else None for key in columns}
 
 
 def plan(doc_type, table, blocks, description, columns):
@@ -167,5 +240,5 @@ def plan(doc_type, table, blocks, description, columns):
     if method == "layout" and (form := receipt_form(blocks)) in FORMS and set(FORMS[form]["columns"]) <= set(columns):
         return FORMS[form]["description"], dict(FORMS[form]["columns"]), FILL
     if method == "header" and (printed := printed_columns(blocks, list(columns))):
-        return description + NOTE, {key: columns[key] for key in printed}, None
+        return description + NOTE, {key: columns[key] + (f" 이 문서에서는 '{word}' 열이다." if word else "") for key, word in printed.items()}, None
     return None

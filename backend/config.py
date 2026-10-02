@@ -130,9 +130,9 @@ def ai_settings() -> dict:
     # Some VLMs (e.g. qwen3.5) default reasoning mode on, turning a 10-30s call into 200-500s; off disables it.
     reasoning = os.getenv("AI_REASONING", "off").strip().lower() == "on"
     # How /api/read·verify reads table fields first: asis = one JSON object, rowmajor = positional rows per table, re-read asis
-    # when the share of 세부내역서 rows failing the row arithmetic reaches TABLE_RECHECK_RATIO (column shift).
+    # when the share of broken 세부내역서 rows (row arithmetic, all amounts blank, misfit values) reaches TABLE_RECHECK_RATIO.
     table_extract = os.getenv("TABLE_EXTRACT", "rowmajor").strip().lower()
-    table_recheck_ratio = float(os.getenv("TABLE_RECHECK_RATIO", "0.3"))
+    table_recheck_ratio = float(os.getenv("TABLE_RECHECK_RATIO", "0.6"))
     return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
             "table_extract": table_extract, "table_recheck_ratio": table_recheck_ratio}
 

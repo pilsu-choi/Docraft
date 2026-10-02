@@ -89,7 +89,7 @@ def run_doc(name):
     except Exception as exc:
         error = f"{type(exc).__name__}: {str(exc)[:300]}"
     first = _local.extracts[0] if _local.extracts else None
-    misses = rules.arith_misses(args.doc_type, rules.apply(args.doc_type, {rules.ITEM_TABLE: first}, blocks)) if first else None
+    misses = rules.table_misses(args.doc_type, first, rules.apply(args.doc_type, {rules.ITEM_TABLE: first}, blocks)) if first else None
     log = _local.log
     record = {"rows": rows, "first_rows": first, "last_rows": _local.extracts[-1] if _local.extracts else None, "misses": misses, "extracts": len(_local.extracts),
               "usage": {k: sum(c["usage"].get(k, 0) for c in log) for k in ("prompt_tokens", "completion_tokens")},

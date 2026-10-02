@@ -39,7 +39,7 @@ def plan_reason(blocks):
         return "표 줄 상자 없음"
     if table_layout.plan(DOC, TABLE, blocks, "", union):
         return "판별"
-    tokens = [t for t in table_layout._tokens(blocks) if table_layout._concepts(t["text"])[0]]
+    tokens = [t for t in table_layout._tokens(table_layout._lines(blocks)) if table_layout._concepts(t["text"])[0]]
     return "머리글 낱말 없음" if not tokens else "한 줄에 4열 미만"
 
 

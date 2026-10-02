@@ -84,7 +84,7 @@ def _user(text, images):
     return {"role": "user", "content": [*({"type": "image_url", "image_url": {"url": url}} for url in images), {"type": "text", "text": text}]}
 
 
-def _provider(messages, timeout=None, timeout_cap=None, json_schema=None):
+def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_tokens=None):
     # 호출마다 준 값과 AI_TIMEOUT(기본 90초) 중 큰 값 — 느린 GPU(L40S 요청당 약 16 tok/s)에서는 긴 응답(스키마 생성·
     # 행 많은 표)이 90초를 넘는다.
     timeout = max(timeout or 0, float(os.getenv("AI_TIMEOUT", "90")))
@@ -103,6 +103,8 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None):
     elif not settings["reasoning"]:
         # OpenRouter standard param; providers/models without reasoning support just ignore it.
         body["reasoning"] = {"enabled": False}
+    if max_tokens:
+        body["max_tokens"] = max_tokens
     prompt_chars = sum(len(_message_text(m.get("content"))) for m in messages)
     images = sum(1 for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url")
     logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", settings["model"], len(messages), images, prompt_chars)
@@ -458,10 +460,17 @@ ROWS_USER = (
 )
 
 
+ROW_AMOUNT = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?![\d,])|(?<![\d.,])\d{3,}(?![\d.,])")  # 금액 꼴 숫자('12,300'·'4500')
+
+
 def _read_rows(table, spec, doc_type, blocks, evidence, images, deadline=None, cancel=None, on_call=None):
     """One table as positional rows (`TABLE_EXTRACT=rowmajor`): the model writes each row as a value array in the column
     order `table_layout.plan` read from the document (the schema's column order when it cannot tell), and the values go
-    back under the schema's column keys. Raises RuntimeError when the reply has no row or a row of the wrong length."""
+    back under the schema's column keys. Raises RuntimeError when the reply has no row or a row of the wrong length.
+
+    The reply is capped at (amount-like numbers in the OCR evidence + 20) rows × (10 tokens per column + 20): every printed
+    row carries an amount, and saved replies use at most half that budget. A longer reply repeats rows, so it stops at the
+    cap (finish_reason=length → RuntimeError) and the table is read asis instead of looping to the provider limit."""
     union = {key: prop.get("description", "") for key, prop in spec["items"]["properties"].items()}
     description, columns, fill = table_layout.plan(doc_type, table, blocks, spec.get("description", ""), union) or (spec.get("description", ""), union, None)
     names = list(columns)
@@ -474,7 +483,8 @@ def _read_rows(table, spec, doc_type, blocks, evidence, images, deadline=None, c
                               order=", ".join(f"{index}={key}" for index, key in enumerate(names, 1)))
     row = {"type": "array", "minItems": len(names), "maxItems": len(names), "items": {"type": ["string", "null"]}}
     reply = _provider([{"role": "system", "content": ROWS_SYSTEM}, _user(prompt, images)], timeout_cap=remaining(deadline),
-                      json_schema={"type": "object", "properties": {"rows": {"type": "array", "items": row}}, "required": ["rows"]})
+                      json_schema={"type": "object", "properties": {"rows": {"type": "array", "items": row}}, "required": ["rows"]},
+                      max_tokens=(len(ROW_AMOUNT.findall(evidence)) + 20) * (10 * len(names) + 20))
     rows = reply.get("rows") if isinstance(reply, dict) else None
     if not rows or not all(isinstance(values, list) and len(values) == len(names) for values in rows):
         raise RuntimeError(f"rowmajor 응답의 행이 없거나 열 수({len(names)})가 맞지 않습니다.")

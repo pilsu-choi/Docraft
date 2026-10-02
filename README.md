@@ -228,7 +228,7 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `PADDLEOCR_LINES_URL` | 빈 값 | 선택적인 줄 단위 근거 좌표 |
 | `TABLE_REFINE` | `false` | OCR 표 셀 텍스트를 LLM으로 추가 교정 |
 | `TABLE_EXTRACT` | `rowmajor` | `/api/read`·`/api/verify` 첫 추출에서 표를 읽는 방식. `rowmajor`는 표마다 행을 값 배열로 받는 호출(서버 JSON 스키마 강제)을 따로 하고, 열은 문서에 인쇄된 순서로 준다(진료비영수증은 양식 1~5 판별, 세부내역서는 머리글 순서, 못 정하면 스키마 열 순서). `asis`는 표를 다른 필드와 함께 JSON 객체로 읽는 기존 방식 |
-| `TABLE_RECHECK_RATIO` | `0.3` | `rowmajor`에서 세부내역서 행 산술(단가×횟수×일수=총액 등)이 어긋난 행 비율이 이 값 이상이면 그 표를 `asis`로 다시 읽음(1보다 크면 끔) |
+| `TABLE_RECHECK_RATIO` | `0.6` | `rowmajor`에서 세부내역서 표가 망가진 비율(행 산술 단가×횟수×일수=총액 등이 어긋난 행, 금액 칸이 모두 빈 행, 열 종류에 맞지 않는 값이 두 칸 이상인 행 중 큰 값)이 이 값 이상이면 그 표를 `asis`로 다시 읽음(1보다 크면 끔). rowmajor 응답은 OCR 근거의 금액 수로 정한 출력 토큰 상한을 넘으면 그 표를 `asis`로 읽음 |
 | `HARNESS_DATABASE_URL`, `MASTER_SOURCE_DIR` | 빈 값 | KCD·EDI 마스터 조회 소스(harness DB 재사용 → docraft DB → 원본 신규 적재); 셋 다 없으면 명칭 교정 비활성 |
 | `QUEUE_BACKEND`, `QUEUE_CONCURRENCY` | `inline`, `2` | 프로세스 스레드 풀 또는 Celery 작업 큐 |
 | `READ_MAX_MS` | `180000` | `/api/read`·`/api/verify` 요청 시한 상한(호출자의 대기 시한보다 조금 짧게) |

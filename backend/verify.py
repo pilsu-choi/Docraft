@@ -572,9 +572,9 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
         raise TimeoutError("read deadline exceeded")
     fields = rules.apply(doc_type, result, blocks)
     if (settings["table_extract"] == "rowmajor" and rules.ITEM_TABLE in extract_schema.get("properties", {})
-            and (misses := rules.arith_misses(doc_type, fields)) >= settings["table_recheck_ratio"]):
-        # 행 산술이 크게 어긋나면 rowmajor 열이 통째로 밀린 것이다: 그 표만 asis로 다시 읽는다
-        logger.info("verify: %s 행 산술 불일치 %.2f >= %.2f, asis로 다시 읽는다", rules.ITEM_TABLE, misses, settings["table_recheck_ratio"])
+            and (misses := rules.table_misses(doc_type, result.get(rules.ITEM_TABLE), fields)) >= settings["table_recheck_ratio"]):
+        # 행 산술이 크게 어긋나거나 금액을 비웠거나 행이 무너졌으면 rowmajor 열 배치가 틀린 것이다: 그 표만 asis로 다시 읽는다
+        logger.info("verify: %s 표 이상 비율 %.2f >= %.2f, asis로 다시 읽는다", rules.ITEM_TABLE, misses, settings["table_recheck_ratio"])
         with latency.timed("extract_ms"):
             again, _ = engine.extract(_restrict(extract_schema, {rules.ITEM_TABLE}), blocks, source=image, **options)
         _check(cancel)
