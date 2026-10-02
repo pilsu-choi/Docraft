@@ -558,20 +558,31 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
     schema = _restrict(doctypes.schema(doc_type), only)
     row_filter = row_filter or {}
     extract_schema = _narrow_rows(schema, doc_type, row_filter) if row_filter else schema
+    initial_calls = 0
+
+    def count_initial():
+        nonlocal initial_calls
+        initial_calls += 1
+    options = {} if deadline is None else {"deadline": deadline, "cancel": cancel, "on_call": count_initial}
+    settings = engine.ai_settings()
     with latency.timed("extract_ms"):
-        if deadline is None:
-            result, groundings = engine.extract(extract_schema, blocks, source=image)
-        else:
-            initial_calls = 0
-            def count_initial():
-                nonlocal initial_calls
-                initial_calls += 1
-            result, groundings = engine.extract(extract_schema, blocks, source=image, deadline=deadline, cancel=cancel,
-                                                on_call=count_initial)
+        result, groundings = engine.extract(extract_schema, blocks, source=image, table_extract=settings["table_extract"], **options)
     _check(cancel)
     if deadline is not None and time.monotonic() >= deadline:
         raise TimeoutError("read deadline exceeded")
     fields = rules.apply(doc_type, result, blocks)
+    if (settings["table_extract"] == "rowmajor" and rules.ITEM_TABLE in extract_schema.get("properties", {})
+            and (misses := rules.arith_misses(doc_type, fields)) >= settings["table_recheck_ratio"]):
+        # 행 산술이 크게 어긋나면 rowmajor 열이 통째로 밀린 것이다: 그 표만 asis로 다시 읽는다
+        logger.info("verify: %s 행 산술 불일치 %.2f >= %.2f, asis로 다시 읽는다", rules.ITEM_TABLE, misses, settings["table_recheck_ratio"])
+        with latency.timed("extract_ms"):
+            again, _ = engine.extract(_restrict(extract_schema, {rules.ITEM_TABLE}), blocks, source=image, **options)
+        _check(cancel)
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("read deadline exceeded")
+        result = {**result, **again}
+        groundings = engine.ground(result, extract_schema, blocks)
+        fields = rules.apply(doc_type, result, blocks)
     for table, names in row_filter.items():  # 모델이 목록 밖 행을 내도 걸러 낸다
         column = _row_column(doc_type, table)
         fields[table] = [row for row in fields.get(table) or [] if row.get(column) in names]
