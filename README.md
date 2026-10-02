@@ -227,6 +227,8 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `PARSE_PROVIDER`, `PADDLEOCR_BASE_URL` | `library`, 빈 URL | 기본 라이브러리 파싱 또는 원격 PaddleOCR |
 | `PADDLEOCR_LINES_URL` | 빈 값 | 선택적인 줄 단위 근거 좌표 |
 | `TABLE_REFINE` | `false` | OCR 표 셀 텍스트를 LLM으로 추가 교정 |
+| `TABLE_EXTRACT` | `rowmajor` | `/api/read`·`/api/verify` 첫 추출에서 표를 읽는 방식. `rowmajor`는 표마다 행을 값 배열로 받는 호출(서버 JSON 스키마 강제)을 따로 하고, 열은 문서에 인쇄된 순서로 준다(진료비영수증은 양식 1~5 판별, 세부내역서는 머리글 순서, 못 정하면 스키마 열 순서). `asis`는 표를 다른 필드와 함께 JSON 객체로 읽는 기존 방식 |
+| `TABLE_RECHECK_RATIO` | `0.3` | `rowmajor`에서 세부내역서 행 산술(단가×횟수×일수=총액 등)이 어긋난 행 비율이 이 값 이상이면 그 표를 `asis`로 다시 읽음(1보다 크면 끔) |
 | `HARNESS_DATABASE_URL`, `MASTER_SOURCE_DIR` | 빈 값 | KCD·EDI 마스터 조회 소스(harness DB 재사용 → docraft DB → 원본 신규 적재); 셋 다 없으면 명칭 교정 비활성 |
 | `QUEUE_BACKEND`, `QUEUE_CONCURRENCY` | `inline`, `2` | 프로세스 스레드 풀 또는 Celery 작업 큐 |
 | `READ_MAX_MS` | `180000` | `/api/read`·`/api/verify` 요청 시한 상한(호출자의 대기 시한보다 조금 짧게) |
@@ -236,7 +238,7 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `REPROCESS_MAX_MS`, `REPROCESS_MIN_STAGE_MS` | `60000`, `30000` | 재처리 상한, 남은 시간이 이보다 적으면 원격 OCR·VLM 단계를 새로 시작하지 않음 |
 | `LOG_LEVEL`, `LOG_FILE` | `INFO`, 저장소 `docraft.log` | 로그 수준·파일 위치; 빈 `LOG_FILE`은 파일 기록 중단 |
 
-`.env.example`을 복사해 값을 설정합니다. `.env` 탐색 순서는 `DOCRAFT_ENV_FILE` → 현재 디렉터리 → 저장소 → worktree 원본 저장소이며, 처음 찾은 파일만 읽고 기존 환경변수는 유지합니다. 화면의 `API 키 설정`에는 `DOCRAFT_API_KEY`를 입력하고, 모델 provider의 `AI_API_KEY`는 서버에서만 사용합니다. `PARSE_PROVIDER=library`는 스캔 이미지 OCR을 제공하지 않습니다. 로컬 GPU OCR은 `docker compose --profile ocr up -d` 후 `PARSE_PROVIDER=paddle`, `PADDLEOCR_BASE_URL=http://127.0.0.1:8080`으로 연결합니다. 줄 좌표 서비스는 같은 profile의 `http://127.0.0.1:8081`을 `PADDLEOCR_LINES_URL`에 지정합니다. 표 OCR 셀 교정과 페이지 이미지 첨부는 provider에 문서 이미지를 전송합니다. 관련 구성은 [PaddleOCR 호환성](wiki/2026-09-21-paddleocr-compatibility.md), [줄 좌표](wiki/2026-09-22-ocr-line-grounding.md), [표 교정](wiki/2026-09-22-table-refine.md)에 기록되어 있습니다.
+`.env.example`을 복사해 값을 설정합니다. `.env` 탐색 순서는 `DOCRAFT_ENV_FILE` → 현재 디렉터리 → 저장소 → worktree 원본 저장소이며, 처음 찾은 파일만 읽고 기존 환경변수는 유지합니다. 화면의 `API 키 설정`에는 `DOCRAFT_API_KEY`를 입력하고, 모델 provider의 `AI_API_KEY`는 서버에서만 사용합니다. `PARSE_PROVIDER=library`는 스캔 이미지 OCR을 제공하지 않습니다. 로컬 GPU OCR은 `docker compose --profile ocr up -d` 후 `PARSE_PROVIDER=paddle`, `PADDLEOCR_BASE_URL=http://127.0.0.1:8080`으로 연결합니다. 줄 좌표 서비스는 같은 profile의 `http://127.0.0.1:8081`을 `PADDLEOCR_LINES_URL`에 지정합니다. 표 OCR 셀 교정과 페이지 이미지 첨부는 provider에 문서 이미지를 전송합니다. 관련 구성은 [PaddleOCR 호환성](wiki/2026-09-21-paddleocr-compatibility.md), [줄 좌표](wiki/2026-09-22-ocr-line-grounding.md), [표 교정](wiki/2026-09-22-table-refine.md)에 기록되어 있습니다. `TABLE_EXTRACT=rowmajor`는 OpenAI 호환 `response_format: json_schema`를 쓰므로 고객사 vLLM(structured outputs)과 OpenRouter(`provider.require_parameters`) 모두에서 같은 방식으로 동작합니다. 열 배치 데이터는 `backend/rulesets/table_layouts.yaml`에 있고, 설계·검증은 [표 rowmajor 추출 이식](wiki/2026-10-02-table-rowmajor-port.md)에 기록되어 있습니다.
 
 Celery를 쓰려면 `pip install -r requirements-queue.txt` 후 `QUEUE_BACKEND=celery`, `CELERY_BROKER_URL`을 설정하고 `python -m backend.worker`를 실행합니다. Compose에서는 `QUEUE_BACKEND=celery docker compose --profile app --profile queue up -d --build`를 사용할 수 있습니다. worker는 API와 같은 DB·업로드 파일을 볼 수 있어야 합니다. [작업 큐 설계](wiki/2026-09-22-job-queue.md)에 복구·lease 동작이 설명되어 있습니다.
 

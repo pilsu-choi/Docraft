@@ -325,3 +325,5 @@
 - Creation: 2026-10-02 [/api/read 지연과 HTTP 408 대응](2026-10-02-read-지연-대응.md) — 같은 페이지 결과 공유(single-flight), 표 교정 병렬·분할, OCR_CONCURRENCY 세마포어, 재처리 시한 인식, 모델 호출 벽시계 시한, read finished 단계별 시간, 660 passed. 브랜치 `fix/read-latency`, 워크트리 `.worktrees/read-latency`.
 - Update: 2026-10-02 [index](index.md)에 문서를 연결했다.
 - Update: [/api/read 지연 대응](2026-10-02-read-지연-대응.md) — `cache_hit`가 재처리 크롭 재OCR로 덮어써지던 기록 오류 수정(첫 호출 값만 남김).
+- Creation: 2026-10-02 [표 rowmajor 추출 이식](2026-10-02-table-rowmajor-port.md) — TABLE_EXTRACT(기본 rowmajor)·TABLE_RECHECK_RATIO, table_layout·table_layouts.yaml, 원내코드 후퇴 수정(짝 열 유지·…코드 끝말), 59건 오프라인 90.29%(asis 89.67%), 696 passed. 브랜치 `feat/rowmajor-table`, 워크트리 `.worktrees/rowmajor-table`.
+- Update: 2026-10-02 [index](index.md)에 문서를 연결했다.

@@ -129,7 +129,12 @@ def ai_settings() -> dict:
     table_refine = _flag("TABLE_REFINE", "false")
     # Some VLMs (e.g. qwen3.5) default reasoning mode on, turning a 10-30s call into 200-500s; off disables it.
     reasoning = os.getenv("AI_REASONING", "off").strip().lower() == "on"
-    return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning}
+    # How /api/read·verify reads table fields first: asis = one JSON object, rowmajor = positional rows per table, re-read asis
+    # when the share of 세부내역서 rows failing the row arithmetic reaches TABLE_RECHECK_RATIO (column shift).
+    table_extract = os.getenv("TABLE_EXTRACT", "rowmajor").strip().lower()
+    table_recheck_ratio = float(os.getenv("TABLE_RECHECK_RATIO", "0.3"))
+    return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
+            "table_extract": table_extract, "table_recheck_ratio": table_recheck_ratio}
 
 
 def ocr_settings() -> dict:

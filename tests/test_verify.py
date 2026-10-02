@@ -158,7 +158,7 @@ def test_run_only_sends_mismatched_fields_to_the_judge(monkeypatch):
 
 def test_run_stops_before_the_judge_once_cancelled(monkeypatch):
     calls, cancel = stub(monkeypatch), threading.Event()
-    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None: (cancel.set(), ({}, {}))[1])  # 추출 도중 끊김
+    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None, **_: (cancel.set(), ({}, {}))[1])  # 추출 도중 끊김
 
     with pytest.raises(verify.Cancelled):
         verify.run("scan.png", AO, cancel=cancel)
@@ -396,7 +396,7 @@ def real_stub(monkeypatch, docraft, verdicts, blocks=None):
     """
     real_apply = rules.apply
     monkeypatch.setattr(verify, "parse", lambda *args, **kwargs: ("md", blocks or [{"text": "x"}]))
-    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None: ({}, {}))
+    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None, **_: ({}, {}))
     monkeypatch.setattr(rules, "apply",
                          lambda doc_type, result, blocks: deepcopy(docraft) if blocks else real_apply(doc_type, result, blocks))
     monkeypatch.setattr(verify, "judge", lambda image, doc_type, disputes, **kwargs: deepcopy(verdicts))

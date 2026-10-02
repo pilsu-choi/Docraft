@@ -20,6 +20,7 @@
   진료비영수증 항목내역에 금액 겹침·없는 열·합계 베끼기·합계 불일치·열 바뀜·행 밀림·행 누락을 본다.
 - ``run(doc_type, ao, docraft, blocks)``: 검사하고 확실한 이상을 룰의 교정(``Rule.fix``)으로 Judge 없이 고치기를
   고칠 것이 없을 때까지 되풀이하고, 룰별 실행 기록(trace)을 남긴다.
+- ``arith_misses(doc_type, fields)``: 세부내역서 행 산술이 어긋난 행 비율. rowmajor 표를 asis로 다시 읽을지 정한다.
 - ``sum_errors(doc_type, fields)``: 합계식 불일치 수. Judge 판정이 합계식을 더 어기면 되돌리는 데 쓴다.
 
 룰은 데이터 표(``rulesets/rules.yaml``·``FIELD_RULES``·doctypes.ENUMS)와 공통 엔진으로 나눠 둔다.
@@ -1430,6 +1431,17 @@ def _row_arith(doc):
             found.append(_flag("row_arith", f"{index}행 단가×투여량×횟수×일수가 총액 {rows[index]['총액']}과 맞지 않는다.",
                                row=index, column="총액"))
     return sorted(found, key=lambda flag: flag["row"])
+
+
+def arith_misses(doc_type: str, fields: dict) -> float:
+    """항목내역에서 총액이 있는 행 가운데 행 산술(``_row_arith``)이 맞지 않는 행의 비율. 그 룰을 보지 않는 유형은 0.
+    열이 통째로 밀린 표는 이 비율이 크다 — rowmajor로 읽은 표를 asis로 다시 읽을지(``verify.read``) 정한다."""
+    doc = _Doc(doc_type, fields, {}, [])
+    rule = next(rule for rule in RULES if rule.detect is _row_arith)
+    checkable = sum(_money(row.get("총액")) is not None for row in doc.rows)
+    if not checkable or not doc.sees(rule):
+        return 0.0
+    return len({flag["row"] for flag in rule.detect(doc)}) / checkable
 
 
 def _low_quality(doc):
