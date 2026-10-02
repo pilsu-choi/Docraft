@@ -322,3 +322,5 @@
 - Creation: 2026-09-29 [/api/read row_filter](2026-09-29-read-row-filter.md) — 표 일부 행만 추출하는 `row_filter` 추가(629 tests).
 - Creation: 2026-10-02 [요양기관종류 체크박스](2026-10-02-institution-type-checkbox.md) — 요양기관종류 설명에 체크박스 판독 지침 추가, 요양기관종류 kind를 `enum`(정확 비교)으로 바꿔 '고상급종합병원'≠'종합병원', 637 passed.
 - Update: 2026-10-02 [요양기관종류 체크박스](2026-10-02-institution-type-checkbox.md) — 체크 기호만 답하는 회귀(390i·400b 'V') 대응: 설명에서 기호 목록 제거, ENUMS 4종 표준값·동의어 추가.
+- Creation: 2026-10-02 [/api/read 지연과 HTTP 408 대응](2026-10-02-read-지연-대응.md) — 같은 페이지 결과 공유(single-flight), 표 교정 병렬·분할, OCR_CONCURRENCY 세마포어, 재처리 시한 인식, 모델 호출 벽시계 시한, read finished 단계별 시간, 660 passed. 브랜치 `fix/read-latency`, 워크트리 `.worktrees/read-latency`.
+- Update: 2026-10-02 [index](index.md)에 문서를 연결했다.

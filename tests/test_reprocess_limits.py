@@ -63,6 +63,7 @@ def test_cancellation_before_provider_call_raises_without_sending(monkeypatch):
 
 def test_late_candidate_is_discarded_after_extract_returns(monkeypatch):
     configure(monkeypatch)
+    monkeypatch.setenv("REPROCESS_MIN_STAGE_MS", "0")  # start the call even with 10 ms left
     monkeypatch.setattr(reprocess, "_quality", scalar_quality)
 
     def late_extract(schema, blocks, source=None, **kwargs):

@@ -2,6 +2,7 @@
 
 import json
 import logging
+from contextlib import contextmanager
 from copy import deepcopy
 
 import fitz
@@ -30,6 +31,10 @@ class FakeClient:
         if self.responses is not None:
             return self.responses[len(self.requests) - 1]
         return self.response
+
+    @contextmanager
+    def stream(self, method, url, **kwargs):
+        yield self.post(url, **kwargs)
 
 
 def _response(content, status_code, finish_reason):

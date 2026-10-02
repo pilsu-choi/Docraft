@@ -112,7 +112,7 @@ flowchart TD
 
 날짜 표기·진료기간의 시작/종료·체크 기호와 물리 표 셀은 [유형별 원문 근거](wiki/2026-09-27-typed-evidence.md)가 확인된 경우에만 `groundings`와 `field_quality.provenance`에 `match`, `evidence_type`, `transform`, `role`, `label`, `normalized_value`, `verified`, `geometry_scope`를 함께 남깁니다. 검증된 빈 셀은 `source_text: ""`, `match: "blank"`, `basis: "image_cell_blank"`로 `null`과 연결하며 숫자 0과 구분합니다. 좌표·라벨·행열 관계가 불분명하면 검토 대상으로 남깁니다.
 
-서식의 값 인쇄 위치가 라벨보다 한 행 밀린 사진은 OCR 줄의 세로 방향을 확인해 예산 안에서 원본 이미지를 ±90도로 다시 읽습니다. 서로 다른 날짜 라벨 두 곳에서 같은 인쇄 오프셋이 확인되고 금액 라벨마다 대응 숫자가 유일하면, 등록된 `FIELD_SUMS`의 구성항을 원본 좌표 근거와 결속한 뒤 합계를 계산해 관련 필드를 함께 교정합니다. 숫자 하나만 맞춘 합계나 OCR 숫자만 있고 역할을 확인하지 못한 후보는 채택하지 않습니다. 검증된 물리 빈칸, 체크 표시, 스키마 날짜 별칭도 각각 독립 근거가 있을 때만 후보가 됩니다. 긴 자유 텍스트의 ROI 교정은 후보 문자열을 보내지 않는 원본 이미지 재판독에서 같은 값이 나와야 채택합니다. 단계별 OCR·모델 호출에는 `REPROCESS_MAX_ATTEMPTS`·`REPROCESS_MAX_MODEL_CALLS` 및 요청 시한을 전달하고, 만료 후에는 후보를 채택하지 않습니다. 원격 호출의 단계별 timeout이 요청 전체의 강제 종료 시각을 보장하지 않으므로 실제 벽시계 시간은 시한을 넘을 수 있습니다([자연 표본 교정 기록](wiki/2026-09-28-natural-corrections.md)).
+서식의 값 인쇄 위치가 라벨보다 한 행 밀린 사진은 OCR 줄의 세로 방향을 확인해 예산 안에서 원본 이미지를 ±90도로 다시 읽습니다. 서로 다른 날짜 라벨 두 곳에서 같은 인쇄 오프셋이 확인되고 금액 라벨마다 대응 숫자가 유일하면, 등록된 `FIELD_SUMS`의 구성항을 원본 좌표 근거와 결속한 뒤 합계를 계산해 관련 필드를 함께 교정합니다. 숫자 하나만 맞춘 합계나 OCR 숫자만 있고 역할을 확인하지 못한 후보는 채택하지 않습니다. 검증된 물리 빈칸, 체크 표시, 스키마 날짜 별칭도 각각 독립 근거가 있을 때만 후보가 됩니다. 긴 자유 텍스트의 ROI 교정은 후보 문자열을 보내지 않는 원본 이미지 재판독에서 같은 값이 나와야 채택합니다. 단계별 OCR·모델 호출에는 `REPROCESS_MAX_ATTEMPTS`·`REPROCESS_MAX_MODEL_CALLS` 및 요청 시한을 전달하고, 만료 후에는 후보를 채택하지 않습니다. 모델 호출은 응답을 받는 동안에도 남은 시한을 재어 넘으면 끊고, 남은 시간이 `REPROCESS_MIN_STAGE_MS`보다 적으면 원격 OCR·VLM 단계를 새로 시작하지 않습니다([자연 표본 교정 기록](wiki/2026-09-28-natural-corrections.md), [read 지연 대응](wiki/2026-10-02-read-지연-대응.md)).
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/read \
@@ -229,6 +229,11 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `TABLE_REFINE` | `false` | OCR 표 셀 텍스트를 LLM으로 추가 교정 |
 | `HARNESS_DATABASE_URL`, `MASTER_SOURCE_DIR` | 빈 값 | KCD·EDI 마스터 조회 소스(harness DB 재사용 → docraft DB → 원본 신규 적재); 셋 다 없으면 명칭 교정 비활성 |
 | `QUEUE_BACKEND`, `QUEUE_CONCURRENCY` | `inline`, `2` | 프로세스 스레드 풀 또는 Celery 작업 큐 |
+| `READ_MAX_MS` | `180000` | `/api/read`·`/api/verify` 요청 시한 상한(호출자의 대기 시한보다 조금 짧게) |
+| `READ_CACHE_SIZE`, `READ_CACHE_TTL_S` | `8`, `180` | 같은 페이지의 OCR·표 교정 결과를 동시·연이은 요청이 나눠 씀(0이면 끔) |
+| `OCR_CONCURRENCY` | `2` | 원격 PaddleOCR 레이아웃 동시 호출 수, 시한까지 자리가 안 나면 408(0이면 제한 없음) |
+| `REFINE_CONCURRENCY`, `REFINE_MAX_CELLS` | `4`, `300` | 표 교정 동시 호출 수, 한 호출의 최대 칸 수(큰 표는 행 묶음으로 나눔, 0이면 나누지 않음) |
+| `REPROCESS_MAX_MS`, `REPROCESS_MIN_STAGE_MS` | `60000`, `30000` | 재처리 상한, 남은 시간이 이보다 적으면 원격 OCR·VLM 단계를 새로 시작하지 않음 |
 | `LOG_LEVEL`, `LOG_FILE` | `INFO`, 저장소 `docraft.log` | 로그 수준·파일 위치; 빈 `LOG_FILE`은 파일 기록 중단 |
 
 `.env.example`을 복사해 값을 설정합니다. `.env` 탐색 순서는 `DOCRAFT_ENV_FILE` → 현재 디렉터리 → 저장소 → worktree 원본 저장소이며, 처음 찾은 파일만 읽고 기존 환경변수는 유지합니다. 화면의 `API 키 설정`에는 `DOCRAFT_API_KEY`를 입력하고, 모델 provider의 `AI_API_KEY`는 서버에서만 사용합니다. `PARSE_PROVIDER=library`는 스캔 이미지 OCR을 제공하지 않습니다. 로컬 GPU OCR은 `docker compose --profile ocr up -d` 후 `PARSE_PROVIDER=paddle`, `PADDLEOCR_BASE_URL=http://127.0.0.1:8080`으로 연결합니다. 줄 좌표 서비스는 같은 profile의 `http://127.0.0.1:8081`을 `PADDLEOCR_LINES_URL`에 지정합니다. 표 OCR 셀 교정과 페이지 이미지 첨부는 provider에 문서 이미지를 전송합니다. 관련 구성은 [PaddleOCR 호환성](wiki/2026-09-21-paddleocr-compatibility.md), [줄 좌표](wiki/2026-09-22-ocr-line-grounding.md), [표 교정](wiki/2026-09-22-table-refine.md)에 기록되어 있습니다.

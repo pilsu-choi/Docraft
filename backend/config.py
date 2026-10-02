@@ -104,6 +104,14 @@ ENV_FILE = load_env()
 setup_logging()
 
 
+def limit(name: str, default: int, ceiling: int) -> int:
+    """정수 환경변수를 [0, ceiling]으로 자른 값. 숫자가 아니면 default."""
+    try:
+        return max(0, min(int(os.getenv(name, default)), ceiling))
+    except ValueError:
+        return default
+
+
 def _flag(name: str, default: str) -> bool:
     return os.getenv(name, default).strip().lower() not in {"false", "0", "no", "off"}
 
