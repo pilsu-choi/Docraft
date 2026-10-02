@@ -17,7 +17,7 @@ from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit
 from . import table_layout
-from .latency import parallel, remaining
+from .latency import note, parallel, remaining
 
 logger = logging.getLogger(__name__)
 
@@ -566,6 +566,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
             return _read_rows(table, properties[table], schema.get("title"), blocks, _chunk_text(blocks, budget), images, deadline, cancel, on_call)
         except (RuntimeError, ValueError) as exc:  # a reply that broke the row contract: read the table asis below
             logger.warning("extract: rowmajor table=%s failed, reading it asis: %s", table, exc)
+            note("rowmajor_fallback", str(exc)[:200], add=False)
             return None
 
     parts = ([None] if len(tables) < len(properties) or not properties else []) + tables

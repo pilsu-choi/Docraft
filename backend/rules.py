@@ -35,12 +35,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date as _calendar_date
 from functools import cached_property
+from statistics import median
 from html import unescape
 from pathlib import Path
 
 import yaml
 
-from . import doctypes, master
+from . import doctypes, latency, master, table_layout
 from .doctypes import ENUMS
 
 logger = logging.getLogger(__name__)
@@ -703,8 +704,9 @@ def _header_columns(doc_type, out, blocks):
     - 머리글이 '묶음 제목'이라고 말하는 열은 하위 열의 합일 뿐이다(진료비영수증 급여·비급여).
     - 세부내역서 급여 열은 머리글에 독립 열로 보일 때만 남긴다 — 모델이 총액−비급여를 계산해 채우곤 한다.
     - 진료비영수증 머리글에 소계 열이 있고 전액본인부담 값의 과반이 본인부담금+공단부담금이면 소계를 옮긴 것이다.
-    - 세부내역서 머리글에 코드 열이 둘 미만이면 원내코드만 읽혔거나 두 칸이 같은 코드는 EDI코드로 모은다. 코드 열이
-      둘인 서식과 파싱 블록이 없는 Judge 교정 표는 AO처럼 인쇄된 칸 그대로 둔다.
+    - 세부내역서 머리글에 코드 열이 둘 미만이면 원내코드만 읽혔거나 두 칸이 같은 코드는 EDI코드로 모은다. 머리글 자리
+      (``table_layout.header_positions``)로 센 코드 열이 하나인데 두 칸이 다르면 한 칸에 두 줄로 찍힌 코드('AU211'/'{AIAU211}')라
+      EDI코드 한 값으로 잇는다(정답지 관례). 코드 열이 둘인 서식과 파싱 블록이 없는 Judge 교정 표는 AO처럼 인쇄된 칸 그대로 둔다.
     - 세부내역서 머리글이 일수 칸까지 읽혔는데 단가·투여량 낱말(``HEADER_COLUMNS``)이 없으면 이웃 열 값을 옮긴 것이다.
     """
     cells, columns = _headers(blocks), []
@@ -719,10 +721,13 @@ def _header_columns(doc_type, out, blocks):
                     for row in rows)
         if added * 2 > len(rows):  # 과반이 본인+공단이면 소계를 옮겨 적은 것이다(오독 행이 섞여도)
             columns.append("전액본인부담")
-    if doc_type == "세부내역서" and blocks and sum("코드" in cell for cell in cells) < 2:
+    at = table_layout.header_positions(blocks, list(doctypes.spec(doc_type)["tables"][ITEM_TABLE])) if doc_type == "세부내역서" and blocks else {}
+    if doc_type == "세부내역서" and blocks and (sum(key in at for key in ("원내코드", "EDI코드")) if at else sum("코드" in cell for cell in cells)) < 2:
         for row in out.get(ITEM_TABLE) or []:  # 코드 열이 하나인 서식: 그 코드는 EDI코드다(모델이 원내코드에 적었거나 두 칸에 적었다)
             if row.get("원내코드") and (not row.get("EDI코드") or row["원내코드"] == row["EDI코드"]):
                 row["원내코드"], row["EDI코드"] = None, row.get("EDI코드") or row["원내코드"]
+            elif row.get("원내코드") and at:  # 머리글 자리로 센 코드 열이 하나('코드' 아래 '{수가코드}'): 한 칸 두 줄을 한 값으로
+                row["원내코드"], row["EDI코드"] = None, row["EDI코드"] + row["원내코드"]
     if doc_type == "세부내역서" and any("일수" in cell for cell in cells):
         columns += [column for column, words in HEADER_COLUMNS.items() if not _has_header(cells, words)]
     for row in out.get(ITEM_TABLE) or []:
@@ -1056,8 +1061,6 @@ def _headers(blocks):
 
 
 _MERGED_WORDS = HEADER_WORDS + tuple(word for titles, subs in GROUPED.values() for word in titles + subs)
-_FIGURE = re.compile(r"\d[\d,]*(\.\d+)?")
-_FACTORS = {2: ("횟수", "일수"), 3: ("투여량", "횟수", "일수")}  # 금액과 총액 사이에서 곱하는 열 수 → 그 머리글 낱말
 
 
 def _words(text, vocab=HEADER_WORDS):
@@ -1074,7 +1077,7 @@ def _inferred(blocks):
     셋이면 투여량 열이 더 있는 서식으로 본다."""
     for block in blocks or []:
         rows = [[_figure(cell) for cell in row] for row in block.get("rows") or []]
-        for width, factors in _FACTORS.items():
+        for width, factors in ((width, factors) for width, factors in table_layout.COUNTS.items() if width > 1):
             for start in range(max(map(len, rows), default=0) - width - 1):
                 spans = [row[start:start + width + 2] for row in rows]
                 spans = [span for span in spans if len(span) == width + 2 and None not in span and span[-1] >= 10]
@@ -1087,7 +1090,7 @@ def _inferred(blocks):
 def _figure(cell):
     """표 칸이 숫자만이면 그 값(천 단위 콤마 제외), 아니면 None."""
     text = str(cell or "").strip()
-    return float(text.replace(",", "")) if _FIGURE.fullmatch(text) else None
+    return float(text.replace(",", "")) if table_layout.NUMBER.fullmatch(text) else None
 
 
 def _has_header(cells, words):
@@ -1356,13 +1359,60 @@ def _swaps(rows):
     return [pair for pair in pairs if all(columns.count(column) == 1 for column in pair)]
 
 
-def _swap(rows, pairs):
-    """항목 행(합계 행 제외)의 열 쌍 값을 맞바꾼 새 행 목록."""
+def _swap(rows, pairs, totals=False):
+    """항목 행(``totals``면 합계 행까지)의 열 쌍 값을 맞바꾼 새 행 목록."""
     rows = [dict(row) for row in rows]
     for row in rows:
-        for a, b in pairs if not is_total(row) else ():
+        for a, b in pairs if totals or not is_total(row) else ():
             row[a], row[b] = row.get(b), row.get(a)
     return rows
+
+
+def _is_edi(value):
+    return bool(table_layout.EDI.fullmatch(re.sub(r"\s", "", str(value)).upper()))
+
+
+def _printed_under(blocks):
+    """OCR 표 줄의 금액 → 그 금액이 찍힌 칸의 머리글 열들(x가 가장 가까운 읽은 머리글). 머리글을 못 읽으면 빈 dict."""
+    at = table_layout.header_positions(blocks, list(doctypes.spec("세부내역서")["tables"][ITEM_TABLE]))
+    under = {}
+    for line in table_layout._lines(blocks) if at else ():
+        (x0, _, x1, _), parts = line["bbox"], line["text"].split()
+        total, done = sum(map(len, parts)) or 1, 0
+        for part in parts:
+            x, done = x0 + (x1 - x0) * (done + len(part) / 2) / total, done + len(part)
+            if table_layout.NUMBER.fullmatch(part) and (value := _money(part)):
+                under.setdefault(value, set()).add(min(at, key=lambda key: abs(at[key] - x)))
+    return under
+
+
+def _detail_swaps(rows, blocks):
+    """세부내역서 항목 표에서 통째로 맞바뀐 열 쌍 ``(바꿀 쌍, 의심만 하는 쌍)``. 값은 옮기기만 하고 바꾸거나 만들지 않는다.
+
+    - 원내코드·EDI코드: 두 칸이 다른 행이 셋 이상이고, 원내코드 칸의 8할 이상이 EDI 수가코드 꼴(``table_layout.EDI``)이며
+      EDI코드 칸보다 그 비율이 5할 이상 높으면 바꾼다. 3할 이상 높기만 하면 의심.
+    - 본인부담·공단부담: 두 값이 OCR에서 각각 한 열 아래에만 찍힌 행 가운데 머리글 자리가 엇갈린 행이 셋 이상이고 바른 행의
+      네 배 이상이면 바꾼다. 엇갈린 행이 더 많기만 하면 의심. 자리 근거가 없을 때(바른 행이 셋 미만) 본인부담 비율
+      (본인/(본인+공단))의 중앙값이 0.75 이상이면 의심 — 본인부담률은 20~60%라 공단부담보다 큰 일이 드물다."""
+    sure, unsure = [], []
+    codes = [(row["원내코드"], row["EDI코드"]) for row in rows if row.get("원내코드") and row.get("EDI코드") and row["원내코드"] != row["EDI코드"]]
+    if codes:
+        mine, edi = (sum(map(_is_edi, side)) / len(codes) for side in zip(*codes))
+        if len(codes) >= 3 and mine >= 0.8 and mine - edi >= 0.5:
+            sure.append(("원내코드", "EDI코드"))
+        elif mine - edi >= 0.3:
+            unsure.append(("원내코드", "EDI코드"))
+    under = _printed_under(blocks)
+    paid = [(a, b) for row in rows if (a := _money(row.get("본인부담"))) and (b := _money(row.get("공단부담"))) and a != b]
+    places = [(under.get(a), under.get(b)) for a, b in paid]
+    straight = places.count(({"본인부담"}, {"공단부담"}))
+    crossed = places.count(({"공단부담"}, {"본인부담"}))
+    shares = [a / (a + b) for a, b in paid if a > 0 and b > 0]
+    if crossed >= 3 and crossed >= 4 * straight:
+        sure.append(("본인부담", "공단부담"))
+    elif crossed > straight or straight < 3 and len(shares) >= 3 and median(shares) >= 0.75:
+        unsure.append(("본인부담", "공단부담"))
+    return sure, unsure
 
 
 def _sum_checks(doc):
@@ -1385,6 +1435,12 @@ def _swap_checks(doc):
     """항목 금액 열 두 개가 통째로 맞바뀌었는지(``_swaps``)."""
     return [_flag("column_shift", f"항목 행의 '{a}'·'{b}' 열을 통째로 맞바꾸면 두 열의 합이 합계 행과 맞는다.",
                   column=a, target=b) for a, b in _swaps(doc.rows)]
+
+
+def _detail_swap_checks(doc):
+    """세부내역서 항목 열 두 개가 통째로 맞바뀐 듯하지만 바꿀 만큼 근거가 강하지 않은 쌍(``_detail_swaps``). 값은 그대로 두고 알린다."""
+    return [_flag("column_swap", f"항목 행의 '{a}'·'{b}' 열이 맞바뀌었을 수 있다(값 꼴·인쇄 자리 근거가 약해 그대로 둔다).",
+                  column=a, target=b) for a, b in _detail_swaps(doc.rows, doc.blocks)[1]]
 
 
 def _relations(fields, key=None):
@@ -1709,6 +1765,7 @@ RULES = (  # 검사 순서가 곧 check()가 내는 이상 징후 순서다
     Rule("DETAIL.EMPTY_CELL", "empty_cell", "CROSS", DETAIL, _empty_cells, _fix_cell, "CORRECT"),
     Rule("DETAIL.WARD", "ward", "FMT", DETAIL, _ward_checks, _fix_clear, "CORRECT"),
     Rule("DETAIL.EMPTY_COLUMN", "empty_column", "STRUCT", DETAIL, _empty_columns, None, "RE_EXTRACT"),
+    Rule("DETAIL.COLUMN_SWAP", "column_swap", "STRUCT", DETAIL, _detail_swap_checks, None, "ESCALATE"),
     Rule("GROUND.UNPRINTED", "ungrounded", "LOGIC", (), _unprinted, _fix_total, "CORRECT"),
     Rule("RECEIPT.MULTI_AMOUNT", "multi_amount", "FMT", RECEIPT, _multi_amounts, None, "RE_EXTRACT"),
     Rule("RECEIPT.NO_COLUMN", "no_column", "STRUCT", RECEIPT, _no_columns, None, "RE_EXTRACT"),
@@ -1824,6 +1881,10 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     for key in set(FIELD_SUMS) & set(UNPRINTED_NULL):  # 구성 필드 합과 다른 급여총액은 비급여까지 더한 총액을 옮긴 것이다
         if _fits(out, key, out.get(key)) is False:
             out[key] = None
+    if doc_type == "세부내역서":  # 통째로 맞바뀐 열을 값 꼴·인쇄 자리로 되돌린다(근거가 약하면 check가 알리기만 한다)
+        sure, unsure = _detail_swaps(out[ITEM_TABLE], blocks or [])
+        out[ITEM_TABLE] = _swap(out[ITEM_TABLE], sure, totals=True)
+        latency.note("column_swaps", {"swapped": [list(pair) for pair in sure], "flagged": [list(pair) for pair in unsure]}, add=False)
     _header_columns(doc_type, out, blocks or [])
     if doc_type == "진료비영수증":  # 통째로 맞바뀐 이웃 금액 열을 합계 행에 맞춰 되돌린다
         out[ITEM_TABLE] = _swap(out[ITEM_TABLE], _swaps(out[ITEM_TABLE]))
