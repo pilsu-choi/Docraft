@@ -4,9 +4,10 @@ rowmajor는 행마다 값 배열만 받으므로 열 자리가 문서에 인쇄�
 그래서 유형·표마다(``rulesets/table_layouts.yaml``의 ``tables``) 두 방법 중 하나로 인쇄 열을 정한다.
 
 - layout: 표 셀 낱말로 진료비영수증 양식 번호(1~5)를 판별해 그 양식의 인쇄 열과 열 설명을 준다.
-- header: 표 블록 OCR 줄(글자+bbox)에서 머리글 낱말을 찾아 x 순으로 정렬한 열을 준다.
+- header: 표 블록 OCR 줄(글자+bbox, 줄 상자가 없으면 셀)에서 머리글 낱말을 찾아 x 순으로 정렬한 열을 준다.
+  머리글을 못 읽으면 셀 값 꼴(날짜·코드·글자·금액·수)의 순서로 정한다(value, ``shaped_columns``).
 
-정하지 못하면 ``plan``이 None을 돌려주고 engine이 합집합 열 순서로 읽는다.
+정하지 못하면 ``plan``이 None을 돌려주고 engine이 합집합 열 순서로 읽는다. ``planned``는 출처와 실패 사유도 준다.
 """
 
 import re
@@ -179,27 +180,29 @@ def printed_columns(blocks, union, min_columns=4):
 
 
 def header_positions(blocks, union):
-    """머리글에서 읽은 열 → 머리글 낱말의 x(바로 선 페이지 좌표). 머리글을 못 읽으면 빈 dict. ``rules``가 값이 어느 열 아래
-    인쇄됐는지 볼 때 쓴다."""
-    return _header(blocks, union)[1]
+    """``(머리글에서 읽은 열 → 머리글 낱말의 x(바로 선 페이지 좌표), 한 칸에 같은 개념 낱말이 두 줄로 쌓인 열)``. 머리글을 못
+    읽으면 빈 dict·빈 집합. ``rules``가 값이 어느 열 아래 인쇄됐는지, 한 칸에 두 값('AU211'/'{AIAU211}')이 찍혔는지 볼 때 쓴다."""
+    return _header(blocks, union)[1::2]
 
 
 def _header(blocks, union, min_columns=4):
-    """``(인쇄 열 → 머리글 글자 | None, 읽은 열 → x, 실패 사유 | None)``.
+    """``(인쇄 열 → 머리글 글자 | None, 읽은 열 → x, 실패 사유 | None, 두 줄로 쌓인 같은 개념 낱말의 열)``.
 
-    머리글 줄은 열 개념 낱말이 ``min_columns``개 이상인 첫 줄이다. 위아래 두 줄 안(줄 높이 3배 안)의 낱말도 그 x에
-    다른 머리글 낱말이 없으면 열이다 — 칸 높이가 다른 머리글('총액'이 두 줄 칸 가운데)과 두 줄 머리글('코드' 아래 '{수가코드}'는
-    같은 칸이라 한 열). 묶음 제목 아래 하위 열(``SUBS``)은 늘 받는다.
+    머리글 줄은 열 개념 낱말이 ``min_columns``개 이상인 첫 줄이다. 위아래 두 줄 안(줄 높이 3배 안, 사이에 숫자 줄이 없을 때)의
+    낱말도 그 x에 다른 머리글 낱말이 없고 정확히 읽혔거나 머리글 낱말이 둘 이상인 줄에 있으면 열이다 — 칸 높이가 다른 머리글('총액'이
+    두 줄 칸 가운데). 같은 개념 낱말이 같은 x에 쌓였으면('코드' 아래 '{수가코드}') 한 칸, 한 열이다. 묶음 제목 아래 하위 열(``SUBS``)은
+    늘 받는다. 곱하는 열이 둘이면 횟수·일수다(``COUNTS``, '총투'·'일수').
 
     못 읽은 열은 그 자리에 열이 있다는 근거가 있을 때만 넣는다 — 머리글 낱말이 다 읽혔는데 열을 끼우면 이웃 값이 그 자리로 간다.
-    - 필수 열(``OPTIONAL`` 밖)은 합집합 순서의 제자리 양옆 머리글 사이에 머리글 낱말로 읽지 못한 글자가 있을 때 넣는다.
+    - 필수 열(``OPTIONAL`` 밖)은 합집합 순서의 제자리 양옆 머리글 사이에 머리글 낱말로 읽지 못한 글자가 있거나 그 사이가 넓을 때
+      (OCR이 낱말을 통째로 놓쳤다) 넣는다. 오독으로 붙은 긴 글자(다섯 자 이상)가 있으면 머리글을 다 읽지 못했다고 보고 늘 넣는다.
     - 짝 열(``PAIRS``)은 짝을 근거로 넣었거나(열 수를 세지 못했다) 짝의 머리글 칸에 그 열 낱말과 겹치는 읽지 못한 글자가 있으면
       짝 옆에 함께 둔다. 나머지 선택 열은 서식에 없다고 본다.
     한 칸이 두 열의 값을 싣는 개념(``SPANS``, '일자' 한 칸의 진료기간)은 본문이 그렇게 찍혔으면 두 열을 함께 묻는다.
     낱말 하나뿐인 개념은 ``SINGLE``(낱말이나 개념 → 열)을 따른다. 다만 그 열을 다른 개념이 차지하면 따르지 않는다."""
     lines = _lines(blocks)
     if not lines:
-        return None, {}, "no_table_text"
+        return None, {}, "no_table_text", set()
     tokens = [{**t, "hits": hits, "exact": d == 0} for t in _tokens(lines) for hits, d in [_concepts(t["text"])]]
     exact = {t["hits"][0] for t in tokens if t["exact"] and len(t["hits"]) == 1}
     for t in tokens:  # 두 개념과 같은 거리의 오독('임수' = 일수·횟수)은 이미 정확히 읽힌 개념을 뺀 쪽이다
@@ -207,7 +210,7 @@ def _header(blocks, union, min_columns=4):
         t["c"] = t["hits"][0] if len(t["hits"]) == 1 else rest.pop() if len(rest) == 1 else None
     unread, tokens = [t for t in tokens if not t["c"] and re.search(r"[가-힣A-Za-z]", t["text"])], [t for t in tokens if t["c"]]
     if not tokens:
-        return None, {}, "no_header_words"
+        return None, {}, "no_header_words", set()
     height = median(t["h"] for t in tokens)
     rows = []  # y로 묶은 줄(위에서 아래)
     for t in sorted(tokens, key=lambda t: t["y"]):
@@ -217,7 +220,7 @@ def _header(blocks, union, min_columns=4):
             rows.append([t])
     head = next((i for i, row in enumerate(rows) if len({t["c"] for t in row}) >= min_columns), None)
     if head is None:
-        return None, {}, "few_header_columns"
+        return None, {}, "few_header_columns", set()
     picked, y = list(rows[head]), rows[head][0]["y"]
     xs = sorted(t["x"] for t in picked)
     reach = median(b - a for a, b in zip(xs, xs[1:])) / 2 if len(xs) > 1 else height
@@ -225,8 +228,10 @@ def _header(blocks, union, min_columns=4):
         lo, hi = sorted((row[0]["y"], y))
         if hi - lo <= height * 3 and not any(lo + height * 0.6 < (line["bbox"][1] + line["bbox"][3]) / 2 < hi - height * 0.6
                                              and re.search(r"\d", line["text"]) for line in lines):  # 사이에 값 줄이 끼면 다른 표 머리글이다
-            picked += [t for t in row if t["c"] in SUBS or (t["exact"] or len(row) > 1) and all(abs(t["x"] - p["x"]) > reach for p in picked)]
+            picked += [t for t in row if t["c"] in SUBS or (t["exact"] or len(row) > 1) and all(abs(t["x"] - p["x"]) > reach for p in picked)
+                       or any(p["c"] == t["c"] and abs(p["x"] - t["x"]) < height for p in picked)]  # 쌓인 낱말은 아래에서 한 열로
     picked.sort(key=lambda t: t["y"])  # 같은 개념 낱말이 같은 x에 쌓였으면('코드' 아래 '{수가코드}') 한 칸, 한 열이다
+    stacked = {p["x"] for i, t in enumerate(picked) for p in picked[:i] if p["c"] == t["c"] and abs(p["x"] - t["x"]) < height}
     picked = sorted((t for i, t in enumerate(picked) if not any(p["c"] == t["c"] and abs(p["x"] - t["x"]) < height for p in picked[:i])),
                     key=lambda t: t["x"])
     if SUBS & {t["c"] for t in picked}:
@@ -252,7 +257,13 @@ def _header(blocks, union, min_columns=4):
                 if len(KEYS[concept]) > 1 and not once:  # 한 개념의 열이 여럿이면(코드 둘·단가와 금액) 머리글 글자를 남긴다
                     words[key] = word if word in WORDS else None
     if len(columns) < min_columns:
-        return None, {}, "few_header_columns"
+        return None, {}, "few_header_columns", set()
+    poorly = any(t["hits"] and set(t["hits"]) & {"횟수", "일수", "투여량"} for t in unread)  # 곱하는 열 머리글을 다 읽지 못했다
+    counts = [key for key in columns if key in COUNTS[3]]
+    if len(counts) == 2 and counts != COUNTS[2] and not poorly:  # 곱하는 두 열은 횟수·일수다('총투'·'일수', 표준 서식·정답지 관례)
+        names = dict(zip(counts, COUNTS[len(counts)]))
+        columns, at = [names.get(key, key) for key in columns], {names.get(key, key): x for key, x in at.items()}
+        words = {names.get(key, key): word for key, word in words.items()}
     read, xs = set(columns), sorted(at.values())
     wide = median(b - a for a, b in zip(xs, xs[1:])) * 2.5
 
@@ -285,7 +296,7 @@ def _header(blocks, union, min_columns=4):
             if (i := next((i for i in range(before[-1] + 1 if before else 0, max(before, default=-1) + 2) if unread_between(i)), None)) is not None:
                 columns.insert(i, key)
     named = None not in words.values() and len(set(words.values())) == len(words)  # 오독했거나 같은 글자('금액'·'금액')면 못 가른다
-    return {key: words.get(key) if named else None for key in columns}, at, None
+    return {key: words.get(key) if named else None for key in columns}, at, None, {key for key in columns if at.get(key) in stacked}
 
 
 _DATE = re.compile(r"(?:19|20)?\d{2}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{1,2}")
@@ -388,7 +399,7 @@ def planned(doc_type, table, blocks, description, columns):
         return None, "union", "unknown_form"
     if method != "header":
         return None, "union", None
-    printed, _, reason = _header(blocks, list(columns))
+    printed, _, reason, _ = _header(blocks, list(columns))
     if printed:
         return (description + NOTE, {key: columns[key] + (f" 이 문서에서는 '{word}' 열이다." if word else "") for key, word in printed.items()},
                 None), "header", None

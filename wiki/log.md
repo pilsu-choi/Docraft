@@ -335,3 +335,5 @@
 - Update: 2026-10-02 [index](index.md)에 문서를 연결하고 README 근거 좌표 설명에 `orientation`을 더했다.
 - Creation: 2026-10-02 [rowmajor 열 배치·게이트 보강과 무리 값 채우기](2026-10-02-rowmajor-rotation-fixes.md) — 정답 없는 98건에서 나온 유형 수정 5가지와 무리 값 채우기, OpenRouter 39회로 검증(59건 92.47%, 98건 일치 93.0%), 762 passed. 브랜치 `feat/rowmajor-rotation`, 워크트리 `.worktrees/rowmajor-rotation`.
 - Update: 2026-10-02 [index](index.md)에 문서를 연결하고 README `TABLE_RECHECK_RATIO`(0.6) 설명을 고쳤다.
+- Creation: 2026-10-03 [rowmajor 열 배치 근거화와 세부내역서 열 맞바꿈](2026-10-03-colplan-evidence.md) — 근거 없는 열 추가 제거·여러 줄 머리글·값 꼴 배치·코드/본인·공단 맞바꿈·운영 지표, OpenRouter 42회(59건 92.74→93.14%), 821 passed. 브랜치 `feat/colplan`, 워크트리 `.worktrees/colplan`.
+- Update: 2026-10-03 [index](index.md)에 문서를 연결하고 README `/api/read` 응답에 `diagnostics`를 적었다.

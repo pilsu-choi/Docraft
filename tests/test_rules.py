@@ -1585,3 +1585,25 @@ def test_two_codes_printed_in_one_header_cell_are_one_edi_value():
     out = rules.apply("세부내역서", {"항목내역": rows}, [block(kind="table", lines=lines)])["항목내역"]
 
     assert [(row["원내코드"], row["EDI코드"]) for row in out] == [(None, "AU211AIAU211")] * 3
+
+
+def test_a_single_code_column_without_a_stacked_header_does_not_join_values():
+    # 코드 열 하나(쌓인 머리글 없음)에 모델이 명칭을 원내코드에 적었다: 다른 열 값을 이어 붙이지 않는다
+    rows = [{"항목": "주사료", "원내코드": "수액주사", "EDI코드": "KK052", "총액": "100"}] * 3
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, detail_blocks())["항목내역"]
+
+    assert [row["EDI코드"] for row in out] == ["KK052"] * 3
+
+
+def test_codes_are_not_swapped_with_a_column_holding_names():
+    # 원내코드 칸에 EDI 꼴 코드, EDI코드 칸에 명칭(모델이 열을 밀었다): 코드와 명칭을 맞바꾸지 않고 알리기만 한다
+    head = [*DETAIL_HEAD[:1], ("원내코드", 100), ("EDI코드", 200), *DETAIL_HEAD[2:]]
+    rows = [{"항목": "주사료", "원내코드": code, "EDI코드": name, "총액": "100"}
+            for code, name in (("KK052", "수액주사 KO50"), ("KK053", "수액주사 KD100"), ("MO077", "글리세린 관장"))]
+    blocks = detail_blocks(head=head)
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]
+
+    assert [row["원내코드"] for row in out] == ["KK052", "KK053", "MO077"]
+    assert [flag["column"] for flag in rules.check("세부내역서", {"항목내역": out}, {"항목내역": out}, blocks) if flag["code"] == "column_swap"] == ["원내코드"]

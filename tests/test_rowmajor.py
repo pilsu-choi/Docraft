@@ -636,3 +636,27 @@ def test_a_table_without_a_readable_header_is_planned_from_value_shapes_and_says
 def test_planned_names_the_plan_source_and_the_header_failure(blocks, source, reason):
     assert table_layout.planned("세부내역서", "항목내역", blocks, "", dict.fromkeys(DETAIL, ""))[1:] == (source, reason)
     assert table_layout.planned("진료비영수증", "항목내역", cells(["항목", "금액"]), "", dict.fromkeys(RECEIPT, ""))[1:] == ("union", "unknown_form")
+
+
+@pytest.mark.parametrize("words,expected", [
+    (("총투", "일수"), ["횟수", "일수"]),  # 곱하는 두 열은 횟수·일수(표준 서식)
+    (("총투", "횟수", "일수"), ["투여량", "횟수", "일수"]),
+    (("횟수", "일수"), ["횟수", "일수"]),
+])
+def test_two_multiplying_columns_are_counts_and_days(words, expected):
+    names = ["항목", "코드", "명칭", "단가", *words, "총액"]
+    blocks = header(*[(word, index * 100, 0) for index, word in enumerate(names)])
+
+    assert [column for column in printed(blocks, DETAIL) if column in ("투여량", "횟수", "일수")] == expected
+
+
+def test_a_group_date_row_fills_the_dates_of_a_table_without_a_date_column():
+    rows = [{"항목": "진찰료", "EDI코드": "AA154", "EDI명칭": "초진진찰료", "총액": "100"},
+            {"항목": "검사", "EDI코드": "E6660", "EDI명칭": "정밀안저검사", "총액": "200"}]
+    table = {"type": "table", "page": 1, "text": "2022-02-25 (보험외래)\nAA154 초진진찰료\n2022-03-04\nE6660 정밀안저검사"}
+    issued = {"type": "text", "page": 1, "text": "2021-11-23"}  # 표 밖 날짜(발행일)는 무리 날짜가 아니다
+
+    out = rules.apply("세부내역서", {"항목내역": rows}, [issued, table])["항목내역"]
+
+    assert [(row["시작일자"], row["종료일자"]) for row in out] == [("20220225", "20220225"), ("20220304", "20220304")]
+    assert rules.apply("세부내역서", {"항목내역": rows}, [{**issued, "text": "2021-11-23\nAA154 초진진찰료"}])["항목내역"][0]["시작일자"] is None
