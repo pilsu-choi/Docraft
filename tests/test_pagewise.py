@@ -153,9 +153,10 @@ def test_subtotals_and_fill_down_see_the_concatenated_table(provider):
     result, _ = engine.extract(schema, blocks, provider.source, table_extract="rowmajor")
     fields = rules.apply("세부내역서", result, [])
 
-    assert [r["항목"] for r in fields["항목내역"]] == ["주사료"] * 3 + ["검사료"] * 2  # 쪽을 넘어 이어 채운다
+    labels = [r["항목"] for r in fields["항목내역"]]
+    assert labels == ["주사료"] * 2 + ["소계", "주사료"] + ["검사료"] * 2 + ["합계"]  # 쪽을 넘어 이어 채우고, 인쇄된 집계 행은 제자리에 남는다
     assert fields["급여_본인부담총액"] == "480"  # 쪽 소계가 아니라 마지막 합계 행
-    assert sum(int(r["본인부담"]) for r in fields["항목내역"]) == 480  # 소계·합계 행은 표에서 빠져 두 번 세지 않는다
+    assert sum(int(r["본인부담"]) for r in fields["항목내역"] if not rules.is_total(r)) == 480  # 집계 행은 더하지 않는다
 
 
 # --- 한 쪽 실패 -----------------------------------------------------------------------

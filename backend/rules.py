@@ -139,7 +139,10 @@ _LICENSE = re.compile(r"\(?\s*(제)?\s*\d{4,6}\s*(호)?\s*\)?")
 _NAME_WORDS = re.compile(r"의사|성명|이름|환자|면허|직인|서명|담당|주치의|전문의|연령|나이|또는|만\s*\d+\s*세")
 _SEAL = re.compile(r"[(\[]\s*(?:인|印)\s*[)\]]|\s+(?:인|印)\s*$")  # 이름 뒤 날인 표시: (인)·[인]·(印)·공백+인
 _PHONE_IN_TEXT = re.compile(r"\(?\d{2,4}\)?\s*-\s*\d{3,4}\s*-\s*\d{4}\)?")
-_TOTAL_ROW = re.compile(r"^(합계|총합계|총계|소계|계|total|합계금액|끝수처리조정금액?)$", re.I)
+_TOTAL_NAMES = {  # 표 집계 행 라벨 변형(구두점·공백은 _key가 뗀다) → 표준 이름(AO·정답지 관례)
+    "소계": re.compile(r"\w*소계"), "계": re.compile(r"계|total", re.I), "합계": re.compile(r"합계|총합계|총계|합계금액"),
+    "끝수처리조정금액": re.compile(r"끝수?처리(조정)?금액?"), "조정금액": re.compile(r"조정금액?"),
+}
 _TRUE = re.compile(r"^[\[(]?\s*(y|yes|o|v|1|true|예|체크|해당|√|✓|✔|☑|■|●)\s*[\])]?$|[✓✔√☑■●]|체크", re.I)
 _WARD = re.compile(r"^(?=.*\d)[A-Za-z0-9/:\-]+호?$")
 _EMPTY = ("", "[]", "{}", "none", "null", "nan", "-", "n/a")
@@ -570,9 +573,17 @@ def _split_cells(out):
             row["수술명"] = normalize("text", _DATE.sub(" ", name))
 
 
+def total_label(row) -> str | None:
+    """표 집계 행의 표준 라벨(``_TOTAL_NAMES``: 소계·계·합계·끝수처리조정금액·조정금액). 항목 칸, 또는 코드가 없는 행의
+    명칭 칸(라벨이 명칭 자리에 인쇄된 서식)에서 읽는다. 집계 행이 아니면 None."""
+    row = row or {}
+    names = (row.get("항목"), None if row.get("EDI코드") or row.get("원내코드") else row.get("EDI명칭"))
+    return next((standard for name in names if name for standard, pattern in _TOTAL_NAMES.items() if pattern.fullmatch(_key(name))), None)
+
+
 def is_total(row) -> bool:
     """합계·소계 등 표의 집계 행인지. 금액을 더할 때 빼야 하는 행이다."""
-    return bool(_TOTAL_ROW.match(_key((row or {}).get("항목") or "")))
+    return total_label(row) is not None
 
 
 def _hollow(doc_type, table, row):
@@ -605,10 +616,13 @@ def _totals(doc_type, out):
         kept = []
         body = [row for row in out.get(table) or [] if not is_total(row)]
         for row in out.get(table) or []:
-            if not is_total(row):
+            label = total_label(row)
+            if label is None:
                 kept.append(row)
                 continue
-            if item(row.get("항목")) == "합계":  # 소계·중간소계는 합계 필드를 채우지 않는다
+            if doc_type != "진료비영수증":  # 라벨은 표준 이름으로 항목 칸에(명칭 자리에 인쇄됐으면 옮긴다. 정답지 관례)
+                row = {**row, "항목": label, **({} if _TOTAL_NAMES[label].fullmatch(_key(row.get("항목") or "")) else {"EDI명칭": None})}
+            if label in ("계", "합계"):  # 소계·중간소계는 합계 필드를 채우지 않는다
                 for column, field in mapping.items():
                     value, added = _money(row.get(column)), sum(_money(line.get(column)) or 0 for line in body)
                     # 채워 둔 합계 필드도 항목 행 합이 합계 행을 뒷받침하고 합계식(진료비총액=환자+공단)이 어긋나지
@@ -616,7 +630,8 @@ def _totals(doc_type, out):
                     if field in out and value and (not out[field] or _near(value, added) and _fits(out, field, value) is not False
                                                    and not _near(_money(out[field]) or 0, value)):
                         out[field] = row[column]
-                row = {**row, "항목": "합계"}
+                if doc_type == "진료비영수증":  # 영수증 최종 계·합계 행의 항목명은 '합계'(AO 관례)
+                    row = {**row, "항목": "합계"}
             if doc_type in KEEP_TOTALS:
                 kept.append(row)
         out[table] = kept
@@ -679,9 +694,8 @@ def _columns(doc_type, out):
     """표 열의 AO 관례: 진료비영수증은 항목명을 정규화하고, 세부내역서는 코드를 EDI코드 한 열에 모으고
     비급여 칸과 종료일자를 비급여 행의 총액·시작일자에서 채운다.
 
-    세부내역서의 행별 ``급여``는 인쇄된 급여 값만 쓴다(라벨 관례 ⑨) — 총액에서 만들지 않고, 모델이 총액을
-    옮겨 적은 값은 지운다. 독립 급여 열이 보이는 서식도 라벨은 급여 값을 두지 않았다(행 약 300개 중 0개).
-    급여 열이 없는 서식에서 모델이 계산해 채운 값은 ``_header_columns``가 지운다.
+    세부내역서의 행별 ``급여``는 인쇄된 급여 값만 쓴다(2026-10-03 정책) — 총액에서 만들지 않는다. 인쇄된 급여(액) 열 값은
+    총액과 같아도 둔다. 급여 열이 없는 서식에서 모델이 계산해 채운 값은 ``_header_columns``가 지운다. 집계 행에는 일자를 채우지 않는다.
     """
     for row in out.get(ITEM_TABLE) or []:
         if doc_type == "진료비영수증":
@@ -691,10 +705,8 @@ def _columns(doc_type, out):
             return
         if row.get("EDI코드") and row["EDI코드"] == normalize("edi", row.get("EDI명칭")):
             row["원내코드"], row["EDI코드"] = None, row.get("원내코드")  # 명칭이 코드 열까지 밀려 들어오면 원내코드 자리의 코드가 EDI코드다
-        if not row.get("종료일자") and row.get("시작일자"):
+        if not row.get("종료일자") and row.get("시작일자") and not is_total(row):
             row["종료일자"] = row["시작일자"]
-        if row.get("급여구분") == "급여" and row.get("급여") == row.get("총액"):
-            row["급여"] = None
         if row.get("급여구분") == "비급여" and not row.get("비급여") and row.get("총액"):
             row["비급여"] = row["총액"]
 
@@ -1610,7 +1622,7 @@ def _section_items(rows, blocks=()):
         name = row.get("항목")
         if name and _SECTION_TITLE.match(str(name)) and all(_blank(row.get(column)) for column in ("원내코드", "EDI코드", "EDI명칭", "총액")):
             title = name
-        elif title and name and _key(name) == _key(row.get("EDI명칭") or ""):
+        elif title and name and _key(name) == _key(row.get("EDI명칭") or "") and not is_total(row):
             seen.add(index)
             yield index, title
     for index, title, _ in _row_lines(rows, blocks):
