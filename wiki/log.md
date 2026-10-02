@@ -327,3 +327,5 @@
 - Update: [/api/read 지연 대응](2026-10-02-read-지연-대응.md) — `cache_hit`가 재처리 크롭 재OCR로 덮어써지던 기록 오류 수정(첫 호출 값만 남김).
 - Creation: 2026-10-02 [표 rowmajor 추출 이식](2026-10-02-table-rowmajor-port.md) — TABLE_EXTRACT(기본 rowmajor)·TABLE_RECHECK_RATIO, table_layout·table_layouts.yaml, 원내코드 후퇴 수정(짝 열 유지·…코드 끝말), 59건 오프라인 90.29%(asis 89.67%), 696 passed. 브랜치 `feat/rowmajor-table`, 워크트리 `.worktrees/rowmajor-table`.
 - Update: 2026-10-02 [index](index.md)에 문서를 연결했다.
+- Creation: 2026-10-02 [돌아간 스캔의 방향 정규화](2026-10-02-scan-orientation.md) — 줄 상자·마침표 위치 판별기(정답지 59장+합성 177건 236/236), 돌아간 페이지만 재판독, 좌표는 원본 기준·`orientation` 표기, VLM 이미지·재처리 크롭 회전, 676 passed. 브랜치 `fix/scan-orientation`, 워크트리 `.worktrees/rotation-fix`.
+- Update: 2026-10-02 [index](index.md)에 문서를 연결하고 README 근거 좌표 설명에 `orientation`을 더했다.

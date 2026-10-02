@@ -14,7 +14,7 @@ from PIL import Image, ImageOps
 
 from . import doctypes, engine, inference, rules, typed_evidence
 from .config import limit
-from .parsers import parse
+from .parsers import parse, unturn
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +232,7 @@ def _label_seen(root, schema, blocks):
                for block in blocks for label in labels if label)
 
 
-def _crop(image, page, box, size, factor, target):
+def _crop(image, page, box, size, factor, target, turn=0):
     with fitz.open(image) if Path(image).suffix.lower() == ".pdf" else Image.open(image) as source:
         if isinstance(source, fitz.Document):
             sheet = source[page - 1]
@@ -248,7 +248,8 @@ def _crop(image, page, box, size, factor, target):
         right, bottom = min(canvas.width, int((cx + width / 2) * sx)), min(canvas.height, int((cy + height / 2) * sy))
         if right <= left or bottom <= top:
             return None
-        canvas.crop((left, top, right, bottom)).save(target, format="PNG")
+        # A turned page (`orientation`) is read upright; `unturn` maps the boxes back before `_remap`.
+        canvas.crop((left, top, right, bottom)).rotate(turn, expand=True).save(target, format="PNG")
         return left / sx, top / sy, (right - left) / sx, (bottom - top) / sy
 
 
@@ -292,40 +293,7 @@ def _vertical_ocr(blocks):
 
 def _rotated(image, angle, target):
     with Image.open(image) as source:
-        canvas = ImageOps.exif_transpose(source).convert("RGB")
-        size = canvas.size
-        canvas.rotate(angle, expand=True).save(target, format="PNG")
-    return size
-
-
-def _remap_rotation(blocks, angle, size):
-    """Map rotated OCR boxes back to page-local coordinates of the original image."""
-    width, height = size
-    mapped = deepcopy(blocks)
-    def point(x, y):
-        return (width - y, x) if angle == 90 else (y, height - x)
-    def convert(box):
-        corners = [point(x, y) for x in (box[0], box[2]) for y in (box[1], box[3])]
-        return [min(x for x, _ in corners), min(y for _, y in corners),
-                max(x for x, _ in corners), max(y for _, y in corners)]
-    for block in mapped:
-        for item in (block, *(block.get("lines") or []), *(block.get("cells") or [])):
-            if item.get("bbox"):
-                item["bbox"] = convert(item["bbox"])
-            if item.get("polygon"):
-                try:
-                    item["polygon"] = [list(point(*corner)) for corner in item["polygon"]]
-                    item["bbox"] = [min(corner[0] for corner in item["polygon"]),
-                                    min(corner[1] for corner in item["polygon"]),
-                                    max(corner[0] for corner in item["polygon"]),
-                                    max(corner[1] for corner in item["polygon"])]
-                    # The small deskew angle is relative to the rotated crop, not to this page.
-                    if item.get("blank") is True:
-                        item.update(verified=False, blank=False)
-                except (TypeError, ValueError):
-                    item.update(verified=False, blank=False)
-            item["page_size"] = list(size)
-    return mapped
+        ImageOps.exif_transpose(source).convert("RGB").rotate(angle, expand=True).save(target, format="PNG")
 
 
 def run(image, schema, blocks, result, *, normalize=None, check_rules=None, cancel=None, deadline=None, enabled=None):
@@ -444,7 +412,8 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
         with tempfile.TemporaryDirectory() as folder:
             roi = str(Path(folder) / "roi.png")
             try:
-                crop = _crop(image, *region, 2, roi) if region else None
+                turn = next((b["orientation"] for b in blocks if region and b.get("page") == region[0] and b.get("orientation")), 0)
+                crop = _crop(image, *region, 2, roi, turn) if region else None
             except (OSError, ValueError, IndexError):
                 crop = None
             local = []
@@ -453,7 +422,7 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
             roi_failure = None
             held_text = None
             sum_target = any(root in (total, *parts) for total, parts in rules.FIELD_SUMS.items())
-            rotation = (sum_target and _vertical_ocr(blocks)
+            rotation = (sum_target and _vertical_ocr(blocks) and not any(b.get("orientation") for b in blocks)
                         and Path(image).suffix.lower() in engine.VISION_SUFFIXES
                         and Path(image).suffix.lower() != ".pdf")
             stages = ("rules", *(("rotate_ccw", "rotate_cw") if rotation else ()),
@@ -487,19 +456,19 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                     elif stage.startswith("rotate_"):
                         angle = 90 if stage == "rotate_ccw" else -90
                         rotated = str(Path(folder) / f"rotated-{angle}.png")
-                        size = _rotated(image, angle, rotated)
+                        _rotated(image, angle, rotated)
                         _, rotated_blocks = parse(rotated, "rotated.png", "image/png",
                                                   {"provider": "paddle", "refine_tables": False,
                                                    "timeout": max(0.1, deadline - time.monotonic()),
                                                    "deadline": deadline})
-                        mapped = _remap_rotation(rotated_blocks, angle, size)
+                        mapped = unturn(rotated_blocks, angle % 360)
                         evidence = [*blocks, *mapped]
                         proposal = deepcopy(fields)
                     elif stage == "roi_parse":
                         _, local = parse(roi, "roi.png", "image/png", {"provider": "paddle", "refine_tables": False,
                                                                          "timeout": max(0.1, deadline - time.monotonic()),
                                                                          "deadline": deadline})
-                        mapped = _remap(local, region[0], region[2], crop)
+                        mapped = _remap(unturn(local, turn), region[0], region[2], crop)
                         evidence = [*blocks, *mapped]
                         proposal = normalize(deepcopy(fields), evidence) if normalize else fields
                         if _blank_candidate(fields, path, schema, evidence):
