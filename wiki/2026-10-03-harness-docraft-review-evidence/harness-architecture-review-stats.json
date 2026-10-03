@@ -1,0 +1,191 @@
+{
+  "python_files": 94,
+  "physical_lines": 31131,
+  "test_files": 71,
+  "largest_files": [
+    [
+      1902,
+      "src/mlife_harness/rules/engine.py"
+    ],
+    [
+      1520,
+      "src/mlife_harness/pipeline/runner.py"
+    ],
+    [
+      1235,
+      "src/mlife_harness/api/app.py"
+    ],
+    [
+      1142,
+      "src/mlife_harness/normalizer/value_fix.py"
+    ],
+    [
+      1119,
+      "src/mlife_harness/cli/bench.py"
+    ],
+    [
+      1013,
+      "src/mlife_harness/master/lookup.py"
+    ],
+    [
+      781,
+      "src/mlife_harness/persistence/postgres/repositories.py"
+    ],
+    [
+      760,
+      "src/mlife_harness/arbitration/rules_table.py"
+    ],
+    [
+      724,
+      "src/mlife_harness/reread/docraft.py"
+    ],
+    [
+      672,
+      "src/mlife_harness/rules/builtins.py"
+    ]
+  ],
+  "largest_functions": [
+    {
+      "path": "src/mlife_harness/api/app.py",
+      "name": "create_app",
+      "line": 109,
+      "span": 888,
+      "branches": 47
+    },
+    {
+      "path": "src/mlife_harness/rules/engine.py",
+      "name": "_check_name_match",
+      "line": 1371,
+      "span": 181,
+      "branches": 21
+    },
+    {
+      "path": "src/mlife_harness/pipeline/master_evidence.py",
+      "name": "_evaluate_row",
+      "line": 153,
+      "span": 171,
+      "branches": 27
+    },
+    {
+      "path": "src/mlife_harness/cli/bench.py",
+      "name": "render",
+      "line": 739,
+      "span": 150,
+      "branches": 27
+    },
+    {
+      "path": "src/mlife_harness/rules/engine.py",
+      "name": "_check_code_exists",
+      "line": 1221,
+      "span": 148,
+      "branches": 24
+    },
+    {
+      "path": "src/mlife_harness/pipeline/runner.py",
+      "name": "_rearbitrate",
+      "line": 912,
+      "span": 146,
+      "branches": 49
+    },
+    {
+      "path": "src/mlife_harness/rules/engine.py",
+      "name": "_column_partition",
+      "line": 846,
+      "span": 143,
+      "branches": 30
+    },
+    {
+      "path": "src/mlife_harness/cli/bench.py",
+      "name": "run",
+      "line": 951,
+      "span": 142,
+      "branches": 26
+    },
+    {
+      "path": "src/mlife_harness/rules/spec.py",
+      "name": "_build_rule",
+      "line": 319,
+      "span": 142,
+      "branches": 29
+    },
+    {
+      "path": "src/mlife_harness/rules/engine.py",
+      "name": "_rowsum_multi",
+      "line": 646,
+      "span": 142,
+      "branches": 34
+    }
+  ],
+  "most_branch_nodes": [
+    {
+      "path": "src/mlife_harness/pipeline/runner.py",
+      "name": "_rearbitrate",
+      "line": 912,
+      "span": 146,
+      "branches": 49
+    },
+    {
+      "path": "src/mlife_harness/api/app.py",
+      "name": "create_app",
+      "line": 109,
+      "span": 888,
+      "branches": 47
+    },
+    {
+      "path": "src/mlife_harness/cli/bench.py",
+      "name": "score_fields",
+      "line": 491,
+      "span": 136,
+      "branches": 46
+    },
+    {
+      "path": "src/mlife_harness/reread/quality.py",
+      "name": "quality_accepted",
+      "line": 26,
+      "span": 114,
+      "branches": 37
+    },
+    {
+      "path": "src/mlife_harness/rules/expr.py",
+      "name": "_eval",
+      "line": 291,
+      "span": 79,
+      "branches": 35
+    },
+    {
+      "path": "src/mlife_harness/rules/engine.py",
+      "name": "_rowsum_multi",
+      "line": 646,
+      "span": 142,
+      "branches": 34
+    },
+    {
+      "path": "src/mlife_harness/pipeline/runner.py",
+      "name": "_verified_docraft_corrections",
+      "line": 832,
+      "span": 79,
+      "branches": 31
+    },
+    {
+      "path": "src/mlife_harness/rules/engine.py",
+      "name": "_column_partition",
+      "line": 846,
+      "span": 143,
+      "branches": 30
+    },
+    {
+      "path": "src/mlife_harness/rules/spec.py",
+      "name": "_build_rule",
+      "line": 319,
+      "span": 142,
+      "branches": 29
+    },
+    {
+      "path": "src/mlife_harness/cli/bench.py",
+      "name": "render",
+      "line": 739,
+      "span": 150,
+      "branches": 27
+    }
+  ]
+}

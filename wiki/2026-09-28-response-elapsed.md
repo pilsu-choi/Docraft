@@ -39,3 +39,34 @@ status: active
 
 - [harness-v2: API 응답 처리시간(harness.elapsed_ms) 추가](../../harness-v2/wiki/2026-09-28-response-elapsed.md)
 - [wiki 색인](index.md)
+
+## 루트 공통 기록 보충 (2026-10-03 동기화)
+
+저장소별 구현·검증 기록은 위 내용을 보존한다. 아래는 공통 원본 `/home/pilsu/projects/mirae-assets/wiki/2026-09-28-response-elapsed.md`의 상세 실험·통합 이력으로, 당시 날짜와 기준 커밋을 유지한다. 과거 정책과 수치는 최신 사용자 정책 또는 현재 dev 실행 결과로 해석하지 않는다.
+
+날짜: 2026-09-28
+브랜치: `feat/response-elapsed` (harness-v2 `33ffa27`, Docraft `f2dfa10`에서 `dev`에 병합했고 브랜치는 삭제함)
+워크트리: `harness-v2/.worktrees/response-elapsed`, `Docraft/.worktrees/response-elapsed` (정리 완료)
+
+## 배경
+
+기존에는 문서마다 Docraft를 부른 시간만 응답에 있었다. 요청 한 건의 전체 처리시간은 로그에만 남았다.
+
+## 변경
+
+| 저장소 | 응답 필드 | 범위 |
+|---|---|---|
+| harness-v2 | `harness.elapsed_ms` (신규) | 동기(`_run_sync`)·비동기(`run_job`) API의 파이프라인 처리 전체. Docraft 호출 시간도 포함 |
+| harness-v2 | `harness.docraft_reads[].elapsed_ms`, `harness.fallback.documents[].elapsed_ms` (기존) | Docraft 호출 1회에 걸린 시간 |
+| harness-v2 | `…reprocess.elapsed_ms` (기존) | Docraft 재처리에 걸린 시간 |
+| Docraft | `documents[0].verify.elapsed_ms` (UI 형식은 `result.verify.elapsed_ms`, 신규) | `/api/verify`의 업로드 저장부터 응답 직전까지 |
+| Docraft | `/api/read` 최상위 `elapsed_ms` (기존) | 읽기 한 건 |
+
+- 하네스 자체 시간은 따로 싣지 않는다. `harness.elapsed_ms`에서 Docraft 호출 시간의 합을 빼서 구한다.
+- `harness.elapsed_ms`는 `HarnessPipeline.process()` 결과에 넣지 않고 API 계층에서 넣는다. 같은 입력이면 같은 결과가 나와야 한다는 재현성 요구(§9.4)와 결정성 테스트를 지키기 위해서다. 따라서 CLI 배치 결과에는 이 필드가 없다.
+- 스키마 `TRANSACTION_HARNESS_SCHEMA`에 선택 속성으로 추가했다. 두 README도 갱신했다.
+
+## 검증
+
+- harness-v2: 1558건 통과, 2건 건너뜀 (`test_sync_api`에서 두 경로 모두 정수가 실리는지 확인).
+- Docraft: 616건 통과 (`test_verify` 라우트 테스트에서 필드가 실리는지 확인).

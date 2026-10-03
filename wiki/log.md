@@ -351,3 +351,60 @@
 - Update: 2026-10-03 [index](index.md)에 문서를 연결하고 README `/api/read` 응답에 `diagnostics`를 적었다.
 - Creation: 2026-10-03 [세부내역서 집계 행·급여 인쇄값만](2026-10-03-summary-rows-printed-benefit.md) — keep_totals 세부내역서·DETAIL_HINT·집계 라벨 표준화·급여=총액 지우기 삭제, OpenRouter 29회(59건 93.14→96.24%), 848 passed. 브랜치 `fix/summary-rows-benefit`, 워크트리 `.worktrees/summary-rows-benefit`.
 - Update: 2026-10-03 [index](index.md)에 문서를 연결하고 README 집계 행 비교 설명을 고쳤다. [표 행 번호](2026-10-03-dense-page-row-number.md)는 정답지 시험 결과로 dev 병합을 보류했다(브랜치 `fix/dense-page-json`에 기록).
+
+## 2026-10-03 (루트 공통 wiki 동기화)
+
+* **Creation**: [2026-10-03-root-wiki-sync.md](2026-10-03-root-wiki-sync.md)에 선정 범위·기존 기록 병합·첨부·외부 의존을 기록했다. 브랜치 `docs/wiki-sync-20261003`, 워크트리 `.worktrees/wiki-sync-20261003`.
+* **Creation**: [2026-09-27-auto-reprocess-loop.md](2026-09-27-auto-reprocess-loop.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-09-27-image-parse-extract-edge-cases.md](2026-09-27-image-parse-extract-edge-cases.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-09-28-extract-coverage-rules.md](2026-09-28-extract-coverage-rules.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-09-29-harness-flow-briefing.md](2026-09-29-harness-flow-briefing.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-09-29-request-trace-logging.md](2026-09-29-request-trace-logging.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-09-30-autoscaling-plan.md](2026-09-30-autoscaling-plan.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-09-30-aws-orchestrator-harness-callback-e2e.md](2026-09-30-aws-orchestrator-harness-callback-e2e.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-09-30-golden-set-59-aws-harness-benchmark.md](2026-09-30-golden-set-59-aws-harness-benchmark.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-09-30-harness-issue-todo.md](2026-09-30-harness-issue-todo.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-09-30-harness-weekly-briefing.md](2026-09-30-harness-weekly-briefing.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-agents-aws-batch-test.md](2026-10-02-agents-aws-batch-test.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-agents-bug-principle.md](2026-10-02-agents-bug-principle.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-aws-integrated-deploy-1002c.md](2026-10-02-aws-integrated-deploy-1002c.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-aws-integrated-deploy-1002d.md](2026-10-02-aws-integrated-deploy-1002d.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-aws-integrated-deploy-1002f.md](2026-10-02-aws-integrated-deploy-1002f.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-aws-integrated-deploy-1002g.md](2026-10-02-aws-integrated-deploy-1002g.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-aws-integrated-deploy-1002h.md](2026-10-02-aws-integrated-deploy-1002h.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-aws-integrated-deploy-1002i.md](2026-10-02-aws-integrated-deploy-1002i.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-aws-integrated-deploy-1002j.md](2026-10-02-aws-integrated-deploy-1002j.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-aws-integrated-deploy-r3.md](2026-10-02-aws-integrated-deploy-r3.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-aws-integrated-feature-test.md](2026-10-02-aws-integrated-feature-test.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-aws-redeploy-golden59-rerun.md](2026-10-02-aws-redeploy-golden59-rerun.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-detail-filldown-group-values.md](2026-10-02-detail-filldown-group-values.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-detail-testset200.md](2026-10-02-detail-testset200.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-docraft-read-latency-analysis.md](2026-10-02-docraft-read-latency-analysis.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-extra-detail-validation.md](2026-10-02-extra-detail-validation.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-extraction-accuracy-paper-experiments.md](2026-10-02-extraction-accuracy-paper-experiments.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-golden-benefit-col-extract-unify.md](2026-10-02-golden-benefit-col-extract-unify.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-golden-harness-misextraction-analysis.md](2026-10-02-golden-harness-misextraction-analysis.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-institution-type-r3-followup.md](2026-10-02-institution-type-r3-followup.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-rule-based-kv-extract-review.md](2026-10-02-rule-based-kv-extract-review.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-six-type-testsets.md](2026-10-02-six-type-testsets.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-table-rowmajor-ab-experiment.md](2026-10-02-table-rowmajor-ab-experiment.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-table-rowmajor-conditional.md](2026-10-02-table-rowmajor-conditional.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-02-table-rowmajor-report.md](2026-10-02-table-rowmajor-report.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-03-golden-benefit-printed-only.md](2026-10-03-golden-benefit-printed-only.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-03-harness-docraft-architecture-quality-review.md](2026-10-03-harness-docraft-architecture-quality-review.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-03-medical-table-comparison-design.md](2026-10-03-medical-table-comparison-design.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-03-medical-table-parsing-research.md](2026-10-03-medical-table-parsing-research.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-03-model-fixed-table-algorithms.md](2026-10-03-model-fixed-table-algorithms.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-03-oct02-weekly-report-summary.md](2026-10-03-oct02-weekly-report-summary.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-03-parallel-subagents-preference.md](2026-10-03-parallel-subagents-preference.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-03-review-integrity-remediation.md](2026-10-03-review-integrity-remediation.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-03-summary-rows-policy-integration.md](2026-10-03-summary-rows-policy-integration.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-03-synthetic-dataset-codex-작업지시서.md](2026-10-03-synthetic-dataset-codex-작업지시서.md)를 루트 공통 원본에서 동기화했다.
+* **Creation**: [2026-10-03-parse-extract-보강-작업지시서.md](2026-10-03-parse-extract-보강-작업지시서.md)를 루트 공통 원본에서 동기화했다.
+* **Update**: [2026-09-27-parse-extract-quality.md](2026-09-27-parse-extract-quality.md)의 저장소 기록을 보존하고 공통 원본 상세 이력을 보충했다.
+* **Update**: [2026-09-27-reprocess-priority.md](2026-09-27-reprocess-priority.md)의 저장소 기록을 보존하고 공통 원본 상세 이력을 보충했다.
+* **Update**: [2026-09-27-typed-evidence.md](2026-09-27-typed-evidence.md)의 저장소 기록을 보존하고 공통 원본 상세 이력을 보충했다.
+* **Update**: [2026-09-28-natural-corrections.md](2026-09-28-natural-corrections.md)의 저장소 기록을 보존하고 공통 원본 상세 이력을 보충했다.
+* **Update**: [2026-09-28-response-elapsed.md](2026-09-28-response-elapsed.md)의 저장소 기록을 보존하고 공통 원본 상세 이력을 보충했다.
+* **Creation**: 관련 첨부 12건과 [원본 해시 manifest](artifacts/2026-10-03-root-wiki-sync/manifest.json)를 상대 경로로 보존했다.
+* **Update**: [index](index.md)에 새 문서를 연결하고 [AGENTS](../AGENTS.md)에 루트 기록·관련 저장소 동기화 우선순위를 명시했다.
