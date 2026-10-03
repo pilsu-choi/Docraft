@@ -2,6 +2,10 @@
 okf_version: "0.2"
 ---
 
+- [CI 공통 영수증 규칙 동기화](2026-10-03-ci-shared-receipt-policy.md) — 종료일 필수 키 사본 불일치 수정·gitlink 검증
+
+
+
 # Docraft wiki
 
 * [작업 세대·부분 추출·스프레드시트 무결성](2026-10-03-review-integrity.md) - 오래된 작업 쓰기 차단, 부분 페이지 표시·승인 제한, CSV/XLSX 문자열 보호와 회귀

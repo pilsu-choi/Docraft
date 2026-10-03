@@ -1,5 +1,12 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-03 CI 공통 영수증 규칙
+
+- **Creation**: [CI 공통 영수증 규칙 동기화](2026-10-03-ci-shared-receipt-policy.md) — 작업6087 실패 원인과 사본 동기화 범위.
+- **Update**: index.md에 연결.
+
+
+
 ## 2026-10-03 (인쇄값만: 진료기간 필드)
 * **Creation**: [진료기간 필드는 인쇄된 값만](2026-10-03-printed-period-fields.md)에 외래 종료일 복사·표 날짜로 진료기간 계산 제거, 사고발생일자 유지, 같은 유형 점검, 테스트, 재적용 채점(96.54% 그대로)을 기록했다. 브랜치 `fix/printed-period`, 워크트리 `.worktrees/printed-period`.
 * **Update**: [index](index.md)에 문서를 연결하고 [인쇄값만(비급여·종료일자)](2026-10-03-printed-only-derive.md)의 '바꾸지 않은 것'이 이 문서로 처리됐음을 적었다.

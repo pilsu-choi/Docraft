@@ -1044,6 +1044,12 @@ def test_unprinted_detail_totals_are_dropped(value, rows, expected):
         {} if value == "8543" else {"급여_급여총액": (None, "[GROUND.UNPRINTED] 인쇄되지 않았거나 구성 금액의 합과 다른 급여 합계라 비웠다")})
 
 
+def test_shared_receipt_policy_requires_start_but_only_preserves_printed_end_date():
+    required = rules._SHARED["required_keys"]["진료비영수증"]
+    assert "환자정보-진료시작일" in required
+    assert "환자정보-진료종료일" not in required
+
+
 @pytest.mark.parametrize("visit", ["외래", "입원"])
 def test_receipt_end_date_is_not_copied_from_its_start_date(visit):
     """진료종료일이 인쇄되지 않았으면 빈칸이다 — 외래라도 시작일을 베끼지 않는다(2026-10-03)."""
