@@ -1,0 +1,25 @@
+{
+  "archive": "/mnt/c/Users/user/Downloads/synthetic_korean_bills_sample25_compact.zip",
+  "archive_sha256": "f9e50f9e548db9410b80fe3b408b664537a0411bd02d6340225377c441d9fd12",
+  "validation": {
+    "documents": 25,
+    "valid": true,
+    "errors": []
+  },
+  "counts": {
+    "rows": 273,
+    "cells": 2627,
+    "texts": 3187
+  },
+  "unittest": {
+    "passed": 27,
+    "failed": 0,
+    "duration_seconds": 9.283
+  },
+  "environment": {
+    "python": "3.12.13",
+    "Pillow": "12.3.0",
+    "numpy": "2.5.3",
+    "jsonschema": "4.23.0"
+  }
+}

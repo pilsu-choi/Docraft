@@ -1,0 +1,1672 @@
+{
+  "generated_at": "2026-10-03T00:21:50.174537+00:00",
+  "scope": "Read-only local evidence review; no inference/API requests",
+  "current_dev": {
+    "harness": "5ddf433",
+    "Docraft": "120feef"
+  },
+  "scorer": {
+    "grade_samples.py": {
+      "path": "/home/pilsu/projects/mirae-assets/e2e/grade_samples.py",
+      "sha256": "7dbf2fc57fea4514b672c513383585be361d830473550f5180100471e0f06921"
+    },
+    "make_report.py": {
+      "path": "/home/pilsu/projects/mirae-assets/e2e/make_report.py",
+      "sha256": "4ec1b3738f8b23fc88e00ab86b75e1b339519db9564a15e6f608babdf697120a"
+    }
+  },
+  "historical_stored_grades": {
+    "golden1002-aws-r9": {
+      "path": "/home/pilsu/projects/mirae-assets/e2e/out/golden1002-aws-r9",
+      "grades": {
+        "세부내역서": {
+          "documents": 29,
+          "scored": 7630,
+          "verdicts": {
+            "일치": 7583,
+            "누락": 24,
+            "불일치": 10,
+            "오검출": 13
+          },
+          "correct": 7583,
+          "accuracy": 0.9938401048492792,
+          "blank_or_zero_answers": 3696,
+          "nonblank_accuracy": 0.9916115912557194,
+          "perfect_documents": 18,
+          "tiers": {
+            "repaired": 11,
+            "unresolved": 17,
+            "pass": 1
+          }
+        },
+        "진료비영수증": {
+          "documents": 30,
+          "scored": 6947,
+          "verdicts": {
+            "일치": 6906,
+            "누락": 36,
+            "불일치": 3,
+            "오검출": 2
+          },
+          "correct": 6906,
+          "accuracy": 0.9940981718727508,
+          "blank_or_zero_answers": 5357,
+          "nonblank_accuracy": 0.9937106918238994,
+          "perfect_documents": 0,
+          "tiers": {
+            "unresolved": 15,
+            "repaired": 11,
+            "pass": 4
+          }
+        },
+        "ALL": {
+          "documents": 59,
+          "scored": 14577,
+          "verdicts": {
+            "일치": 14489,
+            "누락": 60,
+            "불일치": 13,
+            "오검출": 15
+          },
+          "correct": 14489,
+          "accuracy": 0.9939630925430473,
+          "blank_or_zero_answers": 9053,
+          "nonblank_accuracy": 0.9922157856625634,
+          "perfect_documents": 18,
+          "tiers": {
+            "unresolved": 32,
+            "repaired": 22,
+            "pass": 5
+          }
+        }
+      },
+      "answer_manifest": {
+        "algorithm": "sha256(sorted(relative_path + NUL + file_sha256 + LF))",
+        "digest": "dcb11a8ea0b9a92476ebf76570fd269354af03f8d6601325eace44620d210e71",
+        "files": [
+          {
+            "path": "세부내역서/20230104_123952.jpg.answer.json",
+            "sha256": "137380322b1e2de53f0ae3e0de37cf642527e82e2f422d4a88f3bef52d6e0a78"
+          },
+          {
+            "path": "세부내역서/202501010931310b.tif.answer.json",
+            "sha256": "375b29289fd9a649589f3306883c1132d3a592178fad27415718227e5aa27bf8"
+          },
+          {
+            "path": "세부내역서/20250102091737a0.tif.answer.json",
+            "sha256": "2c4adb41b0d9a646fcec3dfc6b36f56c12e8b08304188e2ce072d10effe1b654"
+          },
+          {
+            "path": "세부내역서/20250102091737a2.tif.answer.json",
+            "sha256": "d6fff3d6161a9d8e13c257029f02d18a13f0a5a536190fd0ea5058455ead6116"
+          },
+          {
+            "path": "세부내역서/20250102091737a3.tif.answer.json",
+            "sha256": "60cd8c2c01727a72f77295205da4b96b32b7eff5e3c7b8898133c9f49724600d"
+          },
+          {
+            "path": "세부내역서/2303314662.jpg.answer.json",
+            "sha256": "41ff86b502d6e8dd03dbf78a04125b0b491bb8b63700d5262f752e51a1ddebb3"
+          },
+          {
+            "path": "세부내역서/2303314712.jpg.answer.json",
+            "sha256": "9fdc74fc92eccaad57bbd94b440cb765bcb0eb22eb8bcf6e7d174fb955d00c17"
+          },
+          {
+            "path": "세부내역서/2303314855.jpg.answer.json",
+            "sha256": "1b62067252ddcdd8837857e292933abef88867f1daa50de74ec6b949db55a7bc"
+          },
+          {
+            "path": "세부내역서/2303315286.jpg.answer.json",
+            "sha256": "d0726a94a88a32de69d3cac71b0f12e085b0d96e4e9d2714de9c8af72f4e1d6b"
+          },
+          {
+            "path": "세부내역서/2303315388.jpg.answer.json",
+            "sha256": "3010b66b1e19ab508d004c899b6937ece33847c62c3ebbc375b656d1b3ab7b6d"
+          },
+          {
+            "path": "세부내역서/3022030712433802-1.png.answer.json",
+            "sha256": "ea37e9431438843db14e33a33a980c6066c85a6e74410f709b52676d34e44608"
+          },
+          {
+            "path": "세부내역서/3022033115105207-1.png.answer.json",
+            "sha256": "ae2ea0ffc43a70d5e01aa75c8384dd5aeac8ab79f81641cbd051bb98d39c8a36"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103001.tif.answer.json",
+            "sha256": "257b0b40f1ede3e593d722d0eb089f34ccaaa909f6668c465b70193375bd63b4"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103100.tif.answer.json",
+            "sha256": "4900d97829c21668968edb696d9dd0d80b380df4c2d190d4dc84a63c6fbf5dbd"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103101.tif.answer.json",
+            "sha256": "5839f935fea207dcb006bb05df6ab04d47c51037fd9040e58ca41f228ae084bc"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103102.tif.answer.json",
+            "sha256": "0d4df722ab40655b8a2ef2af8ff97d5f2f1edfa76a9fdf833fc55e17d34e35c7"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103200.tif.answer.json",
+            "sha256": "4d01542b4d8632e36824d94622b071c80b8f0b249f74ff740166836a6569cb3e"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103201.tif.answer.json",
+            "sha256": "c1a43f5cb5373974eded42249f7c0e67f5bfb939c1d91834bdcc13d880155b65"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103300.tif.answer.json",
+            "sha256": "7f38d8a3266329f66571405a7e5ae4b9c9c67793d99601fc86e0fdd66a103b17"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103301.tif.answer.json",
+            "sha256": "c92bbad2f67703b854768850cec988322f6ed00997a9e73c3e62cecb0e632846"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103302.tif.answer.json",
+            "sha256": "c69cf850c02a97908f355f4cbf2b2e09cdc8a8aa8af23cb8b174c692079b7848"
+          },
+          {
+            "path": "세부내역서/SA2020010683931_2020010610375500.tif.answer.json",
+            "sha256": "d3f9650bdc7bbfe05289f3a9b1c4a1071f84c9f2bbd75d2e405ba3f9acb8c9c5"
+          },
+          {
+            "path": "세부내역서/SA2020010683943_3020010610445000.tif.answer.json",
+            "sha256": "9fe62a66e51db0582437ebf8856f1de195d45c1e18da7f77f7c2c3ec53c6666b"
+          },
+          {
+            "path": "세부내역서/SA2020010684193_2020010610415102.tif.answer.json",
+            "sha256": "9d4c53dd2a9835310100a4eac3cae10d2d772f960c990cc7115de34a575a8d89"
+          },
+          {
+            "path": "세부내역서/SA2020010684292_2020010611215001.tif.answer.json",
+            "sha256": "b2f12e5b8481d5128a33dd9d73a5337f6d7c1bfb33256362d9ebc2f5fd80728e"
+          },
+          {
+            "path": "세부내역서/급여액_2303314628.jpg.answer.json",
+            "sha256": "bd18afd891e045288ae519344dd68b04e156e00c02ab417bef3c264fe387eeb3"
+          },
+          {
+            "path": "세부내역서/비급표현-KJM02605.tif.answer.json",
+            "sha256": "c7f4bbf90cc9a297e22dab49bea88520f6359d8289b54374efa7240425fcc918"
+          },
+          {
+            "path": "세부내역서/코드2개_급여액_3022033115393304-1.png.answer.json",
+            "sha256": "da9668bec564168d287d246c11abbf03501fa2f282cc883b82dc335b341bcc82"
+          },
+          {
+            "path": "세부내역서/코드2종포함_2303315044.jpg.answer.json",
+            "sha256": "8798a8a39461bad0d39d0695bc2b611f9b5a36ce308b400590bb208494789948"
+          },
+          {
+            "path": "진료비영수증/2020010684177_3020010611181902.png.answer.json",
+            "sha256": "037b2266582c1c55e19e5c94c4f49a748fa70bea6eb95db371d65ba07e547ab9"
+          },
+          {
+            "path": "진료비영수증/2025010109444002.tif.answer.json",
+            "sha256": "b572c7a71d7de0f73289ac61e0a1c52e6000b8c5fc8d2948f5468470963257e2"
+          },
+          {
+            "path": "진료비영수증/202501020959270c.tif.answer.json",
+            "sha256": "eea85a61bfac647743a4b40e2e2fb98723de8aec8e23da8c1920b74aa81f1ab3"
+          },
+          {
+            "path": "진료비영수증/202501021345559a.tif.answer.json",
+            "sha256": "f2f63749380f0b7152ce05c762748e39872340d7aaa26712e17d304b9ad8a61e"
+          },
+          {
+            "path": "진료비영수증/202501021415449h.tif.answer.json",
+            "sha256": "0255a377562bf190aa7d8a74c97f9c7e4f051068c454e162fc19e14a1dd4bc67"
+          },
+          {
+            "path": "진료비영수증/202501021624239c.tif.answer.json",
+            "sha256": "acebb95faae244defbc2c2028cacc23ede584031691b021c64fe35f5b0e5a1e5"
+          },
+          {
+            "path": "진료비영수증/SA2019123039576_3019123008565101.tif.answer.json",
+            "sha256": "9d36be708400f1a5245b6a403102485e5224a0fceecd4f1e8dbb5ded31b33077"
+          },
+          {
+            "path": "진료비영수증/SA2019123043735_2019123013232302.tif.answer.json",
+            "sha256": "7c2c91875496d4b34485335a64362b9adb7e47d77bda003c9a0c7a24ad3f917a"
+          },
+          {
+            "path": "진료비영수증/SA2019123043806_2019123013382902.tif.answer.json",
+            "sha256": "b3d06e7d9e2164e8823018003901a05cfd31ba8b8737f95b4fa3a0dcfc85d480"
+          },
+          {
+            "path": "진료비영수증/SA2019123045361_3019123015373000.tif.answer.json",
+            "sha256": "f1034bfe14d3b931ee35498dbd1666b144f89189ce42a4318397101b58c9c596"
+          },
+          {
+            "path": "진료비영수증/SA2019123045515_2019123014253605.tif.answer.json",
+            "sha256": "7afc82dcb119d133efaacc89d22fc926db5af7bf370e0740bd68f9b339053d46"
+          },
+          {
+            "path": "진료비영수증/SA2019123047233_2019123015283004.tif.answer.json",
+            "sha256": "bd50e669c091f54929d03292b44466e525ba5c08b5f2c3ecfeff5d21d376f523"
+          },
+          {
+            "path": "진료비영수증/SA2019123048114_301912301727560g.tif.answer.json",
+            "sha256": "8e77d296ed30b256f3ca647b12d5601b9354ed2d2fa13f2c1f1f540aaca9430e"
+          },
+          {
+            "path": "진료비영수증/SA2019123157794_3019123115091900.tif.answer.json",
+            "sha256": "f346f42eea36f8a73454768fda4f1dc697256dc101cfba2409c7c676ca9036c3"
+          },
+          {
+            "path": "진료비영수증/SA2019123157812_301912311459420a.tif.answer.json",
+            "sha256": "74a264b756b9d5fc26cf5dce9ed04c06cbc8243ec6c2a593802c25e8745fee6c"
+          },
+          {
+            "path": "진료비영수증/SA2019123157840_3019123114552500.tif.answer.json",
+            "sha256": "69d6469489a6de5d11f99ca955746ce4ddd4db07e0a7d3955fb583dd80e0afb3"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546380f.tif.answer.json",
+            "sha256": "3f3b341515a4d4bd039e8b88c5ba7f212ee7dea9bb64e1d58f6fcc16e417f392"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546390b.tif.answer.json",
+            "sha256": "66f26ef422cd4a474f362173ec8b7b3736cb7a8e303a55714be4f8ce692a43e8"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546390i.tif.answer.json",
+            "sha256": "92239b90c95a932d5ba49fa4bcad5d32012d81d78ab1d7bb539bcbe08c2e17d8"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546400b.tif.answer.json",
+            "sha256": "7f610c43dfea05ac2c82b9cd16ec20a58604cd1e04741cce0b273a22e4e90732"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604030d.tif.answer.json",
+            "sha256": "29654a68206c8487927246a5a7f0d43025a476a31043f09ab166ef0ebf778fd4"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604040b.tif.answer.json",
+            "sha256": "a2667b1b904738f5a39a6cef3623bda68c3091e323cb70fc1ca2b87725b8ea5b"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604050a.tif.answer.json",
+            "sha256": "df587963a753c05a285b099f4b993df1e6f5f32ec72c92229251fd1d017d8c5f"
+          },
+          {
+            "path": "진료비영수증/공란다수_SA2019123043183_2019123012353001.tif.answer.json",
+            "sha256": "1b40b1bdf5c1873f558c1ccf42cabfcea231f52bb9a9aecddf2037f5a9be8f03"
+          },
+          {
+            "path": "진료비영수증/공란다수_SA2019123047809_301912301712250c.tif.answer.json",
+            "sha256": "a6062a86bedbc7ae261eab8c29b6a6b004fb6fa6c1a49b15a069a1a164be83eb"
+          },
+          {
+            "path": "진료비영수증/선택진료료외만_금액표기_SA2019123040064_3019123010015500.tif.answer.json",
+            "sha256": "8527636b527ebb26bc08edda9e8000e7520873c54b2257713eb8e45b1dcf51e6"
+          },
+          {
+            "path": "진료비영수증/소계포함_SA2019123045314_3019123015131703.tif.answer.json",
+            "sha256": "f971a27f18809d2cab5362670ea907dcd714602ef0a2534e961ef9725f3b2cca"
+          },
+          {
+            "path": "진료비영수증/요양급여_1120221027142254957_20221027142656_9100_31_023627730.tif.answer.json",
+            "sha256": "8764eeea56afdae100ce42b90533dc22467b1e1c705fdfc947ad6aadf668f7bd"
+          },
+          {
+            "path": "진료비영수증/요양급여_SA2019123044081_2019123013280103.tif.answer.json",
+            "sha256": "fce372c21d5d8ccaf5cb950a4bd4b4159a329160c886ea7fa2016f2ee2fccea7"
+          },
+          {
+            "path": "진료비영수증/흐릿한선_SA2019123039725_2019123009162800.tif.answer.json",
+            "sha256": "3eaf0ce59b9dbfe07bcfc680c7cd473cbf76dc60b2d92e9783af08dbbc11ca28"
+          }
+        ]
+      },
+      "result_manifest": {
+        "algorithm": "sha256(sorted(relative_path + NUL + file_sha256 + LF))",
+        "digest": "a33d9d5c3ee3eac23e44102be80aeff4cffe489b438c08c85b2d09fb21eb3ee5",
+        "files": [
+          {
+            "path": "세부내역서/20230104_123952.jpg.harness.json",
+            "sha256": "1d5937ff19a8e5562e509f41eb3b67906bd42983fa66c8dc4b45ec9f8ef4046d"
+          },
+          {
+            "path": "세부내역서/202501010931310b.tif.harness.json",
+            "sha256": "2ee823378b6619d9e75b82092443bfbd204411767187471b8b0961a386146fc8"
+          },
+          {
+            "path": "세부내역서/20250102091737a0.tif.harness.json",
+            "sha256": "853e16565137250c39bfc8d8d8ea3f02decf5d7c0f454b3dbf6651426f22f574"
+          },
+          {
+            "path": "세부내역서/20250102091737a2.tif.harness.json",
+            "sha256": "661c83b748e932d3dd7489ba6a6254d09ed9db88742ba95fae4a69bcb8950ec3"
+          },
+          {
+            "path": "세부내역서/20250102091737a3.tif.harness.json",
+            "sha256": "6a167cf3dc475cfbbbdd0c4917cb2722646a22f80991338fa3ac706516f04d25"
+          },
+          {
+            "path": "세부내역서/2303314662.jpg.harness.json",
+            "sha256": "4805a0b7e1ecd2f1fbceb8dec3812b4e5c837ee071964cc830572e71a0d3f40e"
+          },
+          {
+            "path": "세부내역서/2303314712.jpg.harness.json",
+            "sha256": "8b08618678e6625bd7544dc354d0ede605bb40aa35f0328347531c986c683ec1"
+          },
+          {
+            "path": "세부내역서/2303314855.jpg.harness.json",
+            "sha256": "f8bc1b74f9db2f2ca9d790ad1e4692133c8b1821f09397fe60488ed131bc8a1f"
+          },
+          {
+            "path": "세부내역서/2303315286.jpg.harness.json",
+            "sha256": "a8115328945271599aa2fd227d789cce0cad55899ead7731583f4ac2eb1f9bcf"
+          },
+          {
+            "path": "세부내역서/2303315388.jpg.harness.json",
+            "sha256": "52761f4940a033b44d4ad45f2559dd5cb840571766c46774173b081196975b7c"
+          },
+          {
+            "path": "세부내역서/3022030712433802-1.png.harness.json",
+            "sha256": "059bfe85dfa7909ed979d6ca48fb82df2a216873c705181a97154f79ba3b53de"
+          },
+          {
+            "path": "세부내역서/3022033115105207-1.png.harness.json",
+            "sha256": "204c0d6b5b053711dcdea3ebb2ec626f292a611f26a882a488a4b4e360815dad"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103001.tif.harness.json",
+            "sha256": "89c797fd93d588e5dd44c1f8d285359bf9c633e45473ca489cef5ce3401b5b53"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103100.tif.harness.json",
+            "sha256": "665d09f804222d89e9fb2045a81150aadcc9757ea94fbf014b2af330a73b7d07"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103101.tif.harness.json",
+            "sha256": "6573b6a458dc8816d80488229c0be159eafa1875be8f4f0dc7f10759f0fd7672"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103102.tif.harness.json",
+            "sha256": "0b39e2badf0f02214171b629e8b3d97c116858fbd7f413ac567196cccd77385a"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103200.tif.harness.json",
+            "sha256": "d2be8d0f0a5d0a95646ff0e05bc7e75e93d964740a8c91b519053cc8bcbfaa2a"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103201.tif.harness.json",
+            "sha256": "af0d75f2ae458863c015df20b29a32120b1ab3b396b41c9ff0475781979c9123"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103300.tif.harness.json",
+            "sha256": "212274e40962d766a34a9ec90cb48f69eb903091326991c29522c03ca999645b"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103301.tif.harness.json",
+            "sha256": "14a45b899447abc088c2202d2af97a63daf6e65922dae818a095a243bf69b1af"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103302.tif.harness.json",
+            "sha256": "e4a0b796c7019ab25e967798cdf4336b0e268aee306fc088b0540b946bde7b88"
+          },
+          {
+            "path": "세부내역서/SA2020010683931_2020010610375500.tif.harness.json",
+            "sha256": "ca07ba37cf4a2f2331bb50f1f84dca81dfd4e0b1573b44c59230d1ca78fd0e7a"
+          },
+          {
+            "path": "세부내역서/SA2020010683943_3020010610445000.tif.harness.json",
+            "sha256": "00a4aafafef4da03e76b7524918d48bd8196d10dd1f55cb11e1af3746d9994b3"
+          },
+          {
+            "path": "세부내역서/SA2020010684193_2020010610415102.tif.harness.json",
+            "sha256": "5bb58207b80be3e0fdfaace2f7e0b77c03e4b35f415b965dd224d5118f097992"
+          },
+          {
+            "path": "세부내역서/SA2020010684292_2020010611215001.tif.harness.json",
+            "sha256": "c70e08a81c06439024eb284ecea74ee02b2db90592386b28b6b1bfaa6bb9531a"
+          },
+          {
+            "path": "세부내역서/급여액_2303314628.jpg.harness.json",
+            "sha256": "0220e3bed24892c43061dbe2a4df9b65df900d51b30a0015434d4eb59f1bee62"
+          },
+          {
+            "path": "세부내역서/비급표현-KJM02605.tif.harness.json",
+            "sha256": "45b896298111d584a1aae5c92283c0eadda4e083e535e5503bcdd020bc4e5c9c"
+          },
+          {
+            "path": "세부내역서/코드2개_급여액_3022033115393304-1.png.harness.json",
+            "sha256": "8a74af9a13ebd1eff3e881a8f2ba15d43a239112bda3d280afba7706653eb91c"
+          },
+          {
+            "path": "세부내역서/코드2종포함_2303315044.jpg.harness.json",
+            "sha256": "26b6dfdd89bf7f853ff4839d196013d62432b9e61bd9c4d758898d9469708647"
+          },
+          {
+            "path": "진료비영수증/2020010684177_3020010611181902.png.harness.json",
+            "sha256": "acb607b86c3a41e307ccaca752125f8ff6fa09e37641a47978441c24f47615b2"
+          },
+          {
+            "path": "진료비영수증/2025010109444002.tif.harness.json",
+            "sha256": "ca6c24dd58f7cdfae3d0db1e8ed188f29c3372048f8149c6a2ba4748de8d66a2"
+          },
+          {
+            "path": "진료비영수증/202501020959270c.tif.harness.json",
+            "sha256": "18608297a7fae36f8e555da2ac9f7dae4e071fa8a4c1b684a7491897e592ba00"
+          },
+          {
+            "path": "진료비영수증/202501021345559a.tif.harness.json",
+            "sha256": "22efa332e37f043d77aa152032bc5453897de238e0266e8eb3b7dd17772e7a26"
+          },
+          {
+            "path": "진료비영수증/202501021415449h.tif.harness.json",
+            "sha256": "ba1c7e9e5d6dac2a99ca91687f4b32d43fa5bca9da565f750cd14010db8f7a6b"
+          },
+          {
+            "path": "진료비영수증/202501021624239c.tif.harness.json",
+            "sha256": "17b67d2800c6b0e93d6642248851cb537aad8fd3416a5f36e733ba4ef816f16d"
+          },
+          {
+            "path": "진료비영수증/SA2019123039576_3019123008565101.tif.harness.json",
+            "sha256": "963ca3d489ce4e0b11616eecf91c2658d2f3da809c85c1ff418acfbe7e993c6a"
+          },
+          {
+            "path": "진료비영수증/SA2019123043735_2019123013232302.tif.harness.json",
+            "sha256": "6d4fd736e2499f8202f5b2ba3bd34deff891754aed9656daa7d7e0811fee3a68"
+          },
+          {
+            "path": "진료비영수증/SA2019123043806_2019123013382902.tif.harness.json",
+            "sha256": "d078b25a041871b3d17558ddfbbe3a4bf6ed3e9974d5dcb21d8e4a4e8f4dfdcd"
+          },
+          {
+            "path": "진료비영수증/SA2019123045361_3019123015373000.tif.harness.json",
+            "sha256": "c68a916930e56e4fb23a030a61e2e1ac986196053e8a7a20c5c10ee3bd76f9a9"
+          },
+          {
+            "path": "진료비영수증/SA2019123045515_2019123014253605.tif.harness.json",
+            "sha256": "45af9e63bc3c15347ebb7a564841fa47bb37d732ee36fc938e06d8a849846aac"
+          },
+          {
+            "path": "진료비영수증/SA2019123047233_2019123015283004.tif.harness.json",
+            "sha256": "6c9c8c22e8e17667ef8b6fdf187e6bec83b78acf76d7731f9da71bc1c7efccc2"
+          },
+          {
+            "path": "진료비영수증/SA2019123048114_301912301727560g.tif.harness.json",
+            "sha256": "d7bcea2b66222afee59fb7261370d3d748ae5df8f3b44f3afad04653ff0eb64b"
+          },
+          {
+            "path": "진료비영수증/SA2019123157794_3019123115091900.tif.harness.json",
+            "sha256": "96ff65f1eb75a203c412436b11478c2f109ceba6f8faca1a21aa88d1347529a9"
+          },
+          {
+            "path": "진료비영수증/SA2019123157812_301912311459420a.tif.harness.json",
+            "sha256": "b6685eb44b6ea42117574ee49602d0c7954d27899cb9c32934a7bd889b2806ac"
+          },
+          {
+            "path": "진료비영수증/SA2019123157840_3019123114552500.tif.harness.json",
+            "sha256": "c2adc8e61edd8a7bae593de1a815a7c2ab63c90998f74329aea87893c7e787b5"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546380f.tif.harness.json",
+            "sha256": "0852731c37274cf00096846df02f68d44b079f93f2932964a485bfe10d784519"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546390b.tif.harness.json",
+            "sha256": "94aab00e2b26844f5addf21a4a010621013b1ed0ceb7611dbc783c729c6efd11"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546390i.tif.harness.json",
+            "sha256": "5a42877db693a4b1e8fd0b46b013564596ebfa0aa750b174018a1b083a6b80c1"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546400b.tif.harness.json",
+            "sha256": "1e197916a38c813313f69a62f5a67aa4e2de04705b8a9ea26574c43a9010a12a"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604030d.tif.harness.json",
+            "sha256": "023aa9f61909fa0f60daf9e80d15dc5402bf374c9d6e2c5120660478d82fd57e"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604040b.tif.harness.json",
+            "sha256": "5a6ea5babbdfad3edcf2d8348b6aa114378ac84080d1110d2624560c1ef848f8"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604050a.tif.harness.json",
+            "sha256": "cac9a72a4ac2b14dc3e9a71764f37df859b710da4451fde719b506c05e1bfa5d"
+          },
+          {
+            "path": "진료비영수증/공란다수_SA2019123043183_2019123012353001.tif.harness.json",
+            "sha256": "1c8f79b6e1190ca235653fbd7d6d3abf761ad04821b120e917230c32da9b30d6"
+          },
+          {
+            "path": "진료비영수증/공란다수_SA2019123047809_301912301712250c.tif.harness.json",
+            "sha256": "51ad50510740922da8a66ff618871459e89447e63a5ad80cc2062f96e79587ba"
+          },
+          {
+            "path": "진료비영수증/선택진료료외만_금액표기_SA2019123040064_3019123010015500.tif.harness.json",
+            "sha256": "bd641997793fbb129fe7c00255995c4b37d59d01555a4657954835737ddff278"
+          },
+          {
+            "path": "진료비영수증/소계포함_SA2019123045314_3019123015131703.tif.harness.json",
+            "sha256": "795b49bc2de5bcc6fb59276033b12e80bef49af0b09d5aa3da9cd6678f7c4197"
+          },
+          {
+            "path": "진료비영수증/요양급여_1120221027142254957_20221027142656_9100_31_023627730.tif.harness.json",
+            "sha256": "2d52cb794d10fc5bb458f01ecb1e9b510e575e1854a7a2f2a0cc0ecec9aca3ce"
+          },
+          {
+            "path": "진료비영수증/요양급여_SA2019123044081_2019123013280103.tif.harness.json",
+            "sha256": "14eb226ac2ed1c129f7663301243d76343b3afe0c76838ed58a1ed071da48753"
+          },
+          {
+            "path": "진료비영수증/흐릿한선_SA2019123039725_2019123009162800.tif.harness.json",
+            "sha256": "bc751df1f9060bc49c463837ac3d67c1d33c076382a9c6bac380022dec39075a"
+          }
+        ]
+      },
+      "grade_manifest": {
+        "algorithm": "sha256(sorted(relative_path + NUL + file_sha256 + LF))",
+        "digest": "7b3e671f0a766aa2fd43e0478314bfe4607403ae20822904aaf45f6c5fd804ad",
+        "files": [
+          {
+            "path": "세부내역서/20230104_123952.jpg.grade.json",
+            "sha256": "3914d0bbb68bc5405a991c40c586edec302600eef90c421f04d025deea46c400"
+          },
+          {
+            "path": "세부내역서/202501010931310b.tif.grade.json",
+            "sha256": "8698cf6c8c6807c7aaa5b3eeab7c2e9ed3e95fdc3a571783cb6d8eac3a790f82"
+          },
+          {
+            "path": "세부내역서/20250102091737a0.tif.grade.json",
+            "sha256": "75047c7f7001e16b34bbfa025240f8d71586f251522c589ffe73c4659a258e4e"
+          },
+          {
+            "path": "세부내역서/20250102091737a2.tif.grade.json",
+            "sha256": "3e3b6f8512ca7085499dc7f0ea73395116d791fc95a4960a2abf86658f8cd42a"
+          },
+          {
+            "path": "세부내역서/20250102091737a3.tif.grade.json",
+            "sha256": "de1e36bd40d7afb3bb1bb318c55a49070c13a89cd248e626a3751e02b4fac296"
+          },
+          {
+            "path": "세부내역서/2303314662.jpg.grade.json",
+            "sha256": "de2c73fb56e62e959dc4a7d1e7b2d0c34f4a65c5da4b682ff07b83a9a3e93f17"
+          },
+          {
+            "path": "세부내역서/2303314712.jpg.grade.json",
+            "sha256": "f45ab37cafac7d85604798d8f492ea706f86b01e8affe3d58b76f8152b100969"
+          },
+          {
+            "path": "세부내역서/2303314855.jpg.grade.json",
+            "sha256": "c3c353df309657f4c574a293c9ffc48da7dc1fe35b996f4245e85c56143dc900"
+          },
+          {
+            "path": "세부내역서/2303315286.jpg.grade.json",
+            "sha256": "eb668b20c419c3a06d31999ef037e76af490d886881b536bcc4bd6d3eb042ebb"
+          },
+          {
+            "path": "세부내역서/2303315388.jpg.grade.json",
+            "sha256": "e234343a3d2fc1b97524627b9d85760b1d6886933e7a021b58c97900ce305a93"
+          },
+          {
+            "path": "세부내역서/3022030712433802-1.png.grade.json",
+            "sha256": "62af1d46c65bde0334e015b6896e485d4f0b3cf2d1814b129d37973a3646031d"
+          },
+          {
+            "path": "세부내역서/3022033115105207-1.png.grade.json",
+            "sha256": "d99bc12a4d850f0b13f7863721a9797080a5ca4c80584d7a4f21c83d31a98cb8"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103001.tif.grade.json",
+            "sha256": "7ab2b665c88cb12b0eb9a84defd0c31a22f4e22afa2c316ee2ec659574451996"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103100.tif.grade.json",
+            "sha256": "6d7d47d06ec9b18bc0817c3645459a152ca3ea5f9b186360d551f06b8505781c"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103101.tif.grade.json",
+            "sha256": "423b407f26dc858e1e74e1ab914676ceaffcd9f46a1962832f3a057abca0bfb5"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103102.tif.grade.json",
+            "sha256": "015cdfcab294a094e51f24133fab1f4bf1f2f8a8e6600d3fc6470b4d99985e9d"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103200.tif.grade.json",
+            "sha256": "775f57c9190edcaa44743390d28547da6e9ebfdd6d1c94eeff08a5ad6cc71b0c"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103201.tif.grade.json",
+            "sha256": "68703db824bd09c80232337e80a099ed4cf0e4e9cf35249d9b3ed8a9941ec70e"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103300.tif.grade.json",
+            "sha256": "4e1594fbfa24f1cec4169a7bec9357139a7abfb8de89bdd7f0fd8a7f9a588955"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103301.tif.grade.json",
+            "sha256": "6f5dfdddf05af2c28af67da920d7e73524f7daff93cbef57d0e4569f1054424a"
+          },
+          {
+            "path": "세부내역서/SA2020010683384_2020010610103302.tif.grade.json",
+            "sha256": "4a419e78b42dd43b648aff13507623ec094b57540e9ff21251bd720c3937ae60"
+          },
+          {
+            "path": "세부내역서/SA2020010683931_2020010610375500.tif.grade.json",
+            "sha256": "f04d051ed281709cbc1664e656d69cdec303d8becc44c6eb32a45770fb6fb3cd"
+          },
+          {
+            "path": "세부내역서/SA2020010683943_3020010610445000.tif.grade.json",
+            "sha256": "f6e66d71a3dbcf9a2bdc8924d0fa6d57e34ead08d38e9b6b3429a0df0c4dafab"
+          },
+          {
+            "path": "세부내역서/SA2020010684193_2020010610415102.tif.grade.json",
+            "sha256": "f0d8a242338ae90b43059af639ab5c2c2a28878d17828c304be368b61de1f2bd"
+          },
+          {
+            "path": "세부내역서/SA2020010684292_2020010611215001.tif.grade.json",
+            "sha256": "ae79be6bc80e60271e027f91e9b0fde371ae459be044b6ed7980d142843bf808"
+          },
+          {
+            "path": "세부내역서/급여액_2303314628.jpg.grade.json",
+            "sha256": "42767b945d9fba778d013bac684ff84f58e45ed61ae480f2fc62ed5fdf3de5cb"
+          },
+          {
+            "path": "세부내역서/비급표현-KJM02605.tif.grade.json",
+            "sha256": "8ea63e6722cb59565a030f824c88a2c92697f2ebfc97c39d04840e24939b5775"
+          },
+          {
+            "path": "세부내역서/코드2개_급여액_3022033115393304-1.png.grade.json",
+            "sha256": "c7d41b9933fe818587b4c01cccb7d0f17eb545186601a9347a97b69dd5de3071"
+          },
+          {
+            "path": "세부내역서/코드2종포함_2303315044.jpg.grade.json",
+            "sha256": "74cbfc39c5d73a172c8967d393d26f97351f9cdade3d0014d52d3e22c0b141c2"
+          },
+          {
+            "path": "진료비영수증/2020010684177_3020010611181902.png.grade.json",
+            "sha256": "b8949b4effe8b7ffb9a70eee844c967001aa0e12dc4b778a02ef0647a567ccc6"
+          },
+          {
+            "path": "진료비영수증/2025010109444002.tif.grade.json",
+            "sha256": "590bd44246b7741aeec202437d90db927dc7e41b593598ac75ad44b9ecf7999b"
+          },
+          {
+            "path": "진료비영수증/202501020959270c.tif.grade.json",
+            "sha256": "e81b3878f46f03c939b1fc637d9346f1aad1b3de8d4f24474a73cbf41c122db7"
+          },
+          {
+            "path": "진료비영수증/202501021345559a.tif.grade.json",
+            "sha256": "1e7fcd94e06d8df08342d87cb628bf6fb774e59c747a8596e3b87617204a698b"
+          },
+          {
+            "path": "진료비영수증/202501021415449h.tif.grade.json",
+            "sha256": "cc5202bce10daaec4ea2b5c3b4b3ad77fd0a523e9182ff5254585c6dfc2e1241"
+          },
+          {
+            "path": "진료비영수증/202501021624239c.tif.grade.json",
+            "sha256": "cc5227373e62d38dc6eeedbc43601207cf3873ea679dcdbe84e2778ebdd435a1"
+          },
+          {
+            "path": "진료비영수증/SA2019123039576_3019123008565101.tif.grade.json",
+            "sha256": "96c64438dd1d73151655bc198f6e414321573fd3724542251cb65672aeb58094"
+          },
+          {
+            "path": "진료비영수증/SA2019123043735_2019123013232302.tif.grade.json",
+            "sha256": "6b771e1e8b0e1e8b2133a98eb1ae95ddf441035839e44fed0548ecc4822d324d"
+          },
+          {
+            "path": "진료비영수증/SA2019123043806_2019123013382902.tif.grade.json",
+            "sha256": "760f1da05768a3774cc693d357566d62c0c775be7e0427a9309fe89e61b3d993"
+          },
+          {
+            "path": "진료비영수증/SA2019123045361_3019123015373000.tif.grade.json",
+            "sha256": "6d127bb7ee015a951cc296b62b4d5d51bbcdb951614e03924d713f34942d496c"
+          },
+          {
+            "path": "진료비영수증/SA2019123045515_2019123014253605.tif.grade.json",
+            "sha256": "cfafc8a11a76a871122b5476fecc34fd7762ce2cabe377bb0fb41530378de5b7"
+          },
+          {
+            "path": "진료비영수증/SA2019123047233_2019123015283004.tif.grade.json",
+            "sha256": "00fe5d5ad23dc0af2731cd071080b16414609a69c4d4f62290ffa6dc96679d85"
+          },
+          {
+            "path": "진료비영수증/SA2019123048114_301912301727560g.tif.grade.json",
+            "sha256": "55257ced894464c64085a37ca7eeb2d4aaeb33175adfebd44c460e5d604f1bcd"
+          },
+          {
+            "path": "진료비영수증/SA2019123157794_3019123115091900.tif.grade.json",
+            "sha256": "9bcac94b5e773c7f500d6f3d3a2777bb6e2bc8c93305e1e0c06f750eb458cbde"
+          },
+          {
+            "path": "진료비영수증/SA2019123157812_301912311459420a.tif.grade.json",
+            "sha256": "7504c658f01fdac82d30f5486419a1551e3a1f9d19231aff6b205cc63466708a"
+          },
+          {
+            "path": "진료비영수증/SA2019123157840_3019123114552500.tif.grade.json",
+            "sha256": "8abbb9c08937600b1ef596b5c4d25835aa42eabced15d06c47aa2e1ba72b6f34"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546380f.tif.grade.json",
+            "sha256": "b42d44726672bee749926ad191b66b52cab6cbc6403eb8eb136b75d350cd4779"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546390b.tif.grade.json",
+            "sha256": "1687b092d931463132e88e1d5ed933adeb386cc33b8d066d3c5447c863391eb7"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546390i.tif.grade.json",
+            "sha256": "54a83d2eaf9a7cda84e2d9ededcde9f1e228f757641f6057a2a112bea9a85b35"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546400b.tif.grade.json",
+            "sha256": "94cc99f3e22ae3cfe8118e8e75c7fcbffcef5f45b3b2684e085e3944ac11a892"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604030d.tif.grade.json",
+            "sha256": "9661701d10e06da7d31e735dad4aadfa79600367a816ea6d6614d2e40e6d92aa"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604040b.tif.grade.json",
+            "sha256": "235580d71d82ad24b458cb545a265ddc67a4802f51411b6890ecccc59334a857"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604050a.tif.grade.json",
+            "sha256": "96cb50f489a8426e54795658f464109be770d315485d65464d933e6f0406934d"
+          },
+          {
+            "path": "진료비영수증/공란다수_SA2019123043183_2019123012353001.tif.grade.json",
+            "sha256": "4631c7bfb1a0396788299d51785782361163c4f80fffd38df3e0f73c4a8775e8"
+          },
+          {
+            "path": "진료비영수증/공란다수_SA2019123047809_301912301712250c.tif.grade.json",
+            "sha256": "09e354591e99f44f66979f851290451afe2ad851d100c08dd9fd7e2d19d2e6a2"
+          },
+          {
+            "path": "진료비영수증/선택진료료외만_금액표기_SA2019123040064_3019123010015500.tif.grade.json",
+            "sha256": "802b23fecebb491dbcfc9ee4a6239d909eb55321d8d1ae5f7415a9c4ad057f5b"
+          },
+          {
+            "path": "진료비영수증/소계포함_SA2019123045314_3019123015131703.tif.grade.json",
+            "sha256": "4b46f2a8459758147efdafe169fa24b44c7b83232824d2b4e16b886f0a60065a"
+          },
+          {
+            "path": "진료비영수증/요양급여_1120221027142254957_20221027142656_9100_31_023627730.tif.grade.json",
+            "sha256": "1072990963ebadc3078a5bd2284b9cea6126362e775763e50b4e50cfa01c58b0"
+          },
+          {
+            "path": "진료비영수증/요양급여_SA2019123044081_2019123013280103.tif.grade.json",
+            "sha256": "1724e3742e7d0b92c033cad4a3f14050a074f0bae7b3b42a938fe98af001257b"
+          },
+          {
+            "path": "진료비영수증/흐릿한선_SA2019123039725_2019123009162800.tif.grade.json",
+            "sha256": "2ab7718eeb5505d0a447d781fe514c34308861d792471364821c08473fae6629"
+          }
+        ]
+      },
+      "job_latency_seconds": {
+        "documents": 59,
+        "p50": 80.4,
+        "p90_nearest_rank": 200.8,
+        "max": 250.9,
+        "note": "manifest 소요초 includes job polling/queue; this is not Docraft request-only latency"
+      }
+    },
+    "golden1002-aws-r10": {
+      "path": "/home/pilsu/projects/mirae-assets/e2e/out/golden1002-aws-r10",
+      "grades": {
+        "세부내역서": {
+          "documents": 0,
+          "scored": 0,
+          "verdicts": {},
+          "correct": 0,
+          "accuracy": null,
+          "blank_or_zero_answers": 0,
+          "nonblank_accuracy": null,
+          "perfect_documents": 0,
+          "tiers": {}
+        },
+        "진료비영수증": {
+          "documents": 30,
+          "scored": 6947,
+          "verdicts": {
+            "일치": 6907,
+            "누락": 36,
+            "불일치": 3,
+            "오검출": 1
+          },
+          "correct": 6907,
+          "accuracy": 0.9942421189002447,
+          "blank_or_zero_answers": 5357,
+          "nonblank_accuracy": 0.9937106918238994,
+          "perfect_documents": 0,
+          "tiers": {
+            "unresolved": 14,
+            "repaired": 12,
+            "pass": 4
+          }
+        },
+        "ALL": {
+          "documents": 30,
+          "scored": 6947,
+          "verdicts": {
+            "일치": 6907,
+            "누락": 36,
+            "불일치": 3,
+            "오검출": 1
+          },
+          "correct": 6907,
+          "accuracy": 0.9942421189002447,
+          "blank_or_zero_answers": 5357,
+          "nonblank_accuracy": 0.9937106918238994,
+          "perfect_documents": 0,
+          "tiers": {
+            "unresolved": 14,
+            "repaired": 12,
+            "pass": 4
+          }
+        }
+      },
+      "answer_manifest": {
+        "algorithm": "sha256(sorted(relative_path + NUL + file_sha256 + LF))",
+        "digest": "273c86ab3d92f8a7339a35779a8de454020f5c9696a606fdba45024d5a0485e7",
+        "files": [
+          {
+            "path": "진료비영수증/2020010684177_3020010611181902.png.answer.json",
+            "sha256": "037b2266582c1c55e19e5c94c4f49a748fa70bea6eb95db371d65ba07e547ab9"
+          },
+          {
+            "path": "진료비영수증/2025010109444002.tif.answer.json",
+            "sha256": "b572c7a71d7de0f73289ac61e0a1c52e6000b8c5fc8d2948f5468470963257e2"
+          },
+          {
+            "path": "진료비영수증/202501020959270c.tif.answer.json",
+            "sha256": "eea85a61bfac647743a4b40e2e2fb98723de8aec8e23da8c1920b74aa81f1ab3"
+          },
+          {
+            "path": "진료비영수증/202501021345559a.tif.answer.json",
+            "sha256": "f2f63749380f0b7152ce05c762748e39872340d7aaa26712e17d304b9ad8a61e"
+          },
+          {
+            "path": "진료비영수증/202501021415449h.tif.answer.json",
+            "sha256": "0255a377562bf190aa7d8a74c97f9c7e4f051068c454e162fc19e14a1dd4bc67"
+          },
+          {
+            "path": "진료비영수증/202501021624239c.tif.answer.json",
+            "sha256": "acebb95faae244defbc2c2028cacc23ede584031691b021c64fe35f5b0e5a1e5"
+          },
+          {
+            "path": "진료비영수증/SA2019123039576_3019123008565101.tif.answer.json",
+            "sha256": "9d36be708400f1a5245b6a403102485e5224a0fceecd4f1e8dbb5ded31b33077"
+          },
+          {
+            "path": "진료비영수증/SA2019123043735_2019123013232302.tif.answer.json",
+            "sha256": "7c2c91875496d4b34485335a64362b9adb7e47d77bda003c9a0c7a24ad3f917a"
+          },
+          {
+            "path": "진료비영수증/SA2019123043806_2019123013382902.tif.answer.json",
+            "sha256": "b3d06e7d9e2164e8823018003901a05cfd31ba8b8737f95b4fa3a0dcfc85d480"
+          },
+          {
+            "path": "진료비영수증/SA2019123045361_3019123015373000.tif.answer.json",
+            "sha256": "f1034bfe14d3b931ee35498dbd1666b144f89189ce42a4318397101b58c9c596"
+          },
+          {
+            "path": "진료비영수증/SA2019123045515_2019123014253605.tif.answer.json",
+            "sha256": "7afc82dcb119d133efaacc89d22fc926db5af7bf370e0740bd68f9b339053d46"
+          },
+          {
+            "path": "진료비영수증/SA2019123047233_2019123015283004.tif.answer.json",
+            "sha256": "bd50e669c091f54929d03292b44466e525ba5c08b5f2c3ecfeff5d21d376f523"
+          },
+          {
+            "path": "진료비영수증/SA2019123048114_301912301727560g.tif.answer.json",
+            "sha256": "8e77d296ed30b256f3ca647b12d5601b9354ed2d2fa13f2c1f1f540aaca9430e"
+          },
+          {
+            "path": "진료비영수증/SA2019123157794_3019123115091900.tif.answer.json",
+            "sha256": "f346f42eea36f8a73454768fda4f1dc697256dc101cfba2409c7c676ca9036c3"
+          },
+          {
+            "path": "진료비영수증/SA2019123157812_301912311459420a.tif.answer.json",
+            "sha256": "74a264b756b9d5fc26cf5dce9ed04c06cbc8243ec6c2a593802c25e8745fee6c"
+          },
+          {
+            "path": "진료비영수증/SA2019123157840_3019123114552500.tif.answer.json",
+            "sha256": "69d6469489a6de5d11f99ca955746ce4ddd4db07e0a7d3955fb583dd80e0afb3"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546380f.tif.answer.json",
+            "sha256": "3f3b341515a4d4bd039e8b88c5ba7f212ee7dea9bb64e1d58f6fcc16e417f392"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546390b.tif.answer.json",
+            "sha256": "66f26ef422cd4a474f362173ec8b7b3736cb7a8e303a55714be4f8ce692a43e8"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546390i.tif.answer.json",
+            "sha256": "92239b90c95a932d5ba49fa4bcad5d32012d81d78ab1d7bb539bcbe08c2e17d8"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546400b.tif.answer.json",
+            "sha256": "7f610c43dfea05ac2c82b9cd16ec20a58604cd1e04741cce0b273a22e4e90732"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604030d.tif.answer.json",
+            "sha256": "29654a68206c8487927246a5a7f0d43025a476a31043f09ab166ef0ebf778fd4"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604040b.tif.answer.json",
+            "sha256": "a2667b1b904738f5a39a6cef3623bda68c3091e323cb70fc1ca2b87725b8ea5b"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604050a.tif.answer.json",
+            "sha256": "df587963a753c05a285b099f4b993df1e6f5f32ec72c92229251fd1d017d8c5f"
+          },
+          {
+            "path": "진료비영수증/공란다수_SA2019123043183_2019123012353001.tif.answer.json",
+            "sha256": "1b40b1bdf5c1873f558c1ccf42cabfcea231f52bb9a9aecddf2037f5a9be8f03"
+          },
+          {
+            "path": "진료비영수증/공란다수_SA2019123047809_301912301712250c.tif.answer.json",
+            "sha256": "a6062a86bedbc7ae261eab8c29b6a6b004fb6fa6c1a49b15a069a1a164be83eb"
+          },
+          {
+            "path": "진료비영수증/선택진료료외만_금액표기_SA2019123040064_3019123010015500.tif.answer.json",
+            "sha256": "8527636b527ebb26bc08edda9e8000e7520873c54b2257713eb8e45b1dcf51e6"
+          },
+          {
+            "path": "진료비영수증/소계포함_SA2019123045314_3019123015131703.tif.answer.json",
+            "sha256": "f971a27f18809d2cab5362670ea907dcd714602ef0a2534e961ef9725f3b2cca"
+          },
+          {
+            "path": "진료비영수증/요양급여_1120221027142254957_20221027142656_9100_31_023627730.tif.answer.json",
+            "sha256": "8764eeea56afdae100ce42b90533dc22467b1e1c705fdfc947ad6aadf668f7bd"
+          },
+          {
+            "path": "진료비영수증/요양급여_SA2019123044081_2019123013280103.tif.answer.json",
+            "sha256": "fce372c21d5d8ccaf5cb950a4bd4b4159a329160c886ea7fa2016f2ee2fccea7"
+          },
+          {
+            "path": "진료비영수증/흐릿한선_SA2019123039725_2019123009162800.tif.answer.json",
+            "sha256": "3eaf0ce59b9dbfe07bcfc680c7cd473cbf76dc60b2d92e9783af08dbbc11ca28"
+          }
+        ]
+      },
+      "result_manifest": {
+        "algorithm": "sha256(sorted(relative_path + NUL + file_sha256 + LF))",
+        "digest": "05bd114e6b50d29fc41dde76b42d057cd918f63f55a34acaa3e428cf4af1d5c8",
+        "files": [
+          {
+            "path": "진료비영수증/2020010684177_3020010611181902.png.harness.json",
+            "sha256": "155e6165f212f127077b32eea7f51573ae97df849b4ebf45c8c38bdd9340b30d"
+          },
+          {
+            "path": "진료비영수증/2025010109444002.tif.harness.json",
+            "sha256": "d99e0f447f17cee5ac787a7f7c7a18699fc1a32c1a981cab7754a579870eeaf9"
+          },
+          {
+            "path": "진료비영수증/202501020959270c.tif.harness.json",
+            "sha256": "0824d95f49017f44fc86950bd6b5fcd5e543ae5fa2af8dcbe1aa68716336216a"
+          },
+          {
+            "path": "진료비영수증/202501021345559a.tif.harness.json",
+            "sha256": "c1ffda199028dcb870d13bf72c467f844a7f29c13b51f2ca8487f26301c07e3f"
+          },
+          {
+            "path": "진료비영수증/202501021415449h.tif.harness.json",
+            "sha256": "be7f2f7d8d3bf1c257c873de0a5f2a526d0e42531eeef974efe47e52c907d772"
+          },
+          {
+            "path": "진료비영수증/202501021624239c.tif.harness.json",
+            "sha256": "69e76796868c136da55765a8ed96d22b1838dedd56af84451e1ba01d7cdf17cd"
+          },
+          {
+            "path": "진료비영수증/SA2019123039576_3019123008565101.tif.harness.json",
+            "sha256": "03121a35bfe819140ff2fef7b7480ecb994c2c64cae9985e79539b6f976b368a"
+          },
+          {
+            "path": "진료비영수증/SA2019123043735_2019123013232302.tif.harness.json",
+            "sha256": "367f296eed26f1710ce317d4159d2c341de17d67c0ca37cef078c1d2c6d293d2"
+          },
+          {
+            "path": "진료비영수증/SA2019123043806_2019123013382902.tif.harness.json",
+            "sha256": "2bdd2f360057b329767649b4ed381a157a1254261be493ad8f3c75a209a57777"
+          },
+          {
+            "path": "진료비영수증/SA2019123045361_3019123015373000.tif.harness.json",
+            "sha256": "cb1c554a791ec7277a2cf4524e17efa12ff6011c77b6cd1ae099089dc8bb7b0c"
+          },
+          {
+            "path": "진료비영수증/SA2019123045515_2019123014253605.tif.harness.json",
+            "sha256": "d19fd62d322b955f2d2135765d009de95c8dedde40c2ee8689fbdafe62e5e929"
+          },
+          {
+            "path": "진료비영수증/SA2019123047233_2019123015283004.tif.harness.json",
+            "sha256": "b51383070b3f68f198a0c2081792c608871a43cb126c572e8164037ef93e2e6b"
+          },
+          {
+            "path": "진료비영수증/SA2019123048114_301912301727560g.tif.harness.json",
+            "sha256": "faf56ca08838bf8f718b550ab2700a0b2cf05435cf7ad8e9947809e531aabcf9"
+          },
+          {
+            "path": "진료비영수증/SA2019123157794_3019123115091900.tif.harness.json",
+            "sha256": "d579e5fc0d44565d4ee54f7dd5e2634a63b9d43516009fb65adc0f36a712b668"
+          },
+          {
+            "path": "진료비영수증/SA2019123157812_301912311459420a.tif.harness.json",
+            "sha256": "f24e6b9136b3f827ff033ae05f9bd1c61cd3d59d1a5ea05a47193f35de041e71"
+          },
+          {
+            "path": "진료비영수증/SA2019123157840_3019123114552500.tif.harness.json",
+            "sha256": "a3af9dabc0cb8b6c29f65471a45598cc960716efcca42235df41f10001340a2d"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546380f.tif.harness.json",
+            "sha256": "8b894caeb98f108db33a522b4b3821974d5cd1446b5829a066adc0be0fd549a8"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546390b.tif.harness.json",
+            "sha256": "2173c96e7e601978dd4f9ffd08f57c93b44e017d46067b68bef327862b5ca1c6"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546390i.tif.harness.json",
+            "sha256": "0db1944cee6efe6d402360a9116ccfab262e72347a6cca8a315211732acfad9f"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546400b.tif.harness.json",
+            "sha256": "a6facc9cdd1923f04eee4156f943fe2af8f37d487faf262c14402dca2dbaa6ab"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604030d.tif.harness.json",
+            "sha256": "2acc257d9ee937b6e1f4f2541885797595fc89f97cef4c16b8ea93311f4aa67d"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604040b.tif.harness.json",
+            "sha256": "e1a84de1e537f2840e98432f1be006826a15c497dd8a58152925dd2c1c97364a"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604050a.tif.harness.json",
+            "sha256": "77bf97ab8307c8dc867314bf0193bd549c75c75d2e0ac9d2e89e4beef1e4abe8"
+          },
+          {
+            "path": "진료비영수증/공란다수_SA2019123043183_2019123012353001.tif.harness.json",
+            "sha256": "df550a8b85ecb48af9c82bb6194171de32b65f9e9170336b13c0c0b37fc119b0"
+          },
+          {
+            "path": "진료비영수증/공란다수_SA2019123047809_301912301712250c.tif.harness.json",
+            "sha256": "444c927be7bc3cc0c1ed063371a144968af5744ad3085e82defb1beafcde916a"
+          },
+          {
+            "path": "진료비영수증/선택진료료외만_금액표기_SA2019123040064_3019123010015500.tif.harness.json",
+            "sha256": "35104deed9106be4c30888b4fb2a375b1bf360c31a24d5017e2a733ff832584f"
+          },
+          {
+            "path": "진료비영수증/소계포함_SA2019123045314_3019123015131703.tif.harness.json",
+            "sha256": "a29d0ee5fbf507af3ab3bf86028101fb8757ea705f136663b586b8a1236c2d7d"
+          },
+          {
+            "path": "진료비영수증/요양급여_1120221027142254957_20221027142656_9100_31_023627730.tif.harness.json",
+            "sha256": "f5830eefd3d758da42088301ea032f02204e121ca1231e26f33f153a5a724372"
+          },
+          {
+            "path": "진료비영수증/요양급여_SA2019123044081_2019123013280103.tif.harness.json",
+            "sha256": "e2fb4c0f44594f273fc3b56c303df24c9b3a03d1247d279714dfc0e7352580f0"
+          },
+          {
+            "path": "진료비영수증/흐릿한선_SA2019123039725_2019123009162800.tif.harness.json",
+            "sha256": "e11da76bad8cff1b9eb791d7371803517349afc215ed9e29b65a44669e4cc764"
+          }
+        ]
+      },
+      "grade_manifest": {
+        "algorithm": "sha256(sorted(relative_path + NUL + file_sha256 + LF))",
+        "digest": "8bca0f11fe96db91b117a43d7a45528105c6a6bc016b004f00b43d9fe854abbe",
+        "files": [
+          {
+            "path": "진료비영수증/2020010684177_3020010611181902.png.grade.json",
+            "sha256": "b8949b4effe8b7ffb9a70eee844c967001aa0e12dc4b778a02ef0647a567ccc6"
+          },
+          {
+            "path": "진료비영수증/2025010109444002.tif.grade.json",
+            "sha256": "590bd44246b7741aeec202437d90db927dc7e41b593598ac75ad44b9ecf7999b"
+          },
+          {
+            "path": "진료비영수증/202501020959270c.tif.grade.json",
+            "sha256": "e81b3878f46f03c939b1fc637d9346f1aad1b3de8d4f24474a73cbf41c122db7"
+          },
+          {
+            "path": "진료비영수증/202501021345559a.tif.grade.json",
+            "sha256": "1e7fcd94e06d8df08342d87cb628bf6fb774e59c747a8596e3b87617204a698b"
+          },
+          {
+            "path": "진료비영수증/202501021415449h.tif.grade.json",
+            "sha256": "cc5202bce10daaec4ea2b5c3b4b3ad77fd0a523e9182ff5254585c6dfc2e1241"
+          },
+          {
+            "path": "진료비영수증/202501021624239c.tif.grade.json",
+            "sha256": "cc5227373e62d38dc6eeedbc43601207cf3873ea679dcdbe84e2778ebdd435a1"
+          },
+          {
+            "path": "진료비영수증/SA2019123039576_3019123008565101.tif.grade.json",
+            "sha256": "96c64438dd1d73151655bc198f6e414321573fd3724542251cb65672aeb58094"
+          },
+          {
+            "path": "진료비영수증/SA2019123043735_2019123013232302.tif.grade.json",
+            "sha256": "6b771e1e8b0e1e8b2133a98eb1ae95ddf441035839e44fed0548ecc4822d324d"
+          },
+          {
+            "path": "진료비영수증/SA2019123043806_2019123013382902.tif.grade.json",
+            "sha256": "760f1da05768a3774cc693d357566d62c0c775be7e0427a9309fe89e61b3d993"
+          },
+          {
+            "path": "진료비영수증/SA2019123045361_3019123015373000.tif.grade.json",
+            "sha256": "6d127bb7ee015a951cc296b62b4d5d51bbcdb951614e03924d713f34942d496c"
+          },
+          {
+            "path": "진료비영수증/SA2019123045515_2019123014253605.tif.grade.json",
+            "sha256": "cfafc8a11a76a871122b5476fecc34fd7762ce2cabe377bb0fb41530378de5b7"
+          },
+          {
+            "path": "진료비영수증/SA2019123047233_2019123015283004.tif.grade.json",
+            "sha256": "00fe5d5ad23dc0af2731cd071080b16414609a69c4d4f62290ffa6dc96679d85"
+          },
+          {
+            "path": "진료비영수증/SA2019123048114_301912301727560g.tif.grade.json",
+            "sha256": "55257ced894464c64085a37ca7eeb2d4aaeb33175adfebd44c460e5d604f1bcd"
+          },
+          {
+            "path": "진료비영수증/SA2019123157794_3019123115091900.tif.grade.json",
+            "sha256": "9bcac94b5e773c7f500d6f3d3a2777bb6e2bc8c93305e1e0c06f750eb458cbde"
+          },
+          {
+            "path": "진료비영수증/SA2019123157812_301912311459420a.tif.grade.json",
+            "sha256": "7504c658f01fdac82d30f5486419a1551e3a1f9d19231aff6b205cc63466708a"
+          },
+          {
+            "path": "진료비영수증/SA2019123157840_3019123114552500.tif.grade.json",
+            "sha256": "1a70e5797c6b6a1fce24f164ee579d3330434a107d6afe2917927b9d9f058f79"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546380f.tif.grade.json",
+            "sha256": "b42d44726672bee749926ad191b66b52cab6cbc6403eb8eb136b75d350cd4779"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546390b.tif.grade.json",
+            "sha256": "1687b092d931463132e88e1d5ed933adeb386cc33b8d066d3c5447c863391eb7"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546390i.tif.grade.json",
+            "sha256": "54a83d2eaf9a7cda84e2d9ededcde9f1e228f757641f6057a2a112bea9a85b35"
+          },
+          {
+            "path": "진료비영수증/SA2019123157847_201912311546400b.tif.grade.json",
+            "sha256": "6f465f0135011da1a173d17f237140952747cbfa2f14ff6c4fc9e78d3c0ad7eb"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604030d.tif.grade.json",
+            "sha256": "9661701d10e06da7d31e735dad4aadfa79600367a816ea6d6614d2e40e6d92aa"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604040b.tif.grade.json",
+            "sha256": "235580d71d82ad24b458cb545a265ddc67a4802f51411b6890ecccc59334a857"
+          },
+          {
+            "path": "진료비영수증/SA2019123157863_201912311604050a.tif.grade.json",
+            "sha256": "96cb50f489a8426e54795658f464109be770d315485d65464d933e6f0406934d"
+          },
+          {
+            "path": "진료비영수증/공란다수_SA2019123043183_2019123012353001.tif.grade.json",
+            "sha256": "4631c7bfb1a0396788299d51785782361163c4f80fffd38df3e0f73c4a8775e8"
+          },
+          {
+            "path": "진료비영수증/공란다수_SA2019123047809_301912301712250c.tif.grade.json",
+            "sha256": "09e354591e99f44f66979f851290451afe2ad851d100c08dd9fd7e2d19d2e6a2"
+          },
+          {
+            "path": "진료비영수증/선택진료료외만_금액표기_SA2019123040064_3019123010015500.tif.grade.json",
+            "sha256": "802b23fecebb491dbcfc9ee4a6239d909eb55321d8d1ae5f7415a9c4ad057f5b"
+          },
+          {
+            "path": "진료비영수증/소계포함_SA2019123045314_3019123015131703.tif.grade.json",
+            "sha256": "4b46f2a8459758147efdafe169fa24b44c7b83232824d2b4e16b886f0a60065a"
+          },
+          {
+            "path": "진료비영수증/요양급여_1120221027142254957_20221027142656_9100_31_023627730.tif.grade.json",
+            "sha256": "1072990963ebadc3078a5bd2284b9cea6126362e775763e50b4e50cfa01c58b0"
+          },
+          {
+            "path": "진료비영수증/요양급여_SA2019123044081_2019123013280103.tif.grade.json",
+            "sha256": "1724e3742e7d0b92c033cad4a3f14050a074f0bae7b3b42a938fe98af001257b"
+          },
+          {
+            "path": "진료비영수증/흐릿한선_SA2019123039725_2019123009162800.tif.grade.json",
+            "sha256": "2ab7718eeb5505d0a447d781fe514c34308861d792471364821c08473fae6629"
+          }
+        ]
+      },
+      "job_latency_seconds": {
+        "documents": 30,
+        "p50": 135.55,
+        "p90_nearest_rank": 190.7,
+        "max": 240.9,
+        "note": "manifest 소요초 includes job polling/queue; this is not Docraft request-only latency"
+      }
+    }
+  },
+  "r9_fresh_against_current_answers": {
+    "grades": {
+      "세부내역서": {
+        "documents": 29,
+        "scored": 7630,
+        "verdicts": {
+          "일치": 7548,
+          "누락": 24,
+          "불일치": 10,
+          "오검출": 48
+        },
+        "correct": 7548,
+        "accuracy": 0.9892529488859764,
+        "blank_or_zero_answers": 3731,
+        "nonblank_accuracy": 0.9915362913567581,
+        "perfect_documents": 16,
+        "tiers": {
+          "unresolved": 17,
+          "pass": 1,
+          "repaired": 11
+        }
+      },
+      "진료비영수증": {
+        "documents": 30,
+        "scored": 6947,
+        "verdicts": {
+          "일치": 6906,
+          "누락": 36,
+          "불일치": 3,
+          "오검출": 2
+        },
+        "correct": 6906,
+        "accuracy": 0.9940981718727508,
+        "blank_or_zero_answers": 5357,
+        "nonblank_accuracy": 0.9937106918238994,
+        "perfect_documents": 0,
+        "tiers": {
+          "unresolved": 15,
+          "repaired": 11,
+          "pass": 4
+        }
+      },
+      "ALL": {
+        "documents": 59,
+        "scored": 14577,
+        "verdicts": {
+          "일치": 14454,
+          "누락": 60,
+          "불일치": 13,
+          "오검출": 50
+        },
+        "correct": 14454,
+        "accuracy": 0.9915620498044865,
+        "blank_or_zero_answers": 9088,
+        "nonblank_accuracy": 0.9921661504827838,
+        "perfect_documents": 16,
+        "tiers": {
+          "unresolved": 32,
+          "pass": 5,
+          "repaired": 22
+        }
+      }
+    },
+    "note": "Fresh in-memory grading. r9 answer files modified 2026-10-03; historical stored grade/xlsx is stale. Same stored inference results; no inference run."
+  },
+  "definitions": {
+    "perfect_document": "At least one scored aligned cell and every scored aligned cell equals MATCH after canonicalization. Excludes masked/null cells, unmatched blank/total output rows, unscored metadata/structure/classification; not byte-exact output or autonomous acceptance.",
+    "blank_or_zero_answers": "Raw answer None/empty/0 among scored cells; numeric zero remains a legitimate clinical/billing value. Shows cell weighting/sample composition, not inappropriateness.",
+    "accuracy": "Micro-average aligned scored cells: MATCH/(MATCH+MISMATCH+MISSING+EXTRA). Zero/blank equivalent for amount keys, null/masked excluded; uncertain notes can force matches (none r9/r10)."
+  },
+  "current_docraft_table_experiment": {
+    "paired_docs": 59,
+    "ok_pair_docs": 59,
+    "colplan": {
+      "docs": 59,
+      "overall": {
+        "scored": 13245,
+        "match": 12336,
+        "accuracy": 0.9314
+      },
+      "by_type": {
+        "세부내역서": {
+          "scored": 7125,
+          "match": 6234,
+          "accuracy": 0.8749
+        },
+        "진료비영수증": {
+          "scored": 6120,
+          "match": 6102,
+          "accuracy": 0.9971
+        }
+      },
+      "by_column": {
+        "EDI명칭": {
+          "scored": 375,
+          "match": 319,
+          "accuracy": 0.8507
+        },
+        "EDI코드": {
+          "scored": 375,
+          "match": 359,
+          "accuracy": 0.9573
+        },
+        "공단부담": {
+          "scored": 375,
+          "match": 292,
+          "accuracy": 0.7787
+        },
+        "공단부담금": {
+          "scored": 765,
+          "match": 763,
+          "accuracy": 0.9974
+        },
+        "급여": {
+          "scored": 1140,
+          "match": 1133,
+          "accuracy": 0.9939
+        },
+        "급여구분": {
+          "scored": 375,
+          "match": 43,
+          "accuracy": 0.1147
+        },
+        "단가": {
+          "scored": 375,
+          "match": 349,
+          "accuracy": 0.9307
+        },
+        "본인부담": {
+          "scored": 375,
+          "match": 292,
+          "accuracy": 0.7787
+        },
+        "본인부담금": {
+          "scored": 765,
+          "match": 759,
+          "accuracy": 0.9922
+        },
+        "비급여": {
+          "scored": 1140,
+          "match": 1105,
+          "accuracy": 0.9693
+        },
+        "선택진료료": {
+          "scored": 1140,
+          "match": 1139,
+          "accuracy": 0.9991
+        },
+        "선택진료료외": {
+          "scored": 1140,
+          "match": 1139,
+          "accuracy": 0.9991
+        },
+        "시작일자": {
+          "scored": 375,
+          "match": 372,
+          "accuracy": 0.992
+        },
+        "원내코드": {
+          "scored": 375,
+          "match": 360,
+          "accuracy": 0.96
+        },
+        "일수": {
+          "scored": 375,
+          "match": 372,
+          "accuracy": 0.992
+        },
+        "전액본인부담": {
+          "scored": 1140,
+          "match": 1132,
+          "accuracy": 0.993
+        },
+        "종료일자": {
+          "scored": 375,
+          "match": 368,
+          "accuracy": 0.9813
+        },
+        "총액": {
+          "scored": 375,
+          "match": 284,
+          "accuracy": 0.7573
+        },
+        "투여량": {
+          "scored": 375,
+          "match": 354,
+          "accuracy": 0.944
+        },
+        "항목": {
+          "scored": 1140,
+          "match": 1031,
+          "accuracy": 0.9044
+        },
+        "횟수": {
+          "scored": 375,
+          "match": 371,
+          "accuracy": 0.9893
+        }
+      },
+      "row_count_match": "6/59",
+      "missing_rows": 101,
+      "extra_rows": 3,
+      "verdicts": {
+        "일치": 12336,
+        "불일치": 94,
+        "누락": 803,
+        "오검출": 12
+      },
+      "column_swaps": 1,
+      "swap_pairs": {
+        "전액본인부담->비급여": 1
+      },
+      "latency_s": {
+        "p50": 15.6,
+        "p90": 27.8,
+        "max": 35.3
+      },
+      "completion_tokens_mean": 872,
+      "prompt_tokens_mean": 7018,
+      "errors": 0,
+      "no_result_docs": 0,
+      "zero_row_docs": 0,
+      "length_cut": 0,
+      "docs_with_warnings": 14,
+      "calls_total": 59,
+      "providers": {
+        "Alibaba": 59
+      },
+      "ok_pair": {
+        "scored": 13245,
+        "match": 12336,
+        "accuracy": 0.9314
+      }
+    },
+    "new": {
+      "docs": 59,
+      "overall": {
+        "scored": 13321,
+        "match": 12820,
+        "accuracy": 0.9624
+      },
+      "by_type": {
+        "세부내역서": {
+          "scored": 7201,
+          "match": 6718,
+          "accuracy": 0.9329
+        },
+        "진료비영수증": {
+          "scored": 6120,
+          "match": 6102,
+          "accuracy": 0.9971
+        }
+      },
+      "by_column": {
+        "EDI명칭": {
+          "scored": 379,
+          "match": 324,
+          "accuracy": 0.8549
+        },
+        "EDI코드": {
+          "scored": 379,
+          "match": 366,
+          "accuracy": 0.9657
+        },
+        "공단부담": {
+          "scored": 379,
+          "match": 377,
+          "accuracy": 0.9947
+        },
+        "공단부담금": {
+          "scored": 765,
+          "match": 763,
+          "accuracy": 0.9974
+        },
+        "급여": {
+          "scored": 1144,
+          "match": 1137,
+          "accuracy": 0.9939
+        },
+        "급여구분": {
+          "scored": 379,
+          "match": 43,
+          "accuracy": 0.1135
+        },
+        "단가": {
+          "scored": 379,
+          "match": 355,
+          "accuracy": 0.9367
+        },
+        "본인부담": {
+          "scored": 379,
+          "match": 377,
+          "accuracy": 0.9947
+        },
+        "본인부담금": {
+          "scored": 765,
+          "match": 759,
+          "accuracy": 0.9922
+        },
+        "비급여": {
+          "scored": 1144,
+          "match": 1140,
+          "accuracy": 0.9965
+        },
+        "선택진료료": {
+          "scored": 1144,
+          "match": 1143,
+          "accuracy": 0.9991
+        },
+        "선택진료료외": {
+          "scored": 1144,
+          "match": 1143,
+          "accuracy": 0.9991
+        },
+        "시작일자": {
+          "scored": 379,
+          "match": 373,
+          "accuracy": 0.9842
+        },
+        "원내코드": {
+          "scored": 379,
+          "match": 377,
+          "accuracy": 0.9947
+        },
+        "일수": {
+          "scored": 379,
+          "match": 379,
+          "accuracy": 1.0
+        },
+        "전액본인부담": {
+          "scored": 1144,
+          "match": 1142,
+          "accuracy": 0.9983
+        },
+        "종료일자": {
+          "scored": 379,
+          "match": 369,
+          "accuracy": 0.9736
+        },
+        "총액": {
+          "scored": 379,
+          "match": 364,
+          "accuracy": 0.9604
+        },
+        "투여량": {
+          "scored": 379,
+          "match": 379,
+          "accuracy": 1.0
+        },
+        "항목": {
+          "scored": 1144,
+          "match": 1132,
+          "accuracy": 0.9895
+        },
+        "횟수": {
+          "scored": 379,
+          "match": 378,
+          "accuracy": 0.9974
+        }
+      },
+      "row_count_match": "6/59",
+      "missing_rows": 3,
+      "extra_rows": 5,
+      "verdicts": {
+        "일치": 12820,
+        "불일치": 99,
+        "누락": 385,
+        "오검출": 17
+      },
+      "column_swaps": 1,
+      "swap_pairs": {
+        "전액본인부담->비급여": 1
+      },
+      "latency_s": {
+        "p50": 16.2,
+        "p90": 25.4,
+        "max": 33.2
+      },
+      "completion_tokens_mean": 984,
+      "prompt_tokens_mean": 7151,
+      "errors": 0,
+      "no_result_docs": 0,
+      "zero_row_docs": 0,
+      "length_cut": 0,
+      "docs_with_warnings": 29,
+      "calls_total": 59,
+      "providers": {
+        "Alibaba": 59
+      },
+      "ok_pair": {
+        "scored": 13321,
+        "match": 12820,
+        "accuracy": 0.9624
+      }
+    },
+    "diff_cells": 458,
+    "diff_verdicts": {
+      "colplan=누락 new=일치": 413,
+      "colplan=일치 new=오검출": 12,
+      "colplan=불일치 new=불일치": 9,
+      "colplan=누락 new=불일치": 9,
+      "colplan=오검출 new=일치": 7,
+      "colplan=불일치 new=일치": 6,
+      "colplan=일치 new=불일치": 2
+    }
+  },
+  "reproduce_read_only": "cd /home/pilsu/projects/mirae-assets && Docraft/.venv/bin/python -c 'import sys,json; from pathlib import Path; sys.path.insert(0,\"e2e\"); import grade_samples as g; cs=[]; [cs.extend(g.grade_file(p.parent.name,p)[0]) for p in Path(\"e2e/out/golden1002-aws-r9\").rglob(\"*.answer.json\")]; print(json.dumps(g.tally(cs),ensure_ascii=False))'",
+  "sample_caveats": [
+    "59 docs comprise 29 details and 30 receipt-folder documents; one stored document has zero scored cells, so perfect-doc count excludes it.",
+    "Two document families only, same repeatedly optimized golden set, related scans and legacy templates; not representative of seven-type customer production.",
+    "Scorer aligns rows semantically, suppresses extra blank/total rows, canonicalizes display variations, treats zero and blank equivalent for amounts; document classification and metadata are not counted in cell accuracy.",
+    "No present-dev AWS end-to-end accuracy/throughput measured. Latest table-only experiment is gate-off, no automatic reprocessing and hybrid fresh detail + replayed receipt runs."
+  ]
+}
