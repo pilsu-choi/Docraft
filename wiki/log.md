@@ -4,6 +4,10 @@
 * **Creation**: [세부내역서 칸을 다른 칸에서 옮겨 채우지 않는다](2026-10-03-printed-only-derive.md)에 근본 원인, 문제 유형(미인쇄 칸 파생)과 범위, 바꾸지 않은 필드 파생, 테스트, 재적용 채점(96.41→96.51%)을 기록했다. 브랜치 `fix/printed-only-derive`, 워크트리 `.worktrees/printed-only-derive`.
 * **Update**: [index](index.md)에 문서를 연결했다.
 
+## 2026-10-03 (검토 무결성 수정)
+* **Creation**: [작업 세대·부분 추출·스프레드시트 무결성](2026-10-03-review-integrity.md)에 D1·D3·D5 근본 원인, 일반화 범위, 소비자 계약, 회귀와 한계를 기록했다. 브랜치 `fix/review-integrity`, 워크트리 `.worktrees/review-integrity`.
+* **Update**: [index](index.md)와 [README](../README.md)에 문서 링크·상태 및 내보내기 계약을 반영했다.
+
 ## 2026-10-03 (여러 쪽 표 쪽 묶음 읽기)
 * **Creation**: [여러 쪽 표를 쪽 묶음별로 나눠 읽기](2026-10-03-pagewise-table.md)에 근본 원인·문제 유형·설계·테스트·5개 PDF 검증과 남은 유형(빽빽한 쪽의 깨진 JSON)을 기록했다. 브랜치 `feat/pagewise-table`, 워크트리 `.worktrees/pagewise-table`.
 * **Update**: [index](index.md)에 문서를 연결했다.

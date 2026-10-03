@@ -11,6 +11,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
+from itertools import chain
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
@@ -21,6 +22,7 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from openpyxl import Workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from PIL import Image
 from pydantic import BaseModel, Field, field_validator
 from jsonschema.exceptions import SchemaError
@@ -33,7 +35,7 @@ from .parsers import ParseError, parse
 
 logger = logging.getLogger(__name__)
 
-JSON_FIELDS = ("blocks", "result", "groundings", "validation", "parse_options", "reprocess")
+JSON_FIELDS = ("blocks", "result", "groundings", "validation", "parse_options", "reprocess", "completeness")
 PAGE_RANGE_RE = re.compile(r"^\d+(-\d+)?(,\d+(-\d+)?)*$")
 ALLOWED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".docx", ".xlsx", ".csv", ".txt", ".md", ".html", ".htm"}
 IMAGES = engine.VISION_SUFFIXES - {".pdf"}  # 페이지 이미지를 가진 형식 중 단일 이미지 파일
@@ -43,7 +45,7 @@ ACTIVE = {"parsing": ("parsing",), "extracting": ("extracting", "validating")}
 RUNNING_STATUSES = {"parsing", "extracting", "validating"}  # 실행 중인 잡이 있는 상태(취소는 다음 단계 경계에서)
 PROCESSING_STATUSES = {"queued", *RUNNING_STATUSES}  # 삭제 금지·취소 대상 문서 상태
 # /api/read 응답 diagnostics·로그에 남기는 표 읽기 운영 지표(verify._note_table·engine·rules가 남긴다)
-TABLE_STAGES = ("table_plan", "table_plan_reason", "table_gate", "table_reread", "rowmajor_fallback", "column_swaps", "turned")
+TABLE_STAGES = ("table_plan", "table_plan_reason", "table_gate", "table_reread", "rowmajor_fallback", "column_swaps", "turned", "table_pages_failed", "extraction_completeness")
 
 
 @asynccontextmanager
@@ -162,6 +164,8 @@ def document(db, document_id):
     value["groundings"] = grounding_list(value["groundings"])
     value.pop("file_path", None)
     value.pop("cancel_requested", None)
+    value.pop("job_generation", None)
+    value.pop("job_owner", None)
     return value
 
 
@@ -240,7 +244,7 @@ def delete_project(project_id: str):
     for path in paths: remove_file(path)
 
 
-DOCUMENT_LIST_COLUMNS = "id,project_id,filename,media_type,size,status,error,schema_id,approved_at,created_at,updated_at,result,validation"
+DOCUMENT_LIST_COLUMNS = "id,project_id,filename,media_type,size,status,error,schema_id,approved_at,created_at,updated_at,result,validation,completeness"
 
 
 @app.get("/api/projects/{project_id}/documents", dependencies=[Depends(auth)])
@@ -248,7 +252,7 @@ def list_documents(project_id: str):
     with connect() as db:
         one(db, "SELECT id FROM projects WHERE id=?", (project_id,))
         rows = db.execute(f"SELECT {DOCUMENT_LIST_COLUMNS} FROM documents WHERE project_id=? ORDER BY created_at DESC", (project_id,)).fetchall()
-        return [decode(row, ("result", "validation")) for row in rows]
+        return [decode(row, ("result", "validation", "completeness")) for row in rows]
 
 
 async def save_upload(upload: UploadFile, target: Path):
@@ -318,46 +322,43 @@ def stale_before():
     return (datetime.now(timezone.utc) - timedelta(seconds=jobs.LEASE)).isoformat()
 
 
-def claim(db, document_id, status):
-    """Move a queued document, or one whose job stopped heartbeating, to `status`; False when a live job owns it (or it is gone)."""
-    active = ACTIVE[status]
+def claim(db, document_id, status, generation=""):
+    """Claim only this queued generation; each lease takeover gets a new owner."""
+    active, owner = ACTIVE[status], uid()
     claimed = db.execute(
-        f"UPDATE documents SET status=?,error=NULL,updated_at=? WHERE id=? AND (status='queued' OR (status IN ({','.join('?' * len(active))}) AND updated_at<?))",
-        (status, now(), document_id, *active, stale_before()),
+        f"UPDATE documents SET status=?,job_owner=?,error=NULL,updated_at=? WHERE id=? AND job_generation=? AND (status='queued' OR (status IN ({','.join('?' * len(active))}) AND updated_at<?))",
+        (status, owner, now(), document_id, generation, *active, stale_before()),
     ).rowcount
-    if not claimed: logger.warning("job skipped, document not queued: document=%s target=%s", document_id, status)
-    return bool(claimed)
+    if not claimed: logger.warning("job skipped, generation not claimable: document=%s target=%s", document_id, status)
+    return owner if claimed else None
 
 
-TASK_IDS: dict[str, str] = {}  # document_id -> Celery task id(있으면). API 프로세스만 큐에 넣으므로 이 메모리만으로 충분하다.
+TASK_IDS: dict[str, str] = {}  # Best-effort local revoke; DB generation/ownership is authoritative across API processes.
 
 
-def dispatch(document_id, name, *args):
+def dispatch(document_id, name, *args, generation=""):
     """작업을 큐에 넣고, Celery면 나중에 cancel이 revoke할 수 있도록 task id를 기억해둔다."""
-    result = jobs.enqueue(name, document_id, *args)
+    result = jobs.enqueue(name, document_id, *args, generation)
     task_id = getattr(result, "id", None)
     if task_id: TASK_IDS[document_id] = task_id
 
 
-def check_cancel(db, document_id):
-    """운영자가 이 문서의 취소를 요청했으면(``cancel_requested``) status를 canceled로 남기고 True를 돌려준다.
-
-    parse·extract 잡의 단계 경계(파싱 뒤, 추출 뒤, 검증 뒤)에서만 확인한다 — verify._check와 같은
-    협조적 취소이며, 진행 중인 단일 호출(파싱·추출 자체)을 중간에 끊지는 않는다.
-    """
-    row = one(db, "SELECT cancel_requested FROM documents WHERE id=?", (document_id,))
+def check_cancel(db, document_id, owner):
+    """Lock the owned running generation at a stage boundary; stale owners stop."""
+    row = db.execute("SELECT cancel_requested FROM documents WHERE id=? AND job_owner=? AND status IN ('parsing','extracting','validating') FOR UPDATE", (document_id, owner)).fetchone()
+    if not row: return True
     if not row["cancel_requested"]: return False
-    db.execute("UPDATE documents SET status='canceled',cancel_requested=FALSE,updated_at=? WHERE id=?", (now(), document_id))
+    db.execute("UPDATE documents SET status='canceled',job_owner=NULL,cancel_requested=FALSE,updated_at=? WHERE id=? AND job_owner=?", (now(), document_id, owner))
     return True
 
 
 @contextmanager
-def heartbeat(document_id):
+def heartbeat(document_id, owner=None):
     """Refresh updated_at while a job runs so claim() only takes over jobs whose worker died."""
     stop = threading.Event()
     def beat():
         while not stop.wait(jobs.LEASE / 3):
-            with connect() as db: db.execute("UPDATE documents SET updated_at=? WHERE id=? AND status IN ('parsing','extracting','validating')", (now(), document_id))
+            with connect() as db: db.execute("UPDATE documents SET updated_at=? WHERE id=? AND job_owner IS NOT DISTINCT FROM ? AND status IN ('parsing','extracting','validating')", (now(), document_id, owner))
     threading.Thread(target=beat, daemon=True).start()
     try: yield
     finally: stop.set()
@@ -366,42 +367,46 @@ def heartbeat(document_id):
 def recover():
     """Re-enqueue queued documents and jobs whose worker died; lost inline jobs and dropped broker messages resume on API start."""
     with connect() as db:
-        rows = db.execute("SELECT id,schema_id,markdown IS NOT NULL AS parsed FROM documents WHERE status='queued' OR (status IN ('parsing','extracting','validating') AND updated_at<?)", (stale_before(),)).fetchall()
+        rows = db.execute("SELECT id,schema_id,job_generation,markdown IS NOT NULL AS parsed FROM documents WHERE status='queued' OR (status IN ('parsing','extracting','validating') AND updated_at<?)", (stale_before(),)).fetchall()
     for row in rows:
-        if row["parsed"]: dispatch(row["id"], "extract", row["schema_id"])
-        else: dispatch(row["id"], "parse")
+        if row["parsed"]: dispatch(row["id"], "extract", row["schema_id"], generation=row["job_generation"])
+        else: dispatch(row["id"], "parse", generation=row["job_generation"])
     if rows: logger.info("recovered jobs: %d", len(rows))
 
 
 @jobs.task("parse")
-def run_parse(document_id: str):
+def run_parse(document_id: str, generation=""):
     with connect() as db:
-        if not claim(db, document_id, "parsing"): return
+        owner = claim(db, document_id, "parsing", generation)
+        if not owner: return
         row = one(db, "SELECT * FROM documents WHERE id=?", (document_id,), json_fields=("parse_options",))
     logger.info("parse start: document=%s filename=%s", document_id, row["filename"])
     started = time.monotonic()
     try:
-        with heartbeat(document_id): markdown, blocks = parse(row["file_path"], row["filename"], row["media_type"], row["parse_options"])
+        with heartbeat(document_id, owner): markdown, blocks = parse(row["file_path"], row["filename"], row["media_type"], row["parse_options"])
         with connect() as db:
-            if check_cancel(db, document_id):
+            if check_cancel(db, document_id, owner):
                 logger.info("status transition: document=%s status=canceled (parse)", document_id)
                 return
-            db.execute("UPDATE documents SET status='parsed',markdown=?,blocks=?,updated_at=? WHERE id=?", (markdown, json.dumps(blocks, ensure_ascii=False), now(), document_id))
+            db.execute("UPDATE documents SET status='parsed',job_owner=NULL,markdown=?,blocks=?,updated_at=? WHERE id=? AND job_owner=?", (markdown, json.dumps(blocks, ensure_ascii=False), now(), document_id, owner))
             audit(db, row["project_id"], "parse", "document", document_id, {"blocks": len(blocks)})
         logger.info("parse finished: document=%s blocks=%d elapsed=%.2fs", document_id, len(blocks), time.monotonic() - started)
     except Exception as exc:
         message = str(exc) if isinstance(exc, ParseError) else f"문서 파싱 실패: {exc}"
         logger.exception("parse failed: document=%s elapsed=%.2fs", document_id, time.monotonic() - started)
-        with connect() as db: db.execute("UPDATE documents SET status='failed',error=?,updated_at=? WHERE id=?", (message, now(), document_id))
+        with connect() as db:
+            if not check_cancel(db, document_id, owner):
+                db.execute("UPDATE documents SET status='failed',job_owner=NULL,error=?,updated_at=? WHERE id=? AND job_owner=?", (message, now(), document_id, owner))
 
 
 @app.post("/api/documents/{document_id}/parse", status_code=202, dependencies=[Depends(auth)])
 def retry_parse(document_id: str, data: ParseOptions | None = None):
     with connect() as db:
-        current = one(db, "SELECT parse_options FROM documents WHERE id=?", (document_id,), json_fields=("parse_options",))
+        current = one(db, "SELECT parse_options FROM documents WHERE id=? FOR UPDATE", (document_id,), json_fields=("parse_options",))
+        generation = uid()
         options = data.model_dump() if data is not None else current["parse_options"]
-        db.execute("UPDATE documents SET status='queued',error=NULL,markdown=NULL,blocks='[]',result=NULL,groundings='{}',validation='[]',reprocess='{}',schema_id=NULL,approved_at=NULL,parse_options=?,updated_at=? WHERE id=?", (json.dumps(options, ensure_ascii=False), now(), document_id))
-    dispatch(document_id, "parse")
+        db.execute("UPDATE documents SET status='queued',job_generation=?,job_owner=NULL,cancel_requested=FALSE,completeness='{}',error=NULL,markdown=NULL,blocks='[]',result=NULL,groundings='{}',validation='[]',reprocess='{}',schema_id=NULL,approved_at=NULL,parse_options=?,updated_at=? WHERE id=?", (generation, json.dumps(options, ensure_ascii=False), now(), document_id))
+    dispatch(document_id, "parse", generation=generation)
     return {"id": document_id, "status": "queued"}
 
 
@@ -412,7 +417,7 @@ def cancel_document(document_id: str):
     이미 끝났거나 취소된 문서(파싱 완료·검토 필요·완료·실패·취소됨)는 취소할 잡이 없어 409다.
     """
     with connect() as db:
-        doc = one(db, "SELECT status,project_id FROM documents WHERE id=?", (document_id,))
+        doc = one(db, "SELECT status,project_id FROM documents WHERE id=? FOR UPDATE", (document_id,))
         if doc["status"] == "queued":
             db.execute("UPDATE documents SET status='canceled',updated_at=? WHERE id=?", (now(), document_id))
         elif doc["status"] in RUNNING_STATUSES:
@@ -501,25 +506,28 @@ def generate(project_id: str, data: GenerateInput):
 
 
 @jobs.task("extract")
-def run_extract(document_id, schema_id):
+def run_extract(document_id, schema_id, generation=""):
     with connect() as db:
-        if not claim(db, document_id, "extracting"): return
+        owner = claim(db, document_id, "extracting", generation)
+        if not owner: return
         doc = one(db, "SELECT * FROM documents WHERE id=?", (document_id,), json_fields=("blocks",))
         schema = schema_row(db.execute("SELECT * FROM schemas WHERE id=?", (schema_id,)).fetchone())
     logger.info("extract start: document=%s schema=%s", document_id, schema_id)
     started = time.monotonic()
     try:
-        with heartbeat(document_id): result, groundings = engine.extract(schema["json_schema"], doc["blocks"], doc["file_path"])
+        completeness = {}
+        with heartbeat(document_id, owner): result, groundings = engine.extract(schema["json_schema"], doc["blocks"], doc["file_path"], completeness=completeness)
         with connect() as db:
-            if check_cancel(db, document_id):
+            if check_cancel(db, document_id, owner):
                 logger.info("status transition: document=%s status=canceled (extract)", document_id)
                 return
-            db.execute("UPDATE documents SET status='validating',result=?,groundings=?,updated_at=? WHERE id=?", (json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), now(), document_id))
+            db.execute("UPDATE documents SET status='validating',result=?,groundings=?,completeness=?,updated_at=? WHERE id=? AND job_owner=?", (json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), json.dumps(completeness, ensure_ascii=False), now(), document_id, owner))
         class JobCancel:
             def is_set(self):
                 with connect() as connection:
-                    return bool(one(connection, "SELECT cancel_requested FROM documents WHERE id=?", (document_id,))["cancel_requested"])
-        with heartbeat(document_id):
+                    row = connection.execute("SELECT cancel_requested FROM documents WHERE id=? AND job_owner=?", (document_id, owner)).fetchone()
+                    return row is None or bool(row["cancel_requested"])
+        with heartbeat(document_id, owner):
             result, groundings, quality, recovery = reprocess.run(
                 doc["file_path"], schema["json_schema"], doc["blocks"], result, cancel=JobCancel())
         engine.annotate_groundings(groundings, quality)
@@ -527,19 +535,20 @@ def run_extract(document_id, schema_id):
         issues.extend({"path": "/" + path, "code": "low_confidence", "message": "원문 근거를 확인할 수 없습니다."}
                       for path, item in quality.items() if item["status"] == "SUSPICIOUS"
                       and not any(issue["path"] == "/" + path and issue["code"] == "low_confidence" for issue in issues))
+        issues.extend(completeness_issues(completeness))
         status = "needs_review" if issues or any(item["action"] != "ACCEPT" for item in quality.values()) else "completed"
         with connect() as db:
-            if check_cancel(db, document_id):
+            if check_cancel(db, document_id, owner):
                 logger.info("status transition: document=%s status=canceled (validate)", document_id)
                 return
-            db.execute("UPDATE documents SET status=?,result=?,groundings=?,validation=?,reprocess=?,updated_at=? WHERE id=?", (status, json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), json.dumps(issues, ensure_ascii=False), json.dumps(recovery, ensure_ascii=False), now(), document_id))
+            db.execute("UPDATE documents SET status=?,job_owner=NULL,result=?,groundings=?,validation=?,reprocess=?,updated_at=? WHERE id=? AND job_owner=?", (status, json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), json.dumps(issues, ensure_ascii=False), json.dumps(recovery, ensure_ascii=False), now(), document_id, owner))
             audit(db, doc["project_id"], "extract", "document", document_id, {"schema_id": schema_id, "issues": len(issues)})
         logger.info("extract finished: document=%s status=%s issues=%d elapsed=%.2fs", document_id, status, len(issues), time.monotonic() - started)
     except Exception as exc:
         logger.exception("extract failed: document=%s elapsed=%.2fs", document_id, time.monotonic() - started)
         with connect() as db:
-            if not check_cancel(db, document_id):
-                db.execute("UPDATE documents SET status='failed',error=?,updated_at=? WHERE id=?", (f"추출 실패: {exc}", now(), document_id))
+            if not check_cancel(db, document_id, owner):
+                db.execute("UPDATE documents SET status='failed',job_owner=NULL,error=?,updated_at=? WHERE id=? AND job_owner=?", (f"추출 실패: {exc}", now(), document_id, owner))
 
 
 EXTRACTABLE_STATUSES = {"parsed", "needs_review", "completed"}
@@ -554,19 +563,22 @@ def extract_reason(doc, project_id, mismatch):
 
 
 def mark_queued(db, document_id, schema_id):
-    """Queue an extract; schema_id is stored now so recover() can re-enqueue it."""
-    db.execute("UPDATE documents SET status='queued',error=NULL,reprocess='{}',schema_id=?,updated_at=? WHERE id=?", (schema_id, now(), document_id))
+    """Replace the extraction generation and invalidate all previous result state."""
+    generation = uid()
+    changed = db.execute("UPDATE documents SET status='queued',job_generation=?,job_owner=NULL,cancel_requested=FALSE,error=NULL,result=NULL,groundings='{}',validation='[]',completeness='{}',approved_at=NULL,reprocess='{}',schema_id=?,updated_at=? WHERE id=? AND status IN ('parsed','needs_review','completed')", (generation, schema_id, now(), document_id)).rowcount
+    return generation if changed else None
 
 
 @app.post("/api/documents/{document_id}/extract", status_code=202, dependencies=[Depends(auth)])
 def start_extract(document_id: str, data: ExtractInput):
     with connect() as db:
-        doc = one(db, "SELECT project_id,status FROM documents WHERE id=?", (document_id,))
+        doc = one(db, "SELECT project_id,status FROM documents WHERE id=? FOR UPDATE", (document_id,))
         schema = one(db, "SELECT project_id FROM schemas WHERE id=?", (data.schema_id,))
         reason = extract_reason(doc, schema["project_id"], "문서와 스키마의 프로젝트가 다릅니다.")
         if reason: raise HTTPException(409, reason)
-        mark_queued(db, document_id, data.schema_id)
-    dispatch(document_id, "extract", data.schema_id)
+        generation = mark_queued(db, document_id, data.schema_id)
+        if generation is None: raise HTTPException(409, "문서 상태가 변경되었습니다.")
+    dispatch(document_id, "extract", data.schema_id, generation=generation)
     return {"id": document_id, "status": "queued"}
 
 
@@ -581,15 +593,19 @@ def batch_extract(project_id: str, data: BatchExtractInput):
         else:
             rows = db.execute("SELECT id,project_id,status,filename FROM documents WHERE project_id=? ORDER BY created_at", (project_id,)).fetchall()
             targets = [(row["id"], row) for row in rows]
-        queued, skipped = [], []
+        queued, skipped, generations = [], [], {}
         for doc_id, doc in targets:
             reason = extract_reason(doc, project_id, "다른 프로젝트의 문서입니다.")
             if reason:
                 skipped.append({"id": doc_id, "filename": doc["filename"] if doc else None, "reason": reason})
                 continue
-            mark_queued(db, doc_id, data.schema_id)
+            generation = mark_queued(db, doc_id, data.schema_id)
+            if generation is None:
+                skipped.append({"id": doc_id, "filename": doc["filename"], "reason": "문서 상태가 변경되었습니다."})
+                continue
+            generations[doc_id] = generation
             queued.append(doc_id)
-    for doc_id in queued: dispatch(doc_id, "extract", data.schema_id)
+    for doc_id in queued: dispatch(doc_id, "extract", data.schema_id, generation=generations[doc_id])
     return {"queued": queued, "skipped": skipped}
 
 
@@ -601,7 +617,8 @@ def _schema_for_document(db, doc):
 @app.patch("/api/documents/{document_id}/review", dependencies=[Depends(auth)])
 def review(document_id: str, data: ReviewInput):
     with connect() as db:
-        doc = one(db, "SELECT * FROM documents WHERE id=?", (document_id,), json_fields=("result", "groundings"))
+        doc = one(db, "SELECT * FROM documents WHERE id=? FOR UPDATE", (document_id,), json_fields=("result", "groundings", "completeness"))
+        if doc["status"] not in {"needs_review", "completed"}: raise HTTPException(409, "처리가 끝난 결과만 검토·승인할 수 있습니다.")
         if doc["result"] is None: raise HTTPException(409, "수정할 추출 결과가 없습니다.")
         schema = _schema_for_document(db, doc)
         try: result, old = engine.set_pointer(doc["result"], data.path, data.value)
@@ -609,6 +626,7 @@ def review(document_id: str, data: ReviewInput):
         groundings = doc["groundings"]
         mark_corrected(groundings, data.path)
         issues = engine.validate(result, schema["json_schema"], groundings)
+        issues.extend(completeness_issues(doc["completeness"]))
         stamp = now()
         db.execute("UPDATE documents SET result=?,groundings=?,validation=?,status='needs_review',approved_at=NULL,updated_at=? WHERE id=?", (json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), json.dumps(issues, ensure_ascii=False), stamp, document_id))
         db.execute("INSERT INTO corrections(document_id,path,old_value,new_value,created_at) VALUES(?,?,?,?,?)", (document_id, data.path, json.dumps(old, ensure_ascii=False), json.dumps(data.value, ensure_ascii=False), stamp))
@@ -620,16 +638,24 @@ def review(document_id: str, data: ReviewInput):
 @app.post("/api/documents/{document_id}/approve", dependencies=[Depends(auth)])
 def approve(document_id: str):
     with connect() as db:
-        doc = one(db, "SELECT * FROM documents WHERE id=?", (document_id,), json_fields=("result", "groundings"))
+        doc = one(db, "SELECT * FROM documents WHERE id=? FOR UPDATE", (document_id,), json_fields=("result", "groundings", "completeness"))
+        if doc["status"] not in {"needs_review", "completed"}: raise HTTPException(409, "처리가 끝난 결과만 검토·승인할 수 있습니다.")
         if doc["result"] is None: raise HTTPException(409, "승인할 추출 결과가 없습니다.")
         schema = _schema_for_document(db, doc)
         issues = [issue for issue in engine.validate(doc["result"], schema["json_schema"], doc["groundings"]) if issue["code"] != "low_confidence"]
+        issues.extend(completeness_issues(doc["completeness"]))
         if issues: raise HTTPException(422, {"message": "검증 오류를 수정한 후 승인할 수 있습니다.", "validation": issues})
         stamp = now()
         db.execute("UPDATE documents SET status='completed',validation='[]',approved_at=?,updated_at=? WHERE id=?", (stamp, stamp, document_id))
         audit(db, doc["project_id"], "approve", "document", document_id)
         logger.info("status transition: document=%s status=completed", document_id)
         return document(db, document_id)
+
+
+def completeness_issues(completeness):
+    if not completeness.get("partial"): return []
+    return [{"path": "/", "code": "partial_extraction", "message": "일부 페이지 판독이 실패했습니다. 재추출 후 승인하세요.",
+             "failed_pages": completeness.get("failed_pages", []), "tables": completeness.get("tables", {})}]
 
 
 def dotted(value, prefix, out):
@@ -670,43 +696,61 @@ def safe_stem(name, fallback):
     return cleaned or fallback
 
 
+def spreadsheet_text(value):
+    """Escape CSV executable strings without changing typed numbers."""
+    if isinstance(value, str) and (value.startswith(("\t", "\r", "\n")) or re.sub(r"^[\s\x00-\x1f]+", "", value).startswith(("=", "+", "-", "@"))):
+        return "'" + value
+    return value
+
+
 def table_response(rows, stem, format, columns=None):
     if format not in ("csv", "xlsx"): raise HTTPException(422, "format은 json, csv, xlsx 중 하나여야 합니다.")
     columns = columns or list(dict.fromkeys(key for row in rows for key in row))
+    values = chain([columns], ([row.get(column, "") for column in columns] for row in rows))
     if format == "csv":
         output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=columns, restval="")
-        writer.writeheader(); writer.writerows(rows)
+        csv.writer(output).writerows([spreadsheet_text(value) for value in row] for row in values)
         return Response(output.getvalue(), media_type="text/csv; charset=utf-8", headers=content_disposition(stem, "csv"))
     workbook = Workbook(); sheet = workbook.active; sheet.title = "result"
-    sheet.append(columns)
-    for row in rows: sheet.append([row.get(column, "") for column in columns])
+    for values_row in values:
+        sheet.append([ILLEGAL_CHARACTERS_RE.sub("\ufffd", value) if isinstance(value, str) else value for value in values_row])
+        for cell in sheet[sheet.max_row]:
+            if isinstance(cell.value, str): cell.data_type = "s"
     buffer = io.BytesIO(); workbook.save(buffer)
     return Response(buffer.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=content_disposition(stem, "xlsx"))
 
 
+def export_rows(doc):
+    rows = table_rows(doc["result"])
+    if doc["completeness"].get("partial"):
+        rows = [{**row, "_docraft.partial": True,
+                 "_docraft.completeness": json.dumps(doc["completeness"], ensure_ascii=False)} for row in rows]
+    return rows
+
+
 @app.get("/api/documents/{document_id}/export", dependencies=[Depends(auth)])
 def export(document_id: str, format: str = "json"):
-    with connect() as db: doc = one(db, "SELECT filename,result FROM documents WHERE id=?", (document_id,), json_fields=("result",))
+    with connect() as db: doc = one(db, "SELECT filename,result,completeness FROM documents WHERE id=?", (document_id,), json_fields=("result", "completeness"))
     if doc["result"] is None: raise HTTPException(409, "내보낼 추출 결과가 없습니다.")
     stem = Path(doc["filename"]).stem
     if format == "json":
-        return Response(json.dumps(doc["result"], ensure_ascii=False, indent=2), media_type="application/json", headers=content_disposition(stem, "json"))
-    return table_response(table_rows(doc["result"]), stem, format)
+        payload = {"result": doc["result"], "completeness": doc["completeness"]} if doc["completeness"].get("partial") else doc["result"]
+        return Response(json.dumps(payload, ensure_ascii=False, indent=2), media_type="application/json", headers=content_disposition(stem, "json"))
+    return table_response(export_rows(doc), stem, format)
 
 
 @app.get("/api/projects/{project_id}/export", dependencies=[Depends(auth)])
 def export_project(project_id: str, format: str = "json", schema_id: str | None = None):
     with connect() as db:
         proj = one(db, "SELECT * FROM projects WHERE id=?", (project_id,))
-        query, args = "SELECT id,filename,status,schema_id,result FROM documents WHERE project_id=? AND result IS NOT NULL", [project_id]
+        query, args = "SELECT id,filename,status,schema_id,result,completeness FROM documents WHERE project_id=? AND result IS NOT NULL", [project_id]
         if schema_id: query, args = query + " AND schema_id=?", args + [schema_id]
-        docs = [decode(row, ("result",)) for row in db.execute(query + " ORDER BY created_at", tuple(args)).fetchall()]
+        docs = [decode(row, ("result", "completeness")) for row in db.execute(query + " ORDER BY created_at", tuple(args)).fetchall()]
     stem = safe_stem(proj["name"], f"docraft-{project_id}")
     if format == "json":
-        payload = [{"document_id": doc["id"], "filename": doc["filename"], "status": doc["status"], "schema_id": doc["schema_id"], "result": doc["result"]} for doc in docs]
+        payload = [{"document_id": doc["id"], "filename": doc["filename"], "status": doc["status"], "schema_id": doc["schema_id"], "result": doc["result"], "completeness": doc["completeness"]} for doc in docs]
         return Response(json.dumps(payload, ensure_ascii=False, indent=2), media_type="application/json", headers=content_disposition(stem, "json"))
-    rows = [{"document_id": doc["id"], "filename": doc["filename"], "status": doc["status"], **row} for doc in docs for row in table_rows(doc["result"])]
+    rows = [{"document_id": doc["id"], "filename": doc["filename"], "status": doc["status"], **row} for doc in docs for row in export_rows(doc)]
     return table_response(rows, stem, format, columns=["document_id", "filename", "status"] if not rows else None)
 
 

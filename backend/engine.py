@@ -577,18 +577,30 @@ def _read_chunks(schema, chunks, source, budget, deadline=None, cancel=None, on_
                                  for index, chunk in enumerate(chunks)], schema)
 
 
-def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=None, table_extract="asis"):
+def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=None, table_extract="asis", completeness=None):
     """`source` is the original document file path; its page images are attached to each chunk call when available.
 
     `table_extract="rowmajor"` reads each table field (array of objects) in its own call as positional rows (`_read_rows`),
     in parallel with one call for the other fields. It needs a single chunk with page images; otherwise, and for a table
     whose rowmajor reply fails, the table is read as part of the JSON object (`asis`).
+    `completeness`, when provided, receives page/table success and failure ranges; partial rows remain usable for review.
 
     A table whose pages do not fit one reply (`_table_pages` gives several page groups) is read page group by page group in
     parallel (`TABLE_PAGE_CONCURRENCY`, default 4) and its rows are concatenated in page order: one call has to hold the
     whole table otherwise, and a long table runs past the provider output limit. rowmajor reads each group with the column
     plan most pages agree on (`_table_plan`), and a group whose reply fails is read asis alone."""
+    coverage = {"partial": False, "pages": _pages(blocks), "successful_pages": _pages(blocks), "failed_pages": [], "tables": {}}
+    def report():
+        failed = sorted({page for item in coverage["tables"].values() for page in item["failed_pages"]})
+        coverage.update(partial=bool(failed), failed_pages=failed,
+                        successful_pages=[page for page in coverage["pages"] if page not in failed])
+        if completeness is not None:
+            completeness.clear()
+            completeness.update(coverage)
+        note("extraction_completeness", coverage, add=False)
+
     if ai_settings()["mode"] == "local":
+        report()
         logger.debug("extract: local mode blocks=%d", len(blocks))
         return _local_extract(schema, blocks)
     if table_extract not in ("asis", "rowmajor"):
@@ -624,7 +636,10 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
                     raise
                 logger.warning("extract: rowmajor table=%s pages=%s failed, reading them asis: %s", table, pages, exc)
         try:
-            return _read_chunk(narrowed({table}), group, index, count, source, budget, deadline, cancel, on_call).get(table) or []
+            rows = _read_chunk(narrowed({table}), group, index, count, source, budget, deadline, cancel, on_call).get(table)
+            if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+                raise RuntimeError("표 응답이 객체 행 목록이 아닙니다.")
+            return rows
         except (RuntimeError, ValueError) as exc:  # one page group lost, not the whole table: counted as table_pages_failed
             if cancel is not None and cancel.is_set():
                 raise
@@ -636,6 +651,10 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         count = len(groups[table])
         logger.info("extract: table=%s read in %d page groups %s", table, count, [_page_range(group) for group in groups[table]])
         parts = parallel(lambda item: read_group(table, item[1], item[0], count), enumerate(groups[table]), limit("TABLE_PAGE_CONCURRENCY", 4, 32))
+        coverage["tables"][table] = {
+            "successful_pages": [page for group, part in zip(groups[table], parts) if not isinstance(part, Exception) for page in _pages(group)],
+            "failed_pages": [page for group, part in zip(groups[table], parts) if isinstance(part, Exception) for page in _pages(group)],
+        }
         if all(isinstance(part, Exception) for part in parts):
             raise parts[-1]
         return _merge_chunk_results([part for part in parts if not isinstance(part, Exception)], properties[table])
@@ -663,6 +682,9 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     merged = {**merged, **{table: rows for table, rows in read_parts.items() if rows is not None}}
     if separate:
         merged = {key: merged.get(key) for key in properties}
+    for table in tables:
+        coverage["tables"].setdefault(table, {"successful_pages": coverage["pages"], "failed_pages": []})
+    report()
     _drop_null_optionals(merged, schema)
     return merged, ground(merged, schema, blocks)
 
