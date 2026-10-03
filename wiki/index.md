@@ -195,3 +195,7 @@ okf_version: "0.2"
 * [2026-10-03-summary-rows-policy-integration](2026-10-03-summary-rows-policy-integration.md)
 * [2026-10-03-synthetic-dataset-codex-작업지시서](2026-10-03-synthetic-dataset-codex-작업지시서.md)
 * [2026-10-03-parse-extract-보강-작업지시서](2026-10-03-parse-extract-보강-작업지시서.md)
+
+- [harness·Docraft 서식 자동분류 끄기 확인](2026-10-03-classification-toggle-check.md) — 제목 OCR 재분류 설정과 수동 서식 지정
+
+- [서식 재분류 기본 OFF와 재생성 가이드](2026-10-03-classification-default-off.md) — ON/OFF·API/worker·AWS/Helm 적용

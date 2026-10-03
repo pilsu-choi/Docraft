@@ -268,3 +268,9 @@ cd frontend && npm run build
 ```
 
 테스트는 PostgreSQL의 격리된 schema를 사용합니다. 자세한 구현·검증 기록은 [wiki/index.md](wiki/index.md)에서 찾을 수 있습니다.
+
+## harness 서식 재분류 설정
+
+harness의 제목 OCR 기반 서식 재분류는 기본 OFF다. Docraft는 전달받은 `doc_type`으로 읽는다.
+다시 켜기와 harness API·worker 재생성은 [운영 가이드](wiki/2026-10-03-classification-default-off.md)를 따른다.
+이 설정 변경에는 Docraft backend 재생성이 필요 없다.
