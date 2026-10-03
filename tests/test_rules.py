@@ -764,9 +764,10 @@ def test_receipt_item_name_drops_every_non_alphanumeric_character(raw, expected)
 
 
 def test_detail_item_columns_follow_the_ao_convention():
-    """세부내역서: 머리글 근거가 없는(Judge 교정) 표는 코드를 AO처럼 인쇄된 칸 그대로 두고, 비급여 칸과 종료일자를 채운다.
+    """세부내역서: 머리글 근거가 없는(Judge 교정) 표는 코드를 AO처럼 인쇄된 칸 그대로 둔다.
 
-    급여 칸은 총액에서 만들지 않고, 머리글 근거가 없으면 모델 값도 지운다.
+    다른 칸에서 옮겨 채우지 않는다(2026-10-03): 급여는 총액에서, 비급여는 '급/비' 표시+총액에서, 종료일자는 시작일자에서
+    만들지 않는다. 급여구분 표시는 그대로 둔다. 머리글 근거가 없으면 급여 모델 값도 지운다.
     """
     rows = [{"원내코드": "V2200", "EDI코드": None, "시작일자": "20230311", "종료일자": None,
              "급여구분": "급여", "총액": "12380", "급여": "12,380"},
@@ -775,8 +776,8 @@ def test_detail_item_columns_follow_the_ao_convention():
     out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
 
     assert [(row["원내코드"], row["EDI코드"]) for row in out] == [("V2200", None), ("AA254", "AA254")]
-    assert (out[0]["종료일자"], out[0]["급여"]) == ("20230311", None)
-    assert (out[1]["비급여"], out[1]["급여"]) == ("60000", None)
+    assert (out[0]["종료일자"], out[0]["급여"]) == (None, None)
+    assert (out[1]["비급여"], out[1]["급여"], out[1]["급여구분"], out[1]["총액"]) == (None, None, "비급여", "60000")
 
 
 def test_detail_paid_column_keeps_printed_values_even_when_equal_to_the_total():
@@ -791,14 +792,15 @@ def test_detail_paid_column_keeps_printed_values_even_when_equal_to_the_total():
 
 
 def test_detail_paid_column_stays_null_when_it_only_groups_the_share_columns():
-    """급여가 본인부담·공단부담·전액본인부담을 묶는 머리글이면 값 칸이 아니므로 총액에서 만들지 않는다."""
+    """급여가 본인부담·공단부담·전액본인부담을 묶는 머리글이면 값 칸이 아니므로 총액에서 만들지 않는다. 인쇄된 비급여 열도
+    '비급여' 표시 행의 빈 칸을 총액으로 채우지 않는다(읽은 값만)."""
     blocks = [{"rows": [["항목", "총액", "급여", "급여", "급여", "비급여"],
                         ["", "", "본인부담", "공단부담", "전액본인부담", ""]]}]
 
     out = rules.apply("세부내역서", {"항목내역": [{"급여구분": "급여", "총액": "12380"},
                                               {"급여구분": "비급여", "총액": "60000"}]}, blocks)["항목내역"]
 
-    assert (out[0]["급여"], out[1]["비급여"]) == (None, "60000")
+    assert (out[0]["급여"], out[1]["비급여"]) == (None, None)
 
 
 def test_detail_paid_column_is_cleared_when_the_form_has_no_paid_amount_cell():
@@ -1474,10 +1476,10 @@ def test_carry_keeps_blanks_of_formats_that_print_every_row_and_blanks_above_the
     assert [row["시작일자"] for row in rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]][:2] == [None, "20230101"]
 
 
-def test_period_fills_rows_without_dates_and_ends_on_the_start_when_no_end():
+def test_period_fills_rows_without_dates_and_leaves_the_end_blank_when_no_end_is_printed():
     rows = dated(None, None)
     out = rules.apply("세부내역서", {"항목내역": rows, "환자정보(진료시작일)": "2023-01-02"}, [])["항목내역"]
-    assert [(row["시작일자"], row["종료일자"]) for row in out] == [("20230102", "20230102")] * 2
+    assert [(row["시작일자"], row["종료일자"]) for row in out] == [("20230102", None)] * 2
     both = {"항목내역": dated(None, None), "환자정보(진료시작일)": "20230102", "환자정보(진료종료일)": "20230110"}
     assert rules.apply("세부내역서", both, [])["항목내역"][1]["종료일자"] == "20230110"
 
@@ -1651,3 +1653,42 @@ def test_detail_printed_paid_column_keeps_summary_row_values():
     rows = [{"항목": "진찰료", "EDI코드": "AA100", "총액": "100", "급여": "100"}, {"항목": "소계", "총액": "100", "급여": "100"}]
 
     assert [row["급여"] for row in rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"]] == ["100", "100"]
+
+
+@pytest.mark.parametrize("row", [
+    {"시작일자": "20230311", "종료일자": None, "급여구분": "급여", "총액": "100"},  # 날짜 열 하나: 종료일자 미인쇄
+    {"시작일자": "20230311", "종료일자": None, "급여구분": "비급여", "총액": "60000", "비급여": None},  # '급/비' 표시
+    {"시작일자": "20230311", "종료일자": None, "급여구분": "비급", "총액": "60000"},  # '비급' 표기 변형
+    {"시작일자": "20230311", "종료일자": None, "급여구분": "비급여", "총액": "954.5", "단가": None},  # 소수 금액: 단가로도 옮기지 않는다
+])
+def test_detail_cells_are_never_copied_from_other_columns(row):
+    """칸은 인쇄된 값만 둔다 — 총액을 비급여·단가로, 시작일자를 종료일자로 옮기지 않는다(머리글 있음·없음 두 경로)."""
+    blocks = [{"rows": [["일자", "코드", "명칭", "금액", "횟수", "일수", "총액", "급/비"]]}]
+    for given in ([], blocks):
+        out = rules.apply("세부내역서", {"항목내역": [dict(row)]}, given)["항목내역"][0]
+        assert (out["종료일자"], out["비급여"], out["단가"]) == (None, None, None)
+        assert out["총액"] == row["총액"] and out["시작일자"] == "20230311" and out["급여구분"]
+
+
+def test_detail_printed_end_dates_and_uncovered_amounts_are_kept():
+    """인쇄된 종료일자·비급여 값은 그대로 둔다(빈 칸만 채우지 않는다)."""
+    row = {"시작일자": "20230311", "종료일자": "20230315", "급여구분": "비급여", "총액": "60000", "비급여": "60000"}
+    out = rules.apply("세부내역서", {"항목내역": [row]}, [])["항목내역"][0]
+    assert (out["종료일자"], out["비급여"]) == ("20230315", "60000")
+
+
+def test_detail_end_date_prompt_does_not_ask_to_copy_the_start_date():
+    hint = doctypes.spec("세부내역서")["tables"]["항목내역"]["종료일자"]
+    assert "시작일자와 같다" not in str(hint)
+
+
+@pytest.mark.parametrize("mark, printed", [("급/비", False), ("비급", False), ("급 / 비", False), ("비급", True)])
+def test_detail_uncovered_amounts_under_a_mark_column_are_not_printed(mark, printed):
+    """'급/비'·'비급' 표시 열만 있는 서식은 비급여 금액 열이 없다 — 모델이 표시를 보고 옮긴 총액은 지우고 표시는 급여구분에 둔다.
+    비급여 열이 함께 인쇄된 서식은 그 값을 둔다."""
+    head = ["항목", "코드", "명칭", "단가", "횟수", "일수", "총액", mark, *(["비급여"] if printed else [])]
+    row = {"EDI코드": "AA254", "급여구분": "비급여", "단가": "6500", "횟수": "1", "일수": "1", "총액": "6500", "비급여": "6500"}
+
+    out = rules.apply("세부내역서", {"항목내역": [row]}, [{"rows": [head]}])["항목내역"][0]
+
+    assert (out["비급여"], out["급여구분"], out["총액"]) == ("6500" if printed else None, "비급여", "6500")

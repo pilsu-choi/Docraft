@@ -658,7 +658,7 @@ def test_a_group_date_row_fills_the_dates_of_a_table_without_a_date_column():
 
     out = rules.apply("세부내역서", {"항목내역": rows}, [issued, table])["항목내역"]
 
-    assert [(row["시작일자"], row["종료일자"]) for row in out] == [("20220225", "20220225"), ("20220304", "20220304")]
+    assert [(row["시작일자"], row["종료일자"]) for row in out] == [("20220225", None), ("20220304", None)]  # 날짜 하나 → 종료일자는 미인쇄
     assert rules.apply("세부내역서", {"항목내역": rows}, [{**issued, "text": "2021-11-23\nAA154 초진진찰료"}])["항목내역"][0]["시작일자"] is None
 
 
@@ -676,13 +676,13 @@ def summary_rows(columns):
 
 def assert_summary_kept(rows):
     assert [(r["항목"], r["EDI명칭"], r["시작일자"], r["종료일자"], r["총액"]) for r in rows] == [
-        ("진찰료", "초진진찰료", "20230303", "20230303", "100"), ("진찰료", "재진진찰료", "20230303", "20230303", "50"),
-        ("소계", None, None, None, "150"), ("검사료", "혈액검사", "20230304", "20230304", "30"), ("검사료", "소변검사", "20230304", "20230304", "20"),
+        ("진찰료", "초진진찰료", "20230303", None, "100"), ("진찰료", "재진진찰료", "20230303", None, "50"),
+        ("소계", None, None, None, "150"), ("검사료", "혈액검사", "20230304", None, "30"), ("검사료", "소변검사", "20230304", None, "20"),
         ("끝수처리조정금액", None, None, None, "-5"), ("합계", None, None, None, "195")]
 
 
 def test_rowmajor_detail_keeps_printed_summary_rows_without_filling_them_down(provider):
-    """명칭 자리에 인쇄된 라벨은 항목으로 옮기고, 항목·일자 이어 채우기와 종료일자 채우기는 집계 행을 건너뛴다."""
+    """명칭 자리에 인쇄된 라벨은 항목으로 옮기고, 항목·일자 이어 채우기는 집계 행을 건너뛴다. 날짜 열이 하나라 종료일자는 비운다."""
     provider.rows = summary_rows(DETAIL)
     plain = [{"page": 1, "type": "text", "text": "x", "lines": []}]  # 머리글 없음: 스키마 19열 그대로
 
