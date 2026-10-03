@@ -1,0 +1,271 @@
+/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+2026-10-03 09:23:06.314 INFO    harness.api.app            하네스 API 기동: v2.0.0, 인증=none, 노출=127.0.0.1
+2026-10-03 09:23:06.314 WARNING harness.api.security       API 인증이 비활성 상태다(API_AUTH_MODE=none). API_BIND=127.0.0.1 루프백 전용이며, 개발·검증 전용이다 — 운영에서는 mTLS 또는 API 키를 설정해야 한다(PRD §14.3).
+2026-10-03 09:23:06.357 WARNING harness.persistence.engine Postgres 에 접속하지 못했다 — 저장 없이 계속한다(localhost:5432/harness): (psycopg.OperationalError) connection failed: connection to server at "127.0.0.1", port 5432 failed: Connection refused
+	Is the server running on that host and accepting TCP/IP connections?
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Traceback (most recent call last):
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 144, in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 3319, in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 448, in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 1272, in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 712, in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py", line 178, in _do_get
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py", line 122, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py", line 176, in _do_get
+    return self._create_connection()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 389, in _create_connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 674, in __init__
+    self.__connect()
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 900, in __connect
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py", line 122, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 896, in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/engine/create.py", line 667, in connect
+    return dialect.connect(*cargs_tup, **cparams)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py", line 630, in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/psycopg/connection.py", line 122, in connect
+    raise last_ex.with_traceback(None)
+psycopg.OperationalError: connection failed: connection to server at "127.0.0.1", port 5432 failed: Connection refused
+	Is the server running on that host and accepting TCP/IP connections?
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.worktrees/architecture-review-20261003/src/mlife_harness/persistence/engine.py", line 51, in connect_postgres
+    with engine.connect() as conn:
+         ^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 3295, in connect
+    return self._connection_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 146, in __init__
+    Connection._handle_dbapi_exception_noconnection(
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 2450, in _handle_dbapi_exception_noconnection
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 144, in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 3319, in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 448, in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 1272, in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 712, in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py", line 178, in _do_get
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py", line 122, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py", line 176, in _do_get
+    return self._create_connection()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 389, in _create_connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 674, in __init__
+    self.__connect()
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 900, in __connect
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py", line 122, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py", line 896, in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/engine/create.py", line 667, in connect
+    return dialect.connect(*cargs_tup, **cparams)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py", line 630, in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/psycopg/connection.py", line 122, in connect
+    raise last_ex.with_traceback(None)
+sqlalchemy.exc.OperationalError: (psycopg.OperationalError) connection failed: connection to server at "127.0.0.1", port 5432 failed: Connection refused
+	Is the server running on that host and accepting TCP/IP connections?
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Unexpected Http Driver Exception
+2026-10-03 09:23:06.407 WARNING harness.persistence.engine ClickHouse 에 접속하지 못했다 — 판독 팩트 없이 계속한다(localhost:8123/harness): Error HTTPConnectionPool(host='localhost', port=8123): Max retries exceeded with url: /?query_id=bcaa4e74-fdab-4593-9737-fd7f6fa1b23d (Caused by NewConnectionError("HTTPConnection(host='localhost', port=8123): Failed to establish a new connection: [Errno 111] Connection refused")) executing HTTP request attempt 1 (http://localhost:8123)
+Traceback (most recent call last):
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/connection.py", line 204, in _new_conn
+    sock = connection.create_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/util/connection.py", line 85, in create_connection
+    raise err
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/util/connection.py", line 73, in create_connection
+    sock.connect(sa)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 788, in urlopen
+    response = self._make_request(
+               ^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 493, in _make_request
+    conn.request(
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/connection.py", line 500, in request
+    self.endheaders()
+  File "/home/pilsu/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/http/client.py", line 1353, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/home/pilsu/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/http/client.py", line 1113, in _send_output
+    self.send(msg)
+  File "/home/pilsu/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/http/client.py", line 1057, in send
+    self.connect()
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/connection.py", line 331, in connect
+    self.sock = self._new_conn()
+                ^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/connection.py", line 219, in _new_conn
+    raise NewConnectionError(
+urllib3.exceptions.NewConnectionError: HTTPConnection(host='localhost', port=8123): Failed to establish a new connection: [Errno 111] Connection refused
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/_backend/http_sync.py", line 331, in request
+    response: HTTPResponse = cast(HTTPResponse, cast(PoolManager, self.http).request(method, url, **kwargs))
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/_request_methods.py", line 143, in request
+    return self.request_encode_body(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/_request_methods.py", line 278, in request_encode_body
+    return self.urlopen(method, url, **extra_kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/poolmanager.py", line 457, in urlopen
+    response = conn.urlopen(method, u.request_uri, **kw)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 872, in urlopen
+    return self.urlopen(
+           ^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 842, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/urllib3/util/retry.py", line 543, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='localhost', port=8123): Max retries exceeded with url: /?query_id=bcaa4e74-fdab-4593-9737-fd7f6fa1b23d (Caused by NewConnectionError("HTTPConnection(host='localhost', port=8123): Failed to establish a new connection: [Errno 111] Connection refused"))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.worktrees/architecture-review-20261003/src/mlife_harness/persistence/engine.py", line 74, in connect_clickhouse
+    client = make_client(s)
+             ^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.worktrees/architecture-review-20261003/src/mlife_harness/persistence/clickhouse/sinks.py", line 82, in make_client
+    return clickhouse_connect.get_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/__init__.py", line 324, in create_client
+    return HttpClient(
+           ^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py", line 217, in __init__
+    super().__init__(
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/client.py", line 233, in __init__
+    self._init_common_settings(resolved_tz_source)
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py", line 230, in _init_common_settings
+    super()._init_common_settings(tz_source)
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/client.py", line 240, in _init_common_settings
+    result = run_sync(init_sequence(config), self._execute_operation)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/_backend/orchestration.py", line 222, in run_sync
+    operation = sequence.throw(execution_error)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/_backend/orchestration.py", line 87, in init_sequence
+    version_result = yield CommandOp("SELECT version(), timezone()", use_database=False)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/_backend/orchestration.py", line 226, in run_sync
+    response = execute(operation)
+               ^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/client.py", line 251, in _execute_operation
+    return self.command(operation.text, settings=settings, use_database=operation.use_database)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/_backendclient.py", line 145, in command
+    execution = self._backend.execute_command(bound_cmd, bind_params, data, external_data, runtime, transport_settings)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/_backend/http_sync.py", line 267, in execute_command
+    response = self.request(plan.payload, plan.params, plan.headers, plan.method, fields=plan.form_files, server_wait=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.venv/lib/python3.12/site-packages/clickhouse_connect/driver/_backend/http_sync.py", line 356, in request
+    raise OperationalError(f"Error {ex} executing HTTP request attempt {attempts} ({self.url})") from ex
+clickhouse_connect.driver.exceptions.OperationalError: Error HTTPConnectionPool(host='localhost', port=8123): Max retries exceeded with url: /?query_id=bcaa4e74-fdab-4593-9737-fd7f6fa1b23d (Caused by NewConnectionError("HTTPConnection(host='localhost', port=8123): Failed to establish a new connection: [Errno 111] Connection refused")) executing HTTP request attempt 1 (http://localhost:8123)
+2026-10-03 09:23:06.409 WARNING harness.api.jobs           작업 저장소를 인메모리로 둔다 — **재기동하면 제출된 job_id 가 전부 404 가 된다**. DB 접속(localhost:5432/harness)을 확인하십시오(PRD §12.2).
+2026-10-03 09:23:06.435 INFO    harness.batch              규칙셋 적재: /home/pilsu/projects/mirae-assets/harness-v2/.worktrees/architecture-review-20261003/src/mlife_harness/rulesets — 파일 3개 / 규칙 35건, 버전 ac029.yaml=2026.09.20, detail_0710.yaml=2026.09.20, medical_cert.yaml=2026.09.20
+2026-10-03 09:23:06.435 WARNING harness.batch              저장 계층이 Postgres 에 붙지 못했다 — 마스터 조회도 구성하지 않는다(§8.6)
+2026-10-03 09:23:06.435 WARNING harness.reread.adapters    재판독 어댑터 미구성(RE_READ_ADAPTER='unavailable') — 교차검증(§7) 없이 동작한다. review_required 비율이 올라간다
+2026-10-03 09:23:06.435 WARNING harness.reread.region_reader 자가교정 재추출기 미구성(SELF_CORRECTION_ENDPOINT/RE_READ_ENDPOINT 모두 없음) — 자가교정 없이 동작한다(PRD §6.6)
+2026-10-03 09:23:06.435 INFO    harness.batch              파이프라인 구성 완료: 재판독=UnavailableAdapter(unavailable), 자가교정=없음, 마스터=없음
+2026-10-03 09:23:06.435 WARNING harness.api.security       API 인증이 비활성 상태다(API_AUTH_MODE=none). API_BIND=127.0.0.1 루프백 전용이며, 개발·검증 전용이다 — 운영에서는 mTLS 또는 API 키를 설정해야 한다(PRD §14.3).
+2026-10-03 09:23:06.500 WARNING harness.api.security       API 인증이 비활성 상태다(API_AUTH_MODE=none). API_BIND=127.0.0.1 루프백 전용이며, 개발·검증 전용이다 — 운영에서는 mTLS 또는 API 키를 설정해야 한다(PRD §14.3).
+2026-10-03 09:23:06.536 INFO    harness.api.app            [req=a98329e72f1a] 동기 제출 접수: json 2B (sha256=44136fa355b3), 재판독 없음
+2026-10-03 09:23:06.537 INFO    harness.pipeline.runner    [req=a98329e72f1a job=212f3e689c0e4cd5af0e04e293c6549a sha=44136fa355b3] ▶ ② 정규화
+2026-10-03 09:23:06.537 INFO    harness.pipeline.runner    [req=a98329e72f1a job=212f3e689c0e4cd5af0e04e293c6549a sha=44136fa355b3] ◀ ② 정규화 (0.2ms) 문서=0 구조이상=0
+2026-10-03 09:23:06.537 INFO    harness.pipeline.runner    [req=a98329e72f1a job=212f3e689c0e4cd5af0e04e293c6549a sha=44136fa355b3 txn= run=e7a0d9] 처리 시작: 문서 0건, ref=#e7a0d9
+2026-10-03 09:23:06.537 INFO    harness.pipeline.runner    [req=a98329e72f1a job=212f3e689c0e4cd5af0e04e293c6549a sha=44136fa355b3 txn= run=e7a0d9] ▶ ④ 판정
+2026-10-03 09:23:06.538 INFO    harness.pipeline.runner    [req=a98329e72f1a job=212f3e689c0e4cd5af0e04e293c6549a sha=44136fa355b3 txn= run=e7a0d9] ◀ ④ 판정 (0.1ms) 
+2026-10-03 09:23:06.538 INFO    harness.pipeline.runner    [req=a98329e72f1a job=212f3e689c0e4cd5af0e04e293c6549a sha=44136fa355b3 txn= run=e7a0d9] 처리 완료: tier=None, 문서 0건 (0.7ms)
+2026-10-03 09:23:06.538 INFO    harness.api.app            [req=a98329e72f1a job=212f3e689c0e4cd5af0e04e293c6549a sha=44136fa355b3] 동기 처리 완료: tier=None, ref=#e7a0d9 (1.5ms)
+2026-10-03 09:23:06.539 INFO    harness.api.app            [req=a98329e72f1a] POST /v2/jobs:sync → 200 (5.0ms) [auth=none]
+2026-10-03 09:23:06.542 INFO    harness.api.app            [req=e5a5ee8a3623 job=c0962ed220874a1188ee272c6300aee7] 제출 접수: json 2B (sha256=44136fa355b3), 이미지 없음
+2026-10-03 09:23:06.542 INFO    harness.api.app            [req=e5a5ee8a3623] POST /v2/jobs → 202 (2.0ms) [auth=none]
+2026-10-03 09:23:06.543 INFO    harness.api.jobs           [req=e5a5ee8a3623 job=c0962ed220874a1188ee272c6300aee7 sha=44136fa355b3] 작업 시작 (status=running)
+2026-10-03 09:23:06.543 INFO    harness.pipeline.runner    [req=e5a5ee8a3623 job=c0962ed220874a1188ee272c6300aee7 sha=44136fa355b3] ▶ ② 정규화
+2026-10-03 09:23:06.543 INFO    harness.pipeline.runner    [req=e5a5ee8a3623 job=c0962ed220874a1188ee272c6300aee7 sha=44136fa355b3] ◀ ② 정규화 (0.1ms) 문서=0 구조이상=0
+2026-10-03 09:23:06.543 INFO    harness.pipeline.runner    [req=e5a5ee8a3623 job=c0962ed220874a1188ee272c6300aee7 sha=44136fa355b3 txn= run=be484f] 처리 시작: 문서 0건, ref=#be484f
+2026-10-03 09:23:06.543 INFO    harness.pipeline.runner    [req=e5a5ee8a3623 job=c0962ed220874a1188ee272c6300aee7 sha=44136fa355b3 txn= run=be484f] ▶ ④ 판정
+2026-10-03 09:23:06.543 INFO    harness.pipeline.runner    [req=e5a5ee8a3623 job=c0962ed220874a1188ee272c6300aee7 sha=44136fa355b3 txn= run=be484f] ◀ ④ 판정 (0.0ms) 
+2026-10-03 09:23:06.543 INFO    harness.pipeline.runner    [req=e5a5ee8a3623 job=c0962ed220874a1188ee272c6300aee7 sha=44136fa355b3 txn= run=be484f] 처리 완료: tier=None, 문서 0건 (0.3ms)
+2026-10-03 09:23:06.543 INFO    harness.api.jobs           [req=e5a5ee8a3623 job=c0962ed220874a1188ee272c6300aee7 sha=44136fa355b3] 작업 완료: tier=None, ref=#be484f (0.5ms)
+2026-10-03 09:23:06.545 INFO    harness.api.app            [req=06159fa79f97] GET /v2/jobs/c0962ed220874a1188ee272c6300aee7 → 200 (0.5ms) [auth=none]
+2026-10-03 09:23:06.547 WARNING harness.ingest.contract    입력 거부 3건 (harness-architecture-review-input.bin): [transaction_id_missing] transaction_id가 없다; [documents_missing] documents[]가 비었다; [image_pair_mismatch] document_name이 없어 이미지-JSON 쌍을 확인할 수 없다
+2026-10-03 09:23:06.554 ERROR   harness.persistence.recorder postgres 저장에 실패했다 — 판정은 계속한다(job 생성(646dbb9e86e4419b8924a81f6c192120)). 이후 같은 채널의 실패는 DEBUG 로만 남기고 종료 시 건수만 보고한다.
+Traceback (most recent call last):
+  File "/home/pilsu/projects/mirae-assets/harness-v2/.worktrees/architecture-review-20261003/src/mlife_harness/persistence/recorder.py", line 156, in open_job
+    with session_scope(self._engine) as session:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/unittest/mock.py", line 1139, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/unittest/mock.py", line 1143, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pilsu/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/unittest/mock.py", line 1198, in _execute_mock_call
+    raise effect
+RuntimeError: simulated transient database write outage
+2026-10-03 09:23:06.569 INFO    harness.api.jobs           작업을 DB 에서 복원했다 (job_id=5a5314ae3b5d486cba5dead26da21f2d, status=completed)
+2026-10-03 09:23:06.595 WARNING harness.api.security       [req=d7c9a8070951 auth=mtls client=testclient] 인증 거부: client_cert_unverified (X-Client-Verified 없음/실패) — GET /v2/jobs/x
+2026-10-03 09:23:06.595 WARNING harness.api.app            [req=d7c9a8070951] GET /v2/jobs/x → 401 (0.7ms)
+2026-10-03 09:23:06.596 WARNING harness.api.app            [req=9b28cee7430e] GET /v2/jobs/x → 404 (0.3ms) [auth=mtls]
+empty_object_api {"sync_http": 200, "sync_tier": null, "async_http": 202, "async_final_status": "completed"}
+empty_object_batch_rejections ['transaction_id_missing', 'documents_missing', 'image_pair_mismatch']
+lost_insert {"durable_flag": true, "put_returned_without_exception": true, "get_after_database_recovery": null}
+lost_result {"status": "completed", "result": null, "put_returned_without_exception": true}
+callback_destination http://127.0.0.1:9999/internal includes_full_result True
+mtls_without_header 401 mtls_with_client_supplied_success 404

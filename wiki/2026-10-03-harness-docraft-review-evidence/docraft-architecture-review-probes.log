@@ -1,0 +1,29 @@
+2026-10-03 09:21:07,492 INFO backend.db [-] db: schema initialized
+2026-10-03 09:21:07,922 INFO backend.db [-] db: schema initialized
+/home/pilsu/projects/mirae-assets/Docraft/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+2026-10-03 09:21:07,988 INFO backend.main [32757bb01dae] POST /api/projects -> 201 elapsed=0.01s
+2026-10-03 09:21:08,041 INFO backend.main [0346ee664fbd] upload saved: document=72093b21acae4c4bbc11ee330cf87417 filename=invoice.txt size=44
+2026-10-03 09:21:08,044 INFO backend.main [0346ee664fbd] POST /api/projects/779c04cdf77d42c5b8d31a679cf8c347/documents -> 202 elapsed=0.05s
+2026-10-03 09:21:08,053 INFO backend.main [0346ee664fbd>parse:72093b21acae4c4bbc11ee330cf87417] parse start: document=72093b21acae4c4bbc11ee330cf87417 filename=invoice.txt
+2026-10-03 09:21:08,060 INFO backend.main [26577000f1d4] GET /api/documents/72093b21acae4c4bbc11ee330cf87417 -> 200 elapsed=0.01s
+2026-10-03 09:21:08,065 INFO backend.main [0346ee664fbd>parse:72093b21acae4c4bbc11ee330cf87417] parse finished: document=72093b21acae4c4bbc11ee330cf87417 blocks=2 elapsed=0.01s
+2026-10-03 09:21:08,081 INFO backend.main [3725d0fe8eee] GET /api/documents/72093b21acae4c4bbc11ee330cf87417 -> 200 elapsed=0.01s
+2026-10-03 09:21:08,098 INFO backend.main [parse:72093b21acae4c4bbc11ee330cf87417] parse start: document=72093b21acae4c4bbc11ee330cf87417 filename=invoice.txt
+2026-10-03 09:21:08,109 INFO backend.main [54f867aba7a2] POST /api/documents/72093b21acae4c4bbc11ee330cf87417/parse -> 202 elapsed=0.01s
+2026-10-03 09:21:08,117 INFO backend.main [parse:72093b21acae4c4bbc11ee330cf87417] parse start: document=72093b21acae4c4bbc11ee330cf87417 filename=invoice.txt
+2026-10-03 09:21:08,126 INFO backend.main [parse:72093b21acae4c4bbc11ee330cf87417] parse finished: document=72093b21acae4c4bbc11ee330cf87417 blocks=0 elapsed=0.01s
+2026-10-03 09:21:08,140 INFO backend.main [parse:72093b21acae4c4bbc11ee330cf87417] parse finished: document=72093b21acae4c4bbc11ee330cf87417 blocks=0 elapsed=0.04s
+2026-10-03 09:21:08,159 INFO backend.main [d0aeafacb2f0] POST /api/projects/779c04cdf77d42c5b8d31a679cf8c347/schemas -> 201 elapsed=0.01s
+2026-10-03 09:21:08,180 INFO backend.main [294f41e978eb] POST /api/documents/72093b21acae4c4bbc11ee330cf87417/extract -> 202 elapsed=0.01s
+2026-10-03 09:21:08,192 INFO backend.main [3d13066159a9] status transition: document=72093b21acae4c4bbc11ee330cf87417 status=completed
+2026-10-03 09:21:08,195 INFO backend.main [3d13066159a9] POST /api/documents/72093b21acae4c4bbc11ee330cf87417/approve -> 200 elapsed=0.01s
+2026-10-03 09:21:08,203 WARNING backend.main [extract:72093b21acae4c4bbc11ee330cf87417] job skipped, document not queued: document=72093b21acae4c4bbc11ee330cf87417 target=extracting
+2026-10-03 09:21:08,212 INFO backend.main [a4076d709be7] GET /api/documents/72093b21acae4c4bbc11ee330cf87417 -> 200 elapsed=0.01s
+2026-10-03 09:21:08,232 INFO backend.main [24a2090e8efc] POST /api/projects/779c04cdf77d42c5b8d31a679cf8c347/schemas -> 201 elapsed=0.01s
+retry while running: 202 new completion= NEW attempt
+late old completion overwrites new= OLD attempt
+queued extract then approve: 202 200 final= completed
+CSV formula export: 'value\r\n=1+1\r\n'
+XLSX formula export: =1+1 data_type= f
+remote ref accepted= 201 network target= ['http://127.0.0.1:12345/internal-schema'] exception= _WrappedReferencingError
