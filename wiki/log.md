@@ -420,3 +420,8 @@
 
 - **Creation**: [2026-10-03-classification-toggle-check.md](2026-10-03-classification-toggle-check.md) — dev 소스·환경 설정 확인, 실행 환경 변경 전 대상 확인.
 - **Update**: index.md에 안내 문서 연결.
+
+## 2026-10-03 서식 재분류 기본 OFF
+
+- **Creation**: [2026-10-03-classification-default-off.md](2026-10-03-classification-default-off.md) — 환경 기본값 통일, 다시 켜기와 API·worker 재생성 절차.
+- **Update**: index.md와 배포 README 연결, MEMORY.md에 기본 OFF 선호 기록.

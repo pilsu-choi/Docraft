@@ -16,7 +16,7 @@ status: active
 - 이 설정은 이미지가 있는 비동기 처리의 제목 OCR 확인·서식 재추출을 제어한다. 입력 Agentic OCR이 이미 결정한 `doc_type`은 유지하며, 외부 Agentic OCR 자체 분류를 끄는 설정은 아니다.
 - Docraft `/api/read`는 `doc_type`을 필수로 받는다. `/api/verify`는 명시한 서식 또는 AO 결과의 서식을 사용한다. 독립적인 서식 자동분류 토글은 없다.
 - Docraft `auto_reprocess=false`는 추출값 복구를 위한 ROI 재읽기를 끄는 옵션이며, 서식 분류 옵션과 다르다.
-- 워크스페이스의 AWS 환경 파일에는 `TITLE_OCR_URL=http://paddleocr-lines-api:8080`이 설정되어 있다. 이는 로컬 배포 설정 확인이며 실제 AWS 실행 상태를 조회한 결과가 아니다.
+- 최초 조사 시 워크스페이스의 AWS 환경 파일에는 `TITLE_OCR_URL=http://paddleocr-lines-api:8080`이 설정되어 있다. 이는 로컬 배포 설정 확인이며 실제 AWS 실행 상태를 조회한 결과가 아니다.
 
 ## 근거와 검증
 
@@ -24,3 +24,7 @@ status: active
 - harness: `deploy/local/docker-compose.app.yml`이 TITLE_OCR_URL을 컨테이너에 전달하며 AWS 오버레이도 이 공통 설정을 사용.
 - Docraft: `backend/main.py`의 `/api/read`, `/api/verify`; `backend/verify.py`의 서식 선택과 자동 재처리 분기.
 - 두 저장소 dev 소스 확인 완료. 코드 변경·외부 모델 호출·AWS 배포·실행 중 설정 변경은 하지 않았다. 테스트 대상 확인 후 해당 환경에 적용한다.
+
+## 2026-10-03 후속 변경
+
+사용자 요청으로 기본 OFF 설정과 재생성 절차를 반영했다. 현재 작업 공간 AWS 환경 파일은 빈 주소다. [후속 운영 가이드](2026-10-03-classification-default-off.md)를 따른다.
