@@ -8,8 +8,8 @@
   소견 문장에서 치료·검사 내역 행 만들기, 병명코드·수술일자 분리, 인쇄되지 않은 급여 합계 비우기, 합계행 정리,
   머리글에 없는·묶음 제목인 금액 열 비우기, 통째로 맞바뀐 금액 열 되돌리기, ``derive``의 관례 채우기를 차례로 한다.
 - ``derive(doc_type, fields)``: 읽은 값에서 채울 수 있는 자리를 AO 관례대로 채운다(성별·생년월일,
-  진료비영수증 항목명 정규화·외래 진료종료일, 세부내역서 코드 열, 사고발생일자). 표 칸은 인쇄된 값만 둔다 —
-  다른 칸에서 옮겨 채우지 않는다(2026-10-03: '급/비' 표시로 비급여 칸을, 시작일자로 종료일자를 채우지 않는다).
+  진료비영수증 항목명 정규화, 세부내역서 코드 열, 사고발생일자). 표 칸·진료기간은 인쇄된 값만 둔다 —
+  다른 칸에서 옮겨 채우지 않는다(2026-10-03: '급/비' 표시로 비급여 칸을, 시작일로 종료일을, 표 날짜로 진료기간을 채우지 않는다).
   정답셋 라벨도 같은 관례를 쓰도록 ``scripts/verify_label.conform``이 이 함수를 그대로 쓴다.
 - ``same(kind, a, b)``: 두 값이 정규화 후 같은지(금액의 빈 칸·0, 텍스트의 접두·접미 차이는 같게 본다).
 - ``pair_rows(doc_type, table, left, right)``: 두 표의 행을 키 열(``ROW_KEYS``)로 대응시킨다. 행 순서·개수가
@@ -919,20 +919,18 @@ def _receipt_table(doc_type, out, blocks):
 
 
 def _period(out):
-    """진료기간 칸이 비면 표의 시작·종료일자에서 채우고, 세부내역서 표에 날짜가 하나도 없으면 반대로 인쇄된 진료기간 칸에서
-    행을 채운다. 진료종료일이 인쇄되지 않았으면 행의 종료일자도 비운다(시작일을 베끼지 않는다)."""
+    """세부내역서 표에 날짜가 하나도 없으면 인쇄된 진료기간 칸에서 행을 채운다. 진료종료일이 인쇄되지 않았으면 행의 종료일자도
+    비운다(시작일을 베끼지 않는다). 반대로 표 날짜로 진료기간 칸을 채우지는 않는다 — 사고발생일자만 스키마 정의(진료 기간의
+    시작일)대로 가장 이른 행 시작일자를 쓴다."""
     rows = [row for row in out.get(ITEM_TABLE) or [] if not is_total(row)]
-    keys = {column: next((key for key in out if isinstance(key, str) and mark in key), None)
-            for column, mark in (("시작일자", "진료시작일"), ("종료일자", "진료종료일"))}
-    start = out.get(keys["시작일자"])
+    start, end = (next((out[key] for key in out if isinstance(key, str) and mark in key and out.get(key)), None)
+                  for mark in ("진료시작일", "진료종료일"))
     if rows and start and "시작일자" in rows[0] and not any(row.get("시작일자") or row.get("종료일자") for row in rows):
-        end = out.get(keys["종료일자"])
         for row in rows:
             row["시작일자"], row["종료일자"] = start, end
-    for column, key in keys.items():
-        dates = sorted(row[column] for row in rows if row.get(column))
-        if key and not out.get(key) and dates:
-            out[key] = dates[0] if column == "시작일자" else dates[-1]
+    dates = sorted(row["시작일자"] for row in rows if row.get("시작일자"))
+    if not start and dates and not out.get("사고발생일자"):
+        out["사고발생일자"] = dates[0]
 
 
 def derive(doc_type: str, out: dict) -> dict:
@@ -948,8 +946,6 @@ def derive(doc_type: str, out: dict) -> dict:
             out[key] = value
     if "외래/입원" in fields and not out.get("외래/입원"):
         out["외래/입원"] = _enum("외래/입원", out.get("환자정보-환자구분") or "") or None
-    if out.get("외래/입원") == "02" and "환자정보-진료종료일" in fields and not out.get("환자정보-진료종료일"):
-        out["환자정보-진료종료일"] = out.get("환자정보-진료시작일")  # 외래 영수증은 하루 진료가 관례다(라벨 16/17)
     room = out.get("환자정보(병실)") or ""
     if "환자정보(입통원구분)" in fields and not out.get("환자정보(입통원구분)") and room:
         out["환자정보(입통원구분)"] = "통원" if "외래" in room else "입원" if _WARD.match(room.replace(" ", "")) or "입원" in room else None
