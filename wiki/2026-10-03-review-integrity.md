@@ -7,8 +7,8 @@ tags: [docraft, integrity, jobs, partial-extraction, export, regression]
 status: active
 ---
 
-날짜: 2026-10-03  
-브랜치: `fix/review-integrity` (`dev`의 `120feef` 기반)  
+날짜: 2026-10-03
+브랜치: `fix/review-integrity` (`dev`의 `120feef` 기반)
 워크트리: `Docraft/.worktrees/review-integrity`
 
 ## 근본 원인과 문제 유형
@@ -48,6 +48,7 @@ status: active
 ## 회귀 검증
 
 - 최종 전체 로컬 회귀: **879 passed, 7 warnings, 12.87초** (`../../.venv/bin/python -m pytest tests -q --tb=short`). 실제 PostgreSQL의 테스트 전용 스키마를 사용했다.
+- 최신 dev의 인쇄값 정책 변경(6015f0c)과 병합한 통합 회귀: **889 passed, 7 warnings, 12.55초**.
 - 기존 기대값은 변경하지 않았고 `tests/test_api.py`·`test_projects.py`의 추출 대역 함수에 새 옵션을 받을 인자만 추가했다.
 - 신규 `tests/test_integrity.py` 24건: 재분석/리스 인계 후 오래된 파싱 성공·실패(4), 추출/검증 뒤 재분석 성공·실패(4), 오래된 전달/heartbeat(1), 단건/일괄 queued 승인·수정(2), 취소 표시 초기화(1), 수식 문자열/헤더·공백·탭·CR·LF·제어문자·숫자 음수(11), 부분 결과 저장·수정 유지·승인 차단·단건/프로젝트 JSON/CSV/XLSX(1).
 - `tests/test_pagewise.py`: 기존 한 페이지 실패 회귀에 정확한 완전성/diagnostics 검증을 추가했다. 신규 여러 페이지 묶음 실패 asis/rowmajor(2), 누락/null/비목록/비객체 행 계약 변형(4), 정상 빈 표(1)를 추가했다.
