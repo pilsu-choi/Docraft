@@ -815,12 +815,27 @@ def test_detail_paid_column_is_cleared_when_the_form_has_no_paid_amount_cell():
     assert (out[0]["본인부담"], out[0]["공단부담"]) == ("3714", "8666")  # 인쇄된 하위 열은 그대로 둔다
 
 
-def test_treatment_period_comes_from_the_item_table():
-    rows = [{"시작일자": "20191021", "종료일자": "20191104"}, {"시작일자": "20191022", "종료일자": "20191022"}]
+@pytest.mark.parametrize("fields", [{}, {"환자정보(진료시작일)": None, "환자정보(진료종료일)": None}])
+def test_treatment_period_is_not_computed_from_the_item_table(fields):
+    """진료기간은 인쇄된 값만 둔다(2026-10-03). 사고발생일자는 스키마 정의(진료 기간의 시작일)대로 가장 이른 행 날짜다."""
+    rows = [{"시작일자": "20191022", "종료일자": "20191022"}, {"시작일자": "20191021", "종료일자": "20191104"}]
 
-    out = rules.apply("세부내역서", {"항목내역": rows}, [])
+    out = rules.apply("세부내역서", {**fields, "항목내역": rows}, [])
 
-    assert (out["환자정보(진료시작일)"], out["환자정보(진료종료일)"]) == ("20191021", "20191104")
+    assert (out.get("환자정보(진료시작일)"), out.get("환자정보(진료종료일)")) == (None, None)
+    assert out["사고발생일자"] == "20191021"
+
+
+def test_printed_period_wins_over_table_dates_and_a_missing_end_stays_blank():
+    rows = [{"시작일자": "20191021", "종료일자": "20191104"}]
+    out = rules.apply("세부내역서", {"환자정보(진료시작일)": "2019.10.25", "항목내역": rows}, [])
+    assert (out["환자정보(진료시작일)"], out.get("환자정보(진료종료일)"), out["사고발생일자"]) == ("20191025", None, "20191025")
+
+
+def test_single_printed_care_date_does_not_fill_the_end_date():
+    blocks = [block(kind="table", rows=[["진료일자", "2019.01.21"]])]
+    out = rules.apply("진료비영수증", {"외래/입원": "외래", "환자정보-진료시작일": None, "환자정보-진료종료일": None}, blocks)
+    assert (out["환자정보-진료시작일"], out["환자정보-진료종료일"]) == ("20190121", None)
 
 
 def test_grouped_amount_column_is_emptied_when_the_form_has_no_such_column():
@@ -1029,10 +1044,11 @@ def test_unprinted_detail_totals_are_dropped(value, rows, expected):
         {} if value == "8543" else {"급여_급여총액": (None, "[GROUND.UNPRINTED] 인쇄되지 않았거나 구성 금액의 합과 다른 급여 합계라 비웠다")})
 
 
-@pytest.mark.parametrize("visit, expected", [("외래", "20190121"), ("입원", None)])
-def test_outpatient_receipt_ends_on_its_start_date(visit, expected):
+@pytest.mark.parametrize("visit", ["외래", "입원"])
+def test_receipt_end_date_is_not_copied_from_its_start_date(visit):
+    """진료종료일이 인쇄되지 않았으면 빈칸이다 — 외래라도 시작일을 베끼지 않는다(2026-10-03)."""
     out = rules.apply("진료비영수증", {"외래/입원": visit, "환자정보-진료시작일": "2019-01-21"}, [])
-    assert out["환자정보-진료종료일"] == expected
+    assert (out["환자정보-진료시작일"], out.get("환자정보-진료종료일")) == ("20190121", None)
 
 
 @pytest.mark.parametrize("total, expected", [("20820", "20820"), ("100820", None)])  # 비급여까지 더한 총액은 지운다
