@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-03 (인쇄값만: 비급여·종료일자)
+* **Creation**: [세부내역서 칸을 다른 칸에서 옮겨 채우지 않는다](2026-10-03-printed-only-derive.md)에 근본 원인, 문제 유형(미인쇄 칸 파생)과 범위, 바꾸지 않은 필드 파생, 테스트, 재적용 채점(96.41→96.51%)을 기록했다. 브랜치 `fix/printed-only-derive`, 워크트리 `.worktrees/printed-only-derive`.
+* **Update**: [index](index.md)에 문서를 연결했다.
+
 ## 2026-10-03 (여러 쪽 표 쪽 묶음 읽기)
 * **Creation**: [여러 쪽 표를 쪽 묶음별로 나눠 읽기](2026-10-03-pagewise-table.md)에 근본 원인·문제 유형·설계·테스트·5개 PDF 검증과 남은 유형(빽빽한 쪽의 깨진 JSON)을 기록했다. 브랜치 `feat/pagewise-table`, 워크트리 `.worktrees/pagewise-table`.
 * **Update**: [index](index.md)에 문서를 연결했다.

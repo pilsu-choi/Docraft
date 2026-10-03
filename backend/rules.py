@@ -8,7 +8,8 @@
   소견 문장에서 치료·검사 내역 행 만들기, 병명코드·수술일자 분리, 인쇄되지 않은 급여 합계 비우기, 합계행 정리,
   머리글에 없는·묶음 제목인 금액 열 비우기, 통째로 맞바뀐 금액 열 되돌리기, ``derive``의 관례 채우기를 차례로 한다.
 - ``derive(doc_type, fields)``: 읽은 값에서 채울 수 있는 자리를 AO 관례대로 채운다(성별·생년월일,
-  진료비영수증 항목명 정규화·외래 진료종료일, 세부내역서 코드 열·비급여 칸·종료일자, 사고발생일자).
+  진료비영수증 항목명 정규화·외래 진료종료일, 세부내역서 코드 열, 사고발생일자). 표 칸은 인쇄된 값만 둔다 —
+  다른 칸에서 옮겨 채우지 않는다(2026-10-03: '급/비' 표시로 비급여 칸을, 시작일자로 종료일자를 채우지 않는다).
   정답셋 라벨도 같은 관례를 쓰도록 ``scripts/verify_label.conform``이 이 함수를 그대로 쓴다.
 - ``same(kind, a, b)``: 두 값이 정규화 후 같은지(금액의 빈 칸·0, 텍스트의 접두·접미 차이는 같게 본다).
 - ``pair_rows(doc_type, table, left, right)``: 두 표의 행을 키 열(``ROW_KEYS``)로 대응시킨다. 행 순서·개수가
@@ -57,7 +58,7 @@ def _load(path):
     tables = yaml.safe_load(path.read_text(encoding="utf-8"))
     unknown = set(tables) - {"disable", "labels", "master_names", "exclusive", "sections", "field_section", "explicit",
                              "last_date", "totals", "unprinted_null", "keep_totals", "row_keys", "notes", "marks",
-                             "total_fields", "field_sums", "swaps", "header_columns", "header_words", "grouped", "item_aliases",
+                             "total_fields", "field_sums", "swaps", "header_columns", "header_words", "mark_headers", "grouped", "item_aliases",
                              "receipt_item_names", "date_order", "issued", "later_ok", "required"}
     if unknown:
         raise ValueError(f"{path.name}: 알 수 없는 표 {sorted(unknown)}")
@@ -104,6 +105,7 @@ SWAPS = tuple(map(tuple, _SHARED["swaps"]))
 HEADER_COLUMNS = {column: tuple(words) for column, words in _TABLES["header_columns"].items()}
 GROUPED = {column: (tuple(group["titles"]), tuple(group["subs"])) for column, group in _TABLES["grouped"].items()}
 HEADER_WORDS = tuple(_TABLES["header_words"])
+MARK_HEADERS = frozenset(_TABLES["mark_headers"])
 ITEM_ALIASES = tuple((re.compile(pattern), canonical) for pattern, canonical in _SHARED["item_aliases"])
 RECEIPT_ITEM_NAMES = frozenset(_SHARED["receipt_item_names"])
 DATE_ORDER = tuple(map(tuple, _TABLES["date_order"]))
@@ -691,11 +693,11 @@ def _notes(doc_type, out, blocks):
 
 
 def _columns(doc_type, out):
-    """표 열의 AO 관례: 진료비영수증은 항목명을 정규화하고, 세부내역서는 코드를 EDI코드 한 열에 모으고
-    비급여 칸과 종료일자를 비급여 행의 총액·시작일자에서 채운다.
+    """표 열의 AO 관례: 진료비영수증은 항목명을 정규화하고, 세부내역서는 코드를 EDI코드 한 열에 모은다.
 
-    세부내역서의 행별 ``급여``는 인쇄된 급여 값만 쓴다(2026-10-03 정책) — 총액에서 만들지 않는다. 인쇄된 급여(액) 열 값은
-    총액과 같아도 둔다. 급여 열이 없는 서식에서 모델이 계산해 채운 값은 ``_header_columns``가 지운다. 집계 행에는 일자를 채우지 않는다.
+    세부내역서 칸은 인쇄된 값만 쓴다(2026-10-03 정책) — 다른 칸에서 옮기거나 계산해 채우지 않는다. 행별 ``급여``는 총액에서
+    만들지 않고(인쇄된 급여(액) 열 값은 총액과 같아도 둔다), '급/비' 표시는 ``급여구분``에만 두고 금액을 ``비급여``로 옮기지 않으며,
+    날짜 열이 하나인 서식의 ``종료일자``는 비운다(시작일자를 베끼지 않는다). 모델이 미인쇄 열에 채운 값은 ``_header_columns``가 지운다.
     """
     for row in out.get(ITEM_TABLE) or []:
         if doc_type == "진료비영수증":
@@ -705,10 +707,6 @@ def _columns(doc_type, out):
             return
         if row.get("EDI코드") and row["EDI코드"] == normalize("edi", row.get("EDI명칭")):
             row["원내코드"], row["EDI코드"] = None, row.get("원내코드")  # 명칭이 코드 열까지 밀려 들어오면 원내코드 자리의 코드가 EDI코드다
-        if not row.get("종료일자") and row.get("시작일자") and not is_total(row):
-            row["종료일자"] = row["시작일자"]
-        if row.get("급여구분") == "비급여" and not row.get("비급여") and row.get("총액"):
-            row["비급여"] = row["총액"]
 
 
 def _header_columns(doc_type, out, blocks):
@@ -721,6 +719,8 @@ def _header_columns(doc_type, out, blocks):
       (``table_layout.header_positions``)로 센 코드 열이 하나이고 그 머리글 칸에 코드 낱말이 두 줄로 쌓였으면('코드'/'{수가코드}')
       두 칸이 다른 값은 한 칸에 두 줄로 찍힌 코드라 EDI코드 한 값으로 잇는다(정답지 관례). 머리글 근거가 없으면 잇지 않는다. 코드 열이 둘인 서식과 파싱 블록이 없는 Judge 교정 표는 AO처럼 인쇄된 칸 그대로 둔다.
     - 세부내역서 머리글이 일수 칸까지 읽혔는데 단가·투여량 낱말(``HEADER_COLUMNS``)이 없으면 이웃 열 값을 옮긴 것이다.
+    - 세부내역서 머리글에 '급/비'·'비급' 표시 열(``MARK_HEADERS``)만 있고 비급여 열이 없으면 비급여 칸 값은 표시를 보고 총액을
+      옮긴 것이다. 표시는 급여구분에만 둔다.
     """
     cells, columns = _headers(blocks), []
     for column, (titles, subs) in GROUPED.items():
@@ -743,6 +743,8 @@ def _header_columns(doc_type, out, blocks):
                 row["원내코드"], row["EDI코드"] = None, row["EDI코드"] + row["원내코드"]
     if doc_type == "세부내역서" and any("일수" in cell for cell in cells):
         columns += [column for column, words in HEADER_COLUMNS.items() if not _has_header(cells, words)]
+    if doc_type == "세부내역서" and any(re.sub(r"[\s/]", "", cell) in MARK_HEADERS for cell in cells) and not any("비급여" in cell for cell in cells):
+        columns.append("비급여")
     for row in out.get(ITEM_TABLE) or []:
         row.update(dict.fromkeys(columns))
 
@@ -917,13 +919,14 @@ def _receipt_table(doc_type, out, blocks):
 
 
 def _period(out):
-    """진료기간 칸이 비면 표의 시작·종료일자에서 채우고, 세부내역서 표에 날짜가 하나도 없으면 반대로 진료기간 칸에서 행을 채운다."""
+    """진료기간 칸이 비면 표의 시작·종료일자에서 채우고, 세부내역서 표에 날짜가 하나도 없으면 반대로 인쇄된 진료기간 칸에서
+    행을 채운다. 진료종료일이 인쇄되지 않았으면 행의 종료일자도 비운다(시작일을 베끼지 않는다)."""
     rows = [row for row in out.get(ITEM_TABLE) or [] if not is_total(row)]
     keys = {column: next((key for key in out if isinstance(key, str) and mark in key), None)
             for column, mark in (("시작일자", "진료시작일"), ("종료일자", "진료종료일"))}
     start = out.get(keys["시작일자"])
     if rows and start and "시작일자" in rows[0] and not any(row.get("시작일자") or row.get("종료일자") for row in rows):
-        end = out.get(keys["종료일자"]) or start
+        end = out.get(keys["종료일자"])
         for row in rows:
             row["시작일자"], row["종료일자"] = start, end
     for column, key in keys.items():
@@ -1921,9 +1924,9 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     _header_columns(doc_type, out, blocks or [])
     if doc_type == "진료비영수증":  # 통째로 맞바뀐 이웃 금액 열을 합계 행에 맞춰 되돌린다
         out[ITEM_TABLE] = _swap(out[ITEM_TABLE], _swaps(out[ITEM_TABLE]))
-    if doc_type == "세부내역서":  # 내원일마다 한 번 찍힌 무리 날짜 줄을 그 무리 행의 시작·종료일자로(날짜 열이 없는 서식)
+    if doc_type == "세부내역서":  # 내원일마다 한 번 찍힌 무리 날짜 줄을 그 무리 행의 시작일자로(날짜 열이 없는 서식, 날짜 하나라 종료일자는 비운다)
         for index, day in list(_group_dates(out[ITEM_TABLE], blocks or [])):
-            out[ITEM_TABLE][index].update(시작일자=day, 종료일자=day)
+            out[ITEM_TABLE][index]["시작일자"] = day
     _period(out)
     out = derive(doc_type, out)  # derive는 라벨 정리(verify_label.conform)도 쓰므로 마스터 교정은 그 뒤에 한다
     _master_names(out)
