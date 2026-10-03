@@ -4,6 +4,8 @@ okf_version: "0.2"
 
 # Docraft wiki
 
+* [작업 세대·부분 추출·스프레드시트 무결성](2026-10-03-review-integrity.md) - 오래된 작업 쓰기 차단, 부분 페이지 표시·승인 제한, CSV/XLSX 문자열 보호와 회귀
+
 작업 기록은 Open Knowledge Format v0.2(`type` 등 YAML frontmatter + markdown 본문)을 따르며, 파일명은 `YYYY-MM-DD-<주제>.md`다. 변경 이력은 [log.md](log.md)에 남긴다.
 
 

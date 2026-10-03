@@ -181,10 +181,14 @@ def test_a_page_lost_both_ways_keeps_the_other_pages_and_is_counted(provider):
     provider.rows = {1: [row(columns, 항목="P1")], 2: RuntimeError("잘림"), 3: [row(columns, 항목="P3")]}
     provider.objects = {2: RuntimeError("잘림")}
 
+    completeness = {}
     with latency.track() as stats:
-        result, _ = engine.extract(table_schema(), blocks, provider.source, table_extract="rowmajor")
+        result, _ = engine.extract(table_schema(), blocks, provider.source, table_extract="rowmajor", completeness=completeness)
 
     assert [r["항목"] for r in result["항목내역"]] == ["P1", "P3"] and stats["table_pages_failed"] == 1
+    assert completeness == {"partial": True, "pages": [1, 2, 3], "successful_pages": [1, 3], "failed_pages": [2],
+                            "tables": {"항목내역": {"successful_pages": [1, 3], "failed_pages": [2]}}}
+    assert stats["extraction_completeness"] == completeness
     provider.rows = {n: RuntimeError("잘림") for n in (1, 2, 3)}
     provider.objects = {n: RuntimeError("잘림") for n in (1, 2, 3)}
     with pytest.raises(RuntimeError):
@@ -236,3 +240,41 @@ def test_a_table_that_fits_one_reply_is_read_in_one_call_as_before(provider, mon
 
         assert len(provider.calls) == 1 and "These are page(s)" not in provider.calls[0]["text"]
         assert provider.calls[0]["images"] == len(blocks) and result["항목내역"][0]["항목"] == "진찰료"
+
+
+@pytest.mark.parametrize("arm", ["asis", "rowmajor"])
+def test_completeness_tracks_all_pages_in_a_failed_group(provider, monkeypatch, arm):
+    blocks = [page(n) for n in (1, 2, 3, 4)]
+    monkeypatch.setattr(engine, "TABLE_REPLY_TOKENS", 10 ** 6)
+    monkeypatch.setattr(engine, "VISION_MAX_IMAGES", 2)
+    provider.rows = {None: RuntimeError("lost two pages")}
+    provider.objects = {None: RuntimeError("lost two pages")}
+    original = engine._provider
+    def fail_first_group(messages, **kwargs):
+        content = messages[1]["content"]
+        text = content[-1]["text"] if isinstance(content, list) else content
+        if "PAGE3" in text:
+            return {"rows": [row(names(blocks), 항목="P3")]} if kwargs.get("json_schema") else {"항목내역": [{"항목": "P3"}]}
+        return original(messages, **kwargs)
+    monkeypatch.setattr(engine, "_provider", fail_first_group)
+    completeness = {}
+    result, _ = engine.extract(table_schema(), blocks, provider.source, table_extract=arm, completeness=completeness)
+    assert result["항목내역"][0]["항목"] == "P3"
+    assert completeness["failed_pages"] == [1, 2] and completeness["successful_pages"] == [3, 4]
+    assert completeness["partial"] is True
+
+
+@pytest.mark.parametrize("reply", [{}, {"항목내역": None}, {"항목내역": "broken"}, {"항목내역": ["broken"]}])
+def test_invalid_page_table_contract_is_partial_instead_of_an_empty_success(provider, reply):
+    provider.objects = {1: {"항목내역": [{"항목": "P1"}]}, 2: reply}
+    completeness = {}
+    result, _ = engine.extract(table_schema(), [page(1), page(2)], provider.source, completeness=completeness)
+    assert result["항목내역"][0]["항목"] == "P1"
+    assert completeness["partial"] and completeness["failed_pages"] == [2]
+
+
+def test_valid_empty_page_table_is_complete(provider):
+    provider.objects = {1: {"항목내역": [{"항목": "P1"}]}, 2: {"항목내역": []}}
+    completeness = {}
+    engine.extract(table_schema(), [page(1), page(2)], provider.source, completeness=completeness)
+    assert completeness["partial"] is False and completeness["successful_pages"] == [1, 2]
