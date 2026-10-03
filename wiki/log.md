@@ -415,3 +415,8 @@
 * **Update**: [2026-09-28-response-elapsed.md](2026-09-28-response-elapsed.md)의 저장소 기록을 보존하고 공통 원본 상세 이력을 보충했다.
 * **Creation**: 관련 첨부 12건과 [원본 해시 manifest](artifacts/2026-10-03-root-wiki-sync/manifest.json)를 상대 경로로 보존했다.
 * **Update**: [index](index.md)에 새 문서를 연결하고 [AGENTS](../AGENTS.md)에 루트 기록·관련 저장소 동기화 우선순위를 명시했다.
+
+## 2026-10-03 서식 자동분류 설정 확인
+
+- **Creation**: [2026-10-03-classification-toggle-check.md](2026-10-03-classification-toggle-check.md) — dev 소스·환경 설정 확인, 실행 환경 변경 전 대상 확인.
+- **Update**: index.md에 안내 문서 연결.
