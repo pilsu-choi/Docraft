@@ -32,7 +32,9 @@ harness 고정6b7b01c의 인쇄값 정책을 유지하며, guard를 삭제하거
 - tests/test_rules.py·test_rules_receipt_accuracy.py·test_typed_evidence.py: **404 passed**.
 - 변형: 시작일 필수 유지, 종료일 제외, 외래/입원 미인쇄 종료일, 인쇄 기간·세부내역서 날짜 보존.
 - 전체 표 Git blob 9cc3206891f83eb894d637207289b1e6fd4ea7fe, harness6b7b01c와 일치.
-- 새 고정 커밋은 앱 dev 병합·GitLab push 완료 후 기록한다.
+- Docraft dev 병합 a376fff2cfb13a8fd853c8aa071181d92153515d을 GitLab push 후 ls-remote로 확인했다.
+- installer는 harness6b7b01c를 유지하고 Docraft만 a376fff로 고정한다. 전체 공유 표 바이트 일치 확인.
+- installer CI 게시 unittest 10개 통과. 실제 재빌드는 installer 다음 일괄 push 후 확인한다.
 - installer는 30분 일괄 push 정책에 따라 검증 완료분을 다음 배치에 반영한다.
 - 최초 실패 빌드는 패키지 업로드 단계에 도달하지 않아 결과물이 없다.
 
