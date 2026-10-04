@@ -13,6 +13,7 @@ from pathlib import Path
 
 import fitz
 import httpx
+from PIL import Image
 from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit
@@ -611,7 +612,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     chunks = _page_chunks(blocks, budget) or [[]]
     logger.info("extract: provider mode blocks=%d chunks=%d budget=%d pages=%s", len(blocks), len(chunks), budget, [_page_range(chunk) for chunk in chunks])
     properties = schema.get("properties", {})
-    tables = [key for key, prop in properties.items() if prop.get("type") == "array" and prop.get("items", {}).get("type") == "object"]
+    tables = _table_fields(schema)
     rowmajor = table_extract == "rowmajor"
     plans = {table: _table_plan(schema.get("title"), table, properties[table], blocks) if rowmajor else None for table in tables}
     groups = {table: _table_pages(blocks, budget, len(properties[table]["items"]["properties"])) for table in tables}
@@ -999,6 +1000,129 @@ def assess(result, schema, blocks, groundings=None, require_geometry=True):
 
     walk(result, evidence, schema)
     return quality
+
+
+def _table_fields(schema):
+    """Top-level fields that are arrays of objects (the tables)."""
+    return [key for key, prop in schema.get("properties", {}).items()
+            if prop.get("type") == "array" and prop.get("items", {}).get("type") == "object"]
+
+
+INTEGRITY_NODES = {"downscaled": "AUX.INPUT", "decode_failed": "AUX.INPUT", "image_not_sent": "P.MIS.AREA.1",
+                   "duplicate_page": "P.OVR.DUP.1", "boundary_repeat": "E.OVR.DUP.1", "duplicate_run": "E.OVR.DUP.1",
+                   "page_order": "P.WRG.ORDER.1", "row_page_order": "P.WRG.ORDER.1", "table_page_gap": "P.STR.LINK.1"}
+
+
+def input_report(source, blocks, schema):
+    """What decoding did to the page images the model sees (AUX.INPUT): page count, EXIF turn, parser turns, per page the
+    shrink factor (< 1 loses detail beyond VISION_MAX_EDGE) and whether any call attached its image (P.MIS.AREA.1).
+    A page with a loss carries `codes`; the report only measures, it never changes a value."""
+    if not source or Path(source).suffix.lower() not in VISION_SUFFIXES:
+        return {}
+    report = {"node": "AUX.INPUT", "page_count": 0, "exif_turned": False, "decode_failed": False, "pages": {}}
+    try:
+        with fitz.open(source) as document:
+            report["page_count"] = len(document)
+            for number, page in enumerate(document, 1):
+                report["pages"][number] = {"scale": round(min(VISION_MAX_EDGE / max(page.rect.width, page.rect.height), 2.0), 3), "codes": []}
+        if Path(source).suffix.lower() != ".pdf":
+            with Image.open(source) as image:
+                report["exif_turned"] = image.getexif().get(274, 1) != 1
+    except Exception as exc:
+        logger.warning("input report: %s could not be decoded: %s", Path(source).name, exc)
+        report["decode_failed"] = True
+        report["pages"] = {number: {"codes": ["decode_failed"]} for number in _pages(blocks)}
+    for number, turn in _turns(blocks).items():
+        report["pages"].setdefault(number, {"codes": []})["turned"] = turn
+    for number, item in report["pages"].items():
+        if item.get("scale", 1) < 1:
+            item["codes"].append("downscaled")
+    if ai_settings()["vision"]:
+        budget = ai_settings()["chunk_chars"]
+        groups = [chunk for chunk in _page_chunks(blocks, budget)]
+        groups += [group for table in _table_fields(schema) for group in _table_pages(blocks, budget, len(schema["properties"][table]["items"]["properties"]))]
+        sent = {page for group in groups for page in _pages(group)[:VISION_MAX_IMAGES]}
+        for number in _pages(blocks):
+            if number not in sent and not report["decode_failed"]:
+                report["pages"].setdefault(number, {"codes": []})["codes"].append("image_not_sent")
+    return report
+
+
+def _row_signature(row):
+    return tuple(_normalized(value) for value in row.values() if value not in (None, "")) if isinstance(row, dict) else ()
+
+
+def _row_page(row_grounding):
+    return next((leaf["page"] for leaf in (row_grounding or {}).values() if isinstance(leaf, dict) and leaf.get("page") is not None), None)
+
+
+def unit_flags(result, schema, groundings, blocks):
+    """Repeats and order anomalies across page and row boundaries (E.OVR.DUP.1, P.OVR.DUP.1, P.WRG.ORDER.1, P.STR.LINK.1).
+    Each flag is `{code, node, pages | table + rows}`; values are never changed (B2 only drops one exact repeat at a chunk boundary)."""
+    flags = []
+
+    def flag(code, **where):
+        flags.append({"code": code, "node": INTEGRITY_NODES[code], **where})
+
+    order = [block["page"] for block in blocks if block.get("page") is not None]
+    if order != sorted(order):
+        flag("page_order", pages=sorted(set(order)))
+    texts = {}
+    for number in _pages(blocks):
+        text = "".join(_normalized(block.get("text", "")) for block in blocks if block.get("page") == number)
+        texts.setdefault(text, []).append(number)
+    for text, numbers in texts.items():
+        if len(numbers) > 1 and len(text) >= 20:
+            flag("duplicate_page", pages=numbers)
+    covered = set()
+    for table in _table_fields(schema):
+        rows = result.get(table) if isinstance(result, dict) else None
+        rows = rows if isinstance(rows, list) else []
+        signatures = [_row_signature(row) for row in rows]
+        pages = [_row_page((groundings.get(table) or {}).get(str(index))) for index in range(len(rows))]
+        covered.update(page for page in pages if page is not None)
+        boundary = [i for i in range(1, len(rows)) if signatures[i] and signatures[i] == signatures[i - 1]
+                    and None not in (pages[i - 1], pages[i]) and pages[i] != pages[i - 1]]
+        seen, run = {}, set()
+        for i in range(len(rows) - 2):
+            window = tuple(signatures[i:i + 3])
+            if all(window) and len(set(window)) > 1:
+                if seen.setdefault(window, i) + 3 <= i:
+                    run.update(range(i, i + 3))
+        known = [(i, page) for i, page in enumerate(pages) if page is not None]
+        reversed_rows = [i for (_, before), (i, after) in zip(known, known[1:]) if after < before]
+        for code, found in (("boundary_repeat", boundary), ("duplicate_run", sorted(run)), ("row_page_order", reversed_rows)):
+            if found:
+                flag(code, table=table, rows=found)
+    table_pages = {block["page"] for block in blocks if block.get("type") == "table" and block.get("page") is not None}
+    gap = sorted(page for page in table_pages if covered and min(covered) < page < max(covered) and page not in covered)
+    if gap:
+        flag("table_page_gap", pages=gap)
+    return flags
+
+
+def apply_integrity(quality, result, schema, groundings, blocks, source):
+    """Record input-integrity and unit-boundary evidence on every document path (document queue and /api/read).
+
+    Adds the codes to `issue_codes` of the affected results (by page, or by table row) and returns the summary
+    `{input, flags, lossy_pages}`. A confirmed value stays PASS unless `INTEGRITY_REVIEW=true`, which turns it into a RECHECK suspect."""
+    report = input_report(source, blocks, schema)
+    flags = unit_flags(result, schema, groundings, blocks)
+    by_page = {number: list(item["codes"]) for number, item in report.get("pages", {}).items() if item["codes"]}
+    by_row = {}
+    for item in flags:
+        for number in item.get("pages", []) if "table" not in item else []:
+            by_page.setdefault(number, []).append(item["code"])
+        for row in item.get("rows", []):
+            by_row.setdefault(f"{item['table']}/{row}/", []).append(item["code"])
+    for path, item in quality.items():
+        codes = by_page.get((item.get("provenance") or {}).get("page"), []) + [
+            code for prefix, found in by_row.items() if path.startswith(prefix) for code in found]
+        if codes:
+            item["issue_codes"] = list(dict.fromkeys([*item["issue_codes"], *codes]))
+            if ai_settings()["integrity_review"] and item["status"] == "PASS":
+                item.update(status="SUSPICIOUS", stage="undetermined", action="RECHECK")
+    return {"input": report, "flags": flags, "lossy_pages": sorted(by_page)}
 
 
 def annotate_groundings(groundings, quality):

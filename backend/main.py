@@ -530,6 +530,7 @@ def run_extract(document_id, schema_id, generation=""):
         with heartbeat(document_id, owner):
             result, groundings, quality, recovery = reprocess.run(
                 doc["file_path"], schema["json_schema"], doc["blocks"], result, cancel=JobCancel())
+        completeness["integrity"] = engine.apply_integrity(quality, result, schema["json_schema"], groundings, doc["blocks"], doc["file_path"])
         engine.annotate_groundings(groundings, quality)
         issues = engine.validate(result, schema["json_schema"], groundings)
         issues.extend({"path": "/" + path, "code": "low_confidence", "message": "원문 근거를 확인할 수 없습니다."}
@@ -541,7 +542,7 @@ def run_extract(document_id, schema_id, generation=""):
             if check_cancel(db, document_id, owner):
                 logger.info("status transition: document=%s status=canceled (validate)", document_id)
                 return
-            db.execute("UPDATE documents SET status=?,job_owner=NULL,result=?,groundings=?,validation=?,reprocess=?,updated_at=? WHERE id=? AND job_owner=?", (status, json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), json.dumps(issues, ensure_ascii=False), json.dumps(recovery, ensure_ascii=False), now(), document_id, owner))
+            db.execute("UPDATE documents SET status=?,job_owner=NULL,result=?,groundings=?,validation=?,reprocess=?,completeness=?,updated_at=? WHERE id=? AND job_owner=?", (status, json.dumps(result, ensure_ascii=False), json.dumps(groundings, ensure_ascii=False), json.dumps(issues, ensure_ascii=False), json.dumps(recovery, ensure_ascii=False), json.dumps(completeness, ensure_ascii=False), now(), document_id, owner))
             audit(db, doc["project_id"], "extract", "document", document_id, {"schema_id": schema_id, "issues": len(issues)})
         logger.info("extract finished: document=%s status=%s issues=%d elapsed=%.2fs", document_id, status, len(issues), time.monotonic() - started)
     except Exception as exc:
@@ -808,8 +809,8 @@ def cancelled_response(exc, action, doc_type):
     return Response(status_code=499)
 
 
-async def process_image(request: Request, image: UploadFile, fn, *args):
-    """단일 페이지 이미지 업로드를 저장하고 ``fn(경로, *args, cancel=cancel)``을 이벤트 루프 밖 스레드에서 돌린다.
+async def process_image(request: Request, image: UploadFile, fn, *args, multipage=False):
+    """이미지 업로드(``multipage``가 아니면 단일 페이지만)를 저장하고 ``fn(경로, *args, cancel=cancel)``을 이벤트 루프 밖 스레드에서 돌린다.
 
     /api/verify·/api/read가 함께 쓰는 업로드·임시파일·다중 페이지 검사·취소·in-flight 계수 처리다.
     파싱·추출·Judge로 수 분 걸리므로 스레드에서 돌린다 — 안 그러면 health까지 막혀 동시 요청이 줄을 선다.
@@ -824,7 +825,7 @@ async def process_image(request: Request, image: UploadFile, fn, *args):
     with tempfile.TemporaryDirectory() as folder:
         target = Path(folder) / f"{uid()}{suffix}"
         await save_upload(image, target)
-        if frames(target) > 1: raise HTTPException(422, "다중 페이지 문서는 아직 지원하지 않습니다.")
+        if not multipage and frames(target) > 1: raise HTTPException(422, "다중 페이지 문서는 아직 지원하지 않습니다.")
         INFLIGHT += 1
         cancel = threading.Event()
         with _inflight_lock: INFLIGHT_EVENTS.add(cancel)
@@ -935,11 +936,12 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
         schema = verify._restrict(verify.doctypes.schema(doc_type), only)
         quality = recovered_quality or engine.assess(
             fields, verify._restrict(schema, set(schema["properties"]) - set(row_filter)), blocks)
+        latency.note("integrity", engine.apply_integrity(quality, fields, schema, groundings, blocks, path), add=False)
         return fields, groundings, quality, recovery
 
     try:
         with latency.track() as stages:
-            (fields, groundings, quality, recovery), filename, started = await process_image(request, image, run_read)
+            (fields, groundings, quality, recovery), filename, started = await process_image(request, image, run_read, multipage=True)
     except verify.Cancelled as exc:
         return cancelled_response(exc, "read", doc_type)
     except HTTPException:  # process_image가 낸 415·413·422(다중 페이지)는 그대로 올린다

@@ -173,19 +173,20 @@ def test_partial_result_survives_review_is_not_completed_or_approved_and_is_expo
     client.post(f"/api/documents/{document_id}/extract", json={"schema_id": schema_id})
     main.run_extract(document_id, schema_id, row(document_id)["job_generation"])
     doc = client.get(f"/api/documents/{document_id}").json()
-    assert doc["status"] == "needs_review" and doc["completeness"] == completeness
+    stored = {**completeness, "integrity": {"input": {}, "flags": [], "lossy_pages": []}}  # 입력 무결성 요약이 완결성 정보에 함께 남는다
+    assert doc["status"] == "needs_review" and doc["completeness"] == stored
     assert any(issue["code"] == "partial_extraction" for issue in doc["validation"])
     corrected = client.patch(f"/api/documents/{document_id}/review", json={"path": "/hospital", "value": "ABC Hospital"})
     assert corrected.status_code == 200
     assert any(issue["code"] == "partial_extraction" for issue in corrected.json()["validation"])
     assert client.post(f"/api/documents/{document_id}/approve").status_code == 422
-    assert next(d for d in client.get(f"/api/projects/{project_id}/documents").json() if d["id"] == document_id)["completeness"] == completeness
+    assert next(d for d in client.get(f"/api/projects/{project_id}/documents").json() if d["id"] == document_id)["completeness"] == stored
     single = client.get(f"/api/documents/{document_id}/export?format=json").json()
-    assert single["completeness"] == completeness and single["result"] == doc["result"]
+    assert single["completeness"] == stored and single["result"] == doc["result"]
     group = client.get(f"/api/projects/{project_id}/export?format=json").json()
-    assert group[0]["completeness"] == completeness
+    assert group[0]["completeness"] == stored
     for path in (f"/api/documents/{document_id}/export", f"/api/projects/{project_id}/export"):
         cells = list(csv.DictReader(io.StringIO(client.get(path + "?format=csv").text)))
-        assert cells[0]["_docraft.partial"] == "True" and json.loads(cells[0]["_docraft.completeness"]) == completeness
+        assert cells[0]["_docraft.partial"] == "True" and json.loads(cells[0]["_docraft.completeness"]) == stored
         sheet = openpyxl.load_workbook(io.BytesIO(client.get(path + "?format=xlsx").content)).active
         assert "_docraft.partial" in [cell.value for cell in sheet[1]]

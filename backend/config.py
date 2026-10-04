@@ -131,10 +131,12 @@ def ai_settings() -> dict:
     reasoning = os.getenv("AI_REASONING", "off").strip().lower() == "on"
     # How /api/read·verify reads table fields first: asis = one JSON object, rowmajor = positional rows per table, re-read asis
     # when the share of broken 세부내역서 rows (row arithmetic, all amounts blank, misfit values) reaches TABLE_RECHECK_RATIO.
+    # Input-integrity and page/row repeat evidence only lands in issue_codes; true also sends the affected confirmed values to RECHECK.
+    integrity_review = _flag("INTEGRITY_REVIEW", "false")
     table_extract = os.getenv("TABLE_EXTRACT", "rowmajor").strip().lower()
     table_recheck_ratio = float(os.getenv("TABLE_RECHECK_RATIO", "0.6"))
     return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
-            "table_extract": table_extract, "table_recheck_ratio": table_recheck_ratio}
+            "integrity_review": integrity_review, "table_extract": table_extract, "table_recheck_ratio": table_recheck_ratio}
 
 
 def ocr_settings() -> dict:

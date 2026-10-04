@@ -17,7 +17,7 @@ from openpyxl import load_workbook
 import fitz
 import httpx
 import numpy as np
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 
 from . import latency
 from .config import ai_settings, ocr_settings
@@ -105,13 +105,15 @@ def parse_image(path, provider="auto", timeout=None, deadline=None):
     if provider == "library" or (provider == "auto" and ocr_settings()["provider"] != "paddle"):
         raise ParseError("이미지 OCR은 비활성화되어 있습니다. PARSE_PROVIDER=paddle과 원격 endpoint를 설정해 주세요.")
     # 이름과 실제 바이트 형식이 다른 스캔도 있으므로 OCR과 표 좌표 계산에
-    # 동일하게 디코딩한 첫 페이지를 사용한다.
+    # 동일하게 디코딩한 프레임을 사용한다. 다중 프레임(TIFF)은 프레임마다 한 쪽이 되도록 PDF로 펼친다.
     try:
-        with Image.open(path) as source, tempfile.NamedTemporaryFile(suffix=".png") as normalized:
-            ImageOps.exif_transpose(source).convert("RGB").save(normalized, format="PNG")
+        with Image.open(path) as source, tempfile.NamedTemporaryFile(suffix=".pdf" if getattr(source, "n_frames", 1) > 1 else ".png") as normalized:
+            frames = [ImageOps.exif_transpose(frame).convert("RGB") for frame in ImageSequence.Iterator(source)]
+            frames[0].save(normalized, format="PDF" if len(frames) > 1 else "PNG", save_all=True, append_images=frames[1:], resolution=72.0)
             normalized.flush()
-            blocks = _remote_paddle(normalized.name, 1, expected_pages=1, timeout=timeout, deadline=deadline)
-            return _upright(blocks, normalized.name, 1, deadline)
+            file_type = 0 if len(frames) > 1 else 1
+            blocks = _remote_paddle(normalized.name, file_type, expected_pages=len(frames), timeout=timeout, deadline=deadline)
+            return _upright(blocks, normalized.name, file_type, deadline)
     except UnidentifiedImageError:
         # OCR 자체가 지원하는 형식 및 기존 synthetic 호출 계약은 원격 오류에 맡긴다.
         return _remote_paddle(path, 1, expected_pages=1, timeout=timeout, deadline=deadline)
