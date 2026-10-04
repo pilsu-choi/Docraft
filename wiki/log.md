@@ -440,3 +440,4 @@
 
 - **Creation**: [2026-10-04-dataset-node-conditions.md](2026-10-04-dataset-node-conditions.md) — 상위 wiki 동기화(데이터셋 97건 노드 조건).
 - **Update**: [2026-10-03-parse-extract-issue-taxonomy.md](2026-10-03-parse-extract-issue-taxonomy.md) — 표기 주체 축·발생 조건·한계 절(상위 wiki 동기화).
+- **Update** (2026-10-05): [2026-10-04-general-correction-devices.md](2026-10-04-general-correction-devices.md) — 인쇄되지 않은 합계 계산값 허용(A) 반영(상위 wiki 동기화).
