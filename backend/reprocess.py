@@ -240,6 +240,7 @@ def _crop(image, page, box, size, factor, target, turn=0):
                                    colorspace=fitz.csRGB, alpha=False)
             canvas = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         else:
+            source.seek(min(page, getattr(source, "n_frames", 1)) - 1)  # multi-frame TIFF: the page's own frame
             canvas = ImageOps.exif_transpose(source).convert("RGB")
         sx, sy = canvas.width / size[0], canvas.height / size[1]
         cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2

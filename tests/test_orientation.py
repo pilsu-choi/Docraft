@@ -133,21 +133,25 @@ def test_failed_upright_reread_keeps_the_first_reading(tmp_path, monkeypatch):
     assert parsers.parse_image(str(path), "paddle") == first
 
 
-def test_multi_page_tif_judges_the_first_frame_it_reads(tmp_path, monkeypatch):
+def test_multi_page_tif_is_read_as_one_page_per_frame(tmp_path, monkeypatch):
     scan, boxes = _scanned(180)
-    upright, _ = _page()
+    upright, upright_boxes = _page()
     path = tmp_path / "scan.tif"
-    scan.save(path, save_all=True, append_images=[upright])  # 둘째 프레임은 바로 서 있어도 읽지 않는다
-    sizes = []
+    scan.save(path, save_all=True, append_images=[upright])
+    calls = []
 
-    def remote(file, *args, **kwargs):
-        with Image.open(file) as sent:
-            sizes.append(sent.size)
-        return _ocr(boxes, scan.size)
+    def remote(file, file_type, **kwargs):
+        if file_type == 0:
+            calls.append(kwargs["expected_pages"])
+            with fitz.open(file) as pdf:
+                assert len(pdf) == 2
+            return _ocr(boxes, scan.size) + [{**b, "page": 2} for b in _ocr(upright_boxes, upright.size, "둘째")]
+        return _ocr(upright_boxes, upright.size, "다시")
     monkeypatch.setattr(parsers, "ocr_settings", lambda: {"provider": "paddle"})
     monkeypatch.setattr(parsers, "_remote_paddle", remote)
-    [block] = parsers.parse_image(str(path), "paddle")
-    assert len(sizes) == 2 and block["orientation"] == 180
+    blocks = parsers.parse_image(str(path), "paddle")
+    assert calls == [2] and {b["page"] for b in blocks} == {1, 2}
+    assert [b.get("orientation", 0) for b in blocks if b["page"] == 1] == [180] and not any(b.get("orientation") for b in blocks if b["page"] == 2)
 
 
 def test_scanned_pdf_rereads_only_the_turned_page(tmp_path, monkeypatch):

@@ -237,13 +237,13 @@ def test_read_route_rejects_a_non_image_upload(tmp_path):
     assert "이미지 파일만" in response.json()["detail"]
 
 
-def test_read_route_rejects_a_multi_page_tif(monkeypatch, tmp_path):
-    monkeypatch.setattr(verify, "read", lambda *args, **kwargs: pytest.fail("다중 페이지 문서는 처리하면 안 된다"))
+def test_read_route_accepts_a_multi_frame_tif_and_reports_its_integrity(monkeypatch, tmp_path):
+    monkeypatch.setattr(verify, "read", lambda *a, **k: ("진단서", {}, [{"type": "text", "page": 1, "text": "x"}, {"type": "text", "page": 2, "text": "y"}], {}, {}, {}))
 
     response = post_read(_image(tmp_path, "scan.tif", frames=2))
 
-    assert response.status_code == 422
-    assert response.json()["detail"] == "다중 페이지 문서는 아직 지원하지 않습니다."
+    assert response.status_code == 200
+    assert response.json()["diagnostics"]["integrity"]["input"]["page_count"] == 2
 
 
 def test_read_route_cancels_the_run_when_the_client_disconnects(monkeypatch, tmp_path):
