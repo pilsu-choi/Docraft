@@ -437,3 +437,6 @@
 
 - **Creation**: [2026-10-04-general-correction-devices.md](2026-10-04-general-correction-devices.md) — 상위 wiki 동기화, 근거 evidence/2026-10-04-general-correction-devices/.
 - **Update**: [2026-10-04-issue-taxonomy-correction-coverage.md](2026-10-04-issue-taxonomy-correction-coverage.md) — 1차 구현 반영·값 변경 근거 원칙 수정(상위 wiki 동기화).
+
+- **Creation**: [2026-10-04-dataset-node-conditions.md](2026-10-04-dataset-node-conditions.md) — 상위 wiki 동기화(데이터셋 97건 노드 조건).
+- **Update**: [2026-10-03-parse-extract-issue-taxonomy.md](2026-10-03-parse-extract-issue-taxonomy.md) — 표기 주체 축·발생 조건·한계 절(상위 wiki 동기화).
