@@ -432,3 +432,8 @@
 - **Creation**: [2026-10-03-parse-extract-taxonomy-medical-profile.md](2026-10-03-parse-extract-taxonomy-medical-profile.md) — 상위 wiki 동기화(문서 7종 예시).
 - **Creation**: [2026-10-04-issue-taxonomy-correction-coverage.md](2026-10-04-issue-taxonomy-correction-coverage.md) — 상위 wiki 동기화(노드별 보정 장치·우선순위), 근거 evidence/2026-10-04-issue-taxonomy-v4/.
 - **Creation**: [2026-10-03-issue-taxonomy-work-plan.md](2026-10-03-issue-taxonomy-work-plan.md) — 상위 wiki 동기화(작업 계획).
+
+## 2026-10-04 일반 보정 장치 1차 구현
+
+- **Creation**: [2026-10-04-general-correction-devices.md](2026-10-04-general-correction-devices.md) — 상위 wiki 동기화, 근거 evidence/2026-10-04-general-correction-devices/.
+- **Update**: [2026-10-04-issue-taxonomy-correction-coverage.md](2026-10-04-issue-taxonomy-correction-coverage.md) — 1차 구현 반영·값 변경 근거 원칙 수정(상위 wiki 동기화).
