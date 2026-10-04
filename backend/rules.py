@@ -57,7 +57,7 @@ def _load(path):
     """룰 데이터 표 YAML. 모르는 최상위 키가 있으면 ValueError."""
     tables = yaml.safe_load(path.read_text(encoding="utf-8"))
     unknown = set(tables) - {"disable", "labels", "master_names", "exclusive", "sections", "field_section", "explicit",
-                             "last_date", "totals", "unprinted_null", "keep_totals", "row_keys", "notes", "marks",
+                             "last_date", "totals", "unprinted_totals", "keep_totals", "row_keys", "notes", "marks",
                              "total_fields", "field_sums", "swaps", "header_columns", "header_words", "mark_headers", "grouped", "item_aliases",
                              "receipt_item_names", "date_order", "issued", "later_ok", "required"}
     if unknown:
@@ -94,7 +94,7 @@ FIELD_SECTION = {field: section for section, fields in _TABLES["field_section"].
 EXPLICIT = {(doc_type, field) for doc_type, fields in _TABLES["explicit"].items() for field in fields}
 LAST_DATE = tuple(_TABLES["last_date"])
 TOTALS = _TABLES["totals"]
-UNPRINTED_NULL = tuple(_TABLES["unprinted_null"])
+UNPRINTED_TOTALS = tuple(_TABLES["unprinted_totals"])
 KEEP_TOTALS = set(_TABLES["keep_totals"])
 ROW_KEYS = {table: tuple(columns) for table, columns in _TABLES["row_keys"].items()}
 NOTES = {table: (note["labels"], note["date"], note["name"]) for table, note in _TABLES["notes"].items()}
@@ -646,23 +646,37 @@ def _printed(value, blocks):
     return bool(re.search(rf"(?<!\d){re.escape(str(value).replace('.', ''))}(?!\d)", text))
 
 
+def _column_sum(doc_type, fields, key):
+    """합계 필드에 대응하는 항목 표 열(급여총액은 총액 열도)과 그 열의 합. 대응 열이 없으면 (None, 0)."""
+    column = next((column for column, field in TOTALS.get(doc_type, {}).get(ITEM_TABLE, {}).items() if field == key), None)
+    return column, sum(_money(row.get(column)) or 0 for row in _rows(fields, ITEM_TABLE))
+
+
 def _copied(doc_type, fields, key):
     """합계 필드가 항목 행 열 합보다 작거나(소계를 옮김), 둘 이상인 항목 행 중 한 행의 같은 열(급여총액은 총액 열도)
     값을 베꼈는지. 열 합과 같으면 아니다."""
     rows, value = _rows(fields, ITEM_TABLE), _money(fields.get(key))
-    column = next((column for column, field in TOTALS.get(doc_type, {}).get(ITEM_TABLE, {}).items() if field == key), None)
-    columns, added = (column, "총액") if column == "급여" else (column,), sum(_money(row.get(column)) or 0 for row in rows)
+    column, added = _column_sum(doc_type, fields, key)
+    columns = (column, "총액") if column == "급여" else (column,)
     return bool(column and len(rows) >= 2 and not _near(value, added)
                 and (value < added or any(_money(row.get(name)) == value for row in rows for name in columns)))
 
 
+def _computed(doc_type, fields, key):
+    """인쇄되지 않은 합계 값이 계산으로 설명되는지(2026-10-05 정책: 계산해 둔 값은 지우지 않는다) —
+    합계식(``field_sums``)에 맞거나 대응 항목 열의 합과 같다. 빈 칸을 계산해 채우지는 않는다."""
+    column, added = _column_sum(doc_type, fields, key)
+    return _fits(fields, key, fields[key]) is True or bool(column and _rows(fields, ITEM_TABLE) and _near(_money(fields[key]), added))
+
+
 def _ungrounded(doc_type, fields, blocks):
-    """합계 행 없이 채워진 합계 금액 필드 중 문서 글자 어디에도 없거나 항목 한 행의 값을 베낀 것(인쇄되지 않은 합계)."""
+    """합계 행 없이 채워진 합계 금액 필드 중 항목 한 행의 값을 베꼈거나, 문서 글자에 없으면서 계산으로도 설명되지 않는 것."""
     if not blocks or any(is_total(row) for row in _rows(fields, ITEM_TABLE)):  # 글자 근거가 없으면 따지지 않는다
         return []
     return [key for key, meta in doctypes.spec(doc_type)["fields"].items()
             if meta["kind"] == "amount" and "총액" in key and _money(fields.get(key))
-            and (not _printed(normalize("amount", fields[key]), blocks) or _copied(doc_type, fields, key))]
+            and (_copied(doc_type, fields, key)
+                 or not _printed(normalize("amount", fields[key]), blocks) and not _computed(doc_type, fields, key))]
 
 
 def _notes(doc_type, out, blocks):
@@ -1206,8 +1220,8 @@ def _id_checks(doc):
 
 
 def _unprinted(doc):
-    return [_flag("ungrounded", f"{key} {doc.ao[key]}이 문서 글자 어디에도 없거나 항목 한 행의 값과 같다. "
-                                "인쇄되지 않은 합계를 계산하거나 베낀 것이면 비운다.", key=key)
+    return [_flag("ungrounded", f"{key} {doc.ao[key]}이 문서 글자에 없고 구성 금액·항목 열 합으로도 설명되지 않거나 항목 한 행의 값과 같다. "
+                                "다른 칸을 베낀 것이면 비운다.", key=key)
             for key in _ungrounded(doc.doc_type, doc.ao, doc.blocks)]
 
 
@@ -1764,9 +1778,9 @@ def _fix_row_missing(fix, flags):
 
 
 def _fix_total(fix, flags):
-    """인쇄되지 않았거나(ungrounded) 합계식이 어긋나는(sum_mismatch, 합계 쪽) 급여 합계를 비운다."""
-    fix.fields.update({flag["key"]: (None, f"[{flag['rule']}] 인쇄되지 않았거나 구성 금액의 합과 다른 급여 합계라 비웠다")
-                       for flag in flags if flag["key"] in UNPRINTED_NULL
+    """베꼈거나 설명되지 않는(ungrounded) 합계, 합계식이 어긋나는(sum_mismatch, 합계 쪽) 급여 합계를 비운다."""
+    fix.fields.update({flag["key"]: (None, f"[{flag['rule']}] 베꼈거나 계산으로 설명되지 않는 급여 합계라 비웠다")
+                       for flag in flags if flag["key"] in UNPRINTED_TOTALS
                        and (flag["code"] == "ungrounded" or flag["key"] in FIELD_SUMS)})
 
 
@@ -1907,10 +1921,10 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     _notes(doc_type, out, blocks or [])
     _split_cells(out)
     _receipt_table(doc_type, out, blocks or [])
-    for key in set(_ungrounded(doc_type, out, blocks or [])) & set(UNPRINTED_NULL):
-        out[key] = None  # 인쇄되지 않은 합계는 계산해 채우지 않는다(AO 관례). 합계 행이 있으면 _totals가 다시 채운다
+    for key in set(_ungrounded(doc_type, out, blocks or [])) & set(UNPRINTED_TOTALS):
+        out[key] = None  # 베꼈거나 설명되지 않는 합계(계산으로 설명되는 값은 둔다, 2026-10-05). 합계 행이 있으면 _totals가 다시 채운다
     _totals(doc_type, out)
-    for key in set(FIELD_SUMS) & set(UNPRINTED_NULL):  # 구성 필드 합과 다른 급여총액은 비급여까지 더한 총액을 옮긴 것이다
+    for key in set(FIELD_SUMS) & set(UNPRINTED_TOTALS):  # 구성 필드 합과 다른 급여총액은 비급여까지 더한 총액을 옮긴 것이다
         if _fits(out, key, out.get(key)) is False:
             out[key] = None
     if doc_type == "세부내역서":  # 통째로 맞바뀐 열을 값 꼴·인쇄 자리로 되돌린다(근거가 약하면 check가 알리기만 한다)
