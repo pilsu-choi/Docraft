@@ -8,6 +8,8 @@ okf_version: "0.2"
 
 # Docraft wiki
 
+* [서식 무관 일반 보정 장치 1차 구현](2026-10-04-general-correction-devices.md) - 탐지 장치 5종, 59건 재생 정확도 불변, 정탐·오탐
+
 * [Parse와 Extract 이슈 유형 계층 분류](2026-10-03-parse-extract-issue-taxonomy.md) - v4 생성 틀·111노드·완결성 검증
 * [Parse·Extract 이슈 분류 의료비 문서 적용 프로파일](2026-10-03-parse-extract-taxonomy-medical-profile.md) - 노드별·문서 7종별 예시, 26건 대응
 * [이슈 유형별 보정 장치 대응표](2026-10-04-issue-taxonomy-correction-coverage.md) - 일반 보정 방법·하네스/Docraft 장치 현황·우선순위
