@@ -1030,7 +1030,7 @@ def test_total_field_follows_a_confirmed_total_row(field, expected):
 
 
 @pytest.mark.parametrize("value, rows, expected", [
-    ("15722", [], None),          # 문서 어디에도 없는 급여총액은 계산해 낸 값이다
+    ("15722", [], None),          # 문서 어디에도 없고 어떤 계산으로도 설명되지 않는 급여총액
     ("8543", [], "8543"),         # 콤마를 빼면 인쇄돼 있다
     ("15722", [{"항목": "합계", "본인부담": "1", "급여": "15722"}], "15722"),  # 합계 행이 있으면 그 값을 쓴다
 ])
@@ -1041,7 +1041,36 @@ def test_unprinted_detail_totals_are_dropped(value, rows, expected):
     flags = rules.check("세부내역서", {"급여_급여총액": value, "항목내역": []}, out, blocks)
     assert [flag["code"] for flag in flags] == ([] if value == "8543" else ["ungrounded"])
     assert rules.run("세부내역서", {"급여_급여총액": value}, out, blocks, rounds=1)[0] == (
-        {} if value == "8543" else {"급여_급여총액": (None, "[GROUND.UNPRINTED] 인쇄되지 않았거나 구성 금액의 합과 다른 급여 합계라 비웠다")})
+        {} if value == "8543" else {"급여_급여총액": (None, "[GROUND.UNPRINTED] 베꼈거나 계산으로 설명되지 않는 급여 합계라 비웠다")})
+
+
+def _lines(*pairs):
+    return [{"항목": f"항목{i}", "본인부담": a, "공단부담": b, "급여": str(int(a) + int(b))} for i, (a, b) in enumerate(pairs)]
+
+
+@pytest.mark.parametrize("fields, rows, expected", [
+    # 구성 합(2026-10-05 정책: 인쇄되지 않아도 계산으로 설명되면 둔다)
+    ({"급여_급여총액": "20820", "급여_본인부담총액": "6200", "급여_공단부담총액": "14620"}, [], "20820"),
+    # 항목 열 합
+    ({"급여_공단부담총액": "9000"}, _lines(("100", "4000"), ("200", "5000")), "9000"),
+    ({"급여_급여총액": "9300"}, _lines(("100", "4000"), ("200", "5000")), "9300"),
+    # 한 행의 값을 베낀 것
+    ({"급여_공단부담총액": "5000"}, _lines(("100", "4000"), ("200", "5000")), None),
+    # 항목 열 합보다 작은 소계를 옮긴 것
+    ({"급여_공단부담총액": "4000"}, _lines(("100", "4000"), ("200", "5000")), None),
+    # 열 합도 합계식도 아닌 값
+    ({"급여_공단부담총액": "9500"}, _lines(("100", "4000"), ("200", "5000")), None),
+    ({"급여_급여총액": "7777", "급여_본인부담총액": "6200", "급여_공단부담총액": "14620"}, [], None),
+])
+def test_unprinted_totals_are_kept_only_when_computation_explains_them(fields, rows, expected):
+    out = rules.apply("세부내역서", {**fields, "항목내역": rows}, [block("본문 글자 111")])
+    assert out[next(iter(fields))] == expected
+
+
+def test_printed_total_stays_even_if_unexplained():
+    out = rules.apply("세부내역서", {"급여_공단부담총액": "9500", "항목내역": _lines(("100", "4000"), ("200", "5000"))},
+                      [block("공단부담 9,500")])
+    assert out["급여_공단부담총액"] == "9500"
 
 
 def test_shared_receipt_policy_requires_start_but_only_preserves_printed_end_date():
