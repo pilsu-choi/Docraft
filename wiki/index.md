@@ -8,6 +8,11 @@ okf_version: "0.2"
 
 # Docraft wiki
 
+* [Parse와 Extract 이슈 유형 계층 분류](2026-10-03-parse-extract-issue-taxonomy.md) - v4 생성 틀·111노드·완결성 검증
+* [Parse·Extract 이슈 분류 의료비 문서 적용 프로파일](2026-10-03-parse-extract-taxonomy-medical-profile.md) - 노드별·문서 7종별 예시, 26건 대응
+* [이슈 유형별 보정 장치 대응표](2026-10-04-issue-taxonomy-correction-coverage.md) - 일반 보정 방법·하네스/Docraft 장치 현황·우선순위
+* [이슈 분류 기반 오류 분석·탐지 작업 계획](2026-10-03-issue-taxonomy-work-plan.md) - 6단계 계획
+
 * [작업 세대·부분 추출·스프레드시트 무결성](2026-10-03-review-integrity.md) - 오래된 작업 쓰기 차단, 부분 페이지 표시·승인 제한, CSV/XLSX 문자열 보호와 회귀
 
 작업 기록은 Open Knowledge Format v0.2(`type` 등 YAML frontmatter + markdown 본문)을 따르며, 파일명은 `YYYY-MM-DD-<주제>.md`다. 변경 이력은 [log.md](log.md)에 남긴다.

@@ -425,3 +425,10 @@
 
 - **Creation**: [2026-10-03-classification-default-off.md](2026-10-03-classification-default-off.md) — 환경 기본값 통일, 다시 켜기와 API·worker 재생성 절차.
 - **Update**: index.md와 배포 README 연결, MEMORY.md에 기본 OFF 선호 기록.
+
+## 2026-10-04 이슈 분류 v4와 보정 장치 대응표
+
+- **Creation**: [2026-10-03-parse-extract-issue-taxonomy.md](2026-10-03-parse-extract-issue-taxonomy.md) — 상위 wiki 4차 개정본 동기화(생성 틀·완결성 검증·노드 13개 추가).
+- **Creation**: [2026-10-03-parse-extract-taxonomy-medical-profile.md](2026-10-03-parse-extract-taxonomy-medical-profile.md) — 상위 wiki 동기화(문서 7종 예시).
+- **Creation**: [2026-10-04-issue-taxonomy-correction-coverage.md](2026-10-04-issue-taxonomy-correction-coverage.md) — 상위 wiki 동기화(노드별 보정 장치·우선순위), 근거 evidence/2026-10-04-issue-taxonomy-v4/.
+- **Creation**: [2026-10-03-issue-taxonomy-work-plan.md](2026-10-03-issue-taxonomy-work-plan.md) — 상위 wiki 동기화(작업 계획).
