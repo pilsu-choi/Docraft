@@ -8,6 +8,8 @@ okf_version: "0.2"
 
 # Docraft wiki
 
+* [원본 데이터셋 7종의 이슈 노드 발생 조건](2026-10-04-dataset-node-conditions.md) - 97건 검토, 노드별 조건·회귀 후보
+
 * [서식 무관 일반 보정 장치 1차 구현](2026-10-04-general-correction-devices.md) - 탐지 장치 5종, 59건 재생 정확도 불변, 정탐·오탐
 
 * [Parse와 Extract 이슈 유형 계층 분류](2026-10-03-parse-extract-issue-taxonomy.md) - v4 생성 틀·111노드·완결성 검증
