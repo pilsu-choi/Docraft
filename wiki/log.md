@@ -441,3 +441,8 @@
 - **Creation**: [2026-10-04-dataset-node-conditions.md](2026-10-04-dataset-node-conditions.md) — 상위 wiki 동기화(데이터셋 97건 노드 조건).
 - **Update**: [2026-10-03-parse-extract-issue-taxonomy.md](2026-10-03-parse-extract-issue-taxonomy.md) — 표기 주체 축·발생 조건·한계 절(상위 wiki 동기화).
 - **Update** (2026-10-05): [2026-10-04-general-correction-devices.md](2026-10-04-general-correction-devices.md) — 인쇄되지 않은 합계 계산값 허용(A) 반영(상위 wiki 동기화).
+
+## 2026-10-05 rowmajor 열 배치 근거화(근거 없는 열·코드 순서·값 꼴)
+
+- **Creation**: [rowmajor 열 배치는 근거가 있을 때만 정하고, 약하면 알린다](2026-10-05-column-evidence.md) — 근본 원인 3가지(근거 없는 필수 열, 코드 두 열 인쇄 순서, 정규식 값 꼴 틀), 일반화 범위, 배치 비교 127건·다시 부른 7건, 테스트. 브랜치 `fix/column-evidence`, 워크트리 `.worktrees/column-evidence`.
+- **Update**: index.md에 연결.
