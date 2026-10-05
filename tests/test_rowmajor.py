@@ -151,6 +151,24 @@ def test_a_wide_gap_between_header_words_is_a_column_only_when_its_cells_show_th
     assert (("column_unplaced", "EDI명칭") in flags(blocks)) != inserted
 
 
+@pytest.mark.parametrize("dates", [["191225", "191228", "191225·191227", "191226-191227"],  # 붙여 쓴 날짜(YYMMDD)·기간
+                                   ["20191225", "20191228", "20191226", "20191227"]])
+def test_compact_printed_dates_are_value_evidence_of_a_misread_date_column(dates):
+    # '일자'를 '을지'(두 글자 모두 오독)로 읽은 서식: 머리글 근거는 없지만 사이 칸이 붙여 쓴 날짜다
+    rows = [(text, x, 40 + 30 * r) for r, date in enumerate(dates) for text, x in (("진찰료", -10), (date, 60), ("AA157", 200))]
+    blocks = header(("항목", 0, 0), ("을지", 100, 0), ("코드", 200, 0), ("명칭", 300, 0), ("단가", 400, 0), ("횟수", 500, 0), ("총액", 600, 0), *rows)
+
+    assert printed(blocks, DETAIL)[:2] == ["항목", "시작일자"] and not flags(blocks)
+
+
+@pytest.mark.parametrize("text,shape", [
+    ("191225", "date"), ("20191228", "date"), ("191225·191227", "period"),
+    ("120000", "number"), ("03230063", "code"), ("650100422", "code"),  # 달·날이 맞지 않는 붙인 수는 금액·코드
+])
+def test_compact_dates_are_told_from_amounts_and_codes(text, shape):
+    assert table_layout._shape(text) == shape
+
+
 def test_misread_header_text_of_another_column_does_not_insert_the_row_total():
     # 3022033115105207 서식(총액 열 없음, '금액' 한 열 = 행 금액)에 OCR이 오독으로 붙인 긴 글자가 있어도 없는 열을 끼우지 않는다
     names = ["내원일", "처방일", "항목", "코드", "명칭", "총투", "횟수", "일수", "금액", "급/비"]
@@ -701,9 +719,8 @@ def body(*rows):
      ["항목", "시작일자", "원내코드", "EDI코드", "EDI명칭", "단가", "횟수", "일수", "총액"], [("code_order", "EDI코드")]),
     ([[*ROW[:8], "9,990"]] * 3,  # 총액 뒤 금액 한 열은 어느 열인지 몰라 읽지 않는다(이웃 열 이름을 붙이지 않는다)
      ["항목", "시작일자", "EDI코드", "EDI명칭", "단가", "횟수", "일수", "총액", "미정열1"], [("column_shape", 9)]),
-    ([[*ROW[:8], "9,990", "6,660", "0"]] * 3,  # 세 열: 전액본인부담인지 비급여인지 모른다
-     ["항목", "시작일자", "EDI코드", "EDI명칭", "단가", "횟수", "일수", "총액", "미정열1", "미정열2", "미정열3"],
-     [("column_shape", 9), ("column_shape", 10), ("column_shape", 11)]),
+    ([[*ROW[:8], "9,990", "6,660", "0"]] * 3,  # 세 열: 본인·공단부담 뒤 셋째는 전액본인부담인지 비급여인지 모른다
+     ["항목", "시작일자", "EDI코드", "EDI명칭", "단가", "횟수", "일수", "총액", "본인부담", "공단부담", "미정열1"], [("column_shape", 11)]),
     ([ROW[:2] + ["2023-03-03 ~ 2023-03-05"] + ROW[2:9]] * 3,  # 날짜 열 둘 중 하나는 어느 날짜인지 모른다
      ["항목", "시작일자", "미정열1", "EDI코드", "EDI명칭", "단가", "횟수", "일수", "총액", "미정열2"], [("column_shape", 3), ("column_shape", 10)]),
     ([["진찰료", "검사료", "AA157", "초진", "16,650", "1", "1", "16,650"]] * 3,  # 항목 뒤 글자 열은 맞는 열이 없다

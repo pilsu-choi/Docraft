@@ -353,7 +353,9 @@ def _near(text, word):
     return any(_distance(text[i:i + n], word) <= 1 for n in (len(word) - 1, len(word), len(word) + 1) for i in range(len(text) - n + 1))
 
 
-_DATE = re.compile(r"(?:19|20)?\d{2}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{1,2}")
+# 날짜: 구분자 있는 꼴('2023-03-03'·'23.3.3')과 붙여 쓴 꼴('191225'·'20191228', 달·날이 맞을 때만 — 붙여 쓴 금액·코드와 가른다)
+_DATE = re.compile(r"(?:19|20)?\d{2}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{1,2}"
+                   r"|(?<!\d)(?:19|20)?\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?!\d)")
 NUMBER = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 _CODE = re.compile(r"[{(\[]?[A-Za-z0-9][A-Za-z0-9-]{3,11}[})\]]?")
 _CLASS = re.compile(r"(?:비|선별)?급여|급|비")
