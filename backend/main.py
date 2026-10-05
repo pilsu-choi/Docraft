@@ -45,7 +45,7 @@ ACTIVE = {"parsing": ("parsing",), "extracting": ("extracting", "validating")}
 RUNNING_STATUSES = {"parsing", "extracting", "validating"}  # 실행 중인 잡이 있는 상태(취소는 다음 단계 경계에서)
 PROCESSING_STATUSES = {"queued", *RUNNING_STATUSES}  # 삭제 금지·취소 대상 문서 상태
 # /api/read 응답 diagnostics·로그에 남기는 표 읽기 운영 지표(verify._note_table·engine·rules가 남긴다)
-TABLE_STAGES = ("table_plan", "table_plan_reason", "table_gate", "table_reread", "rowmajor_fallback", "column_swaps", "turned", "table_pages_failed", "extraction_completeness")
+TABLE_STAGES = ("table_plan", "table_plan_reason", "table_plan_flags", "table_gate", "table_reread", "rowmajor_fallback", "column_swaps", "turned", "table_pages_failed", "extraction_completeness")
 
 
 @asynccontextmanager
