@@ -101,3 +101,75 @@ def test_apply_integrity_marks_pages_and_rows_without_changing_values(tmp_path, 
     monkeypatch.setattr(engine, "ai_settings", lambda: {"vision": True, "chunk_chars": 40000, "integrity_review": True})
     engine.apply_integrity(quality, {"행": rows}, TABLE, grounded([1, 1, 2]), blocks_of("가", "나"), str(path))
     assert quality["행/2/a"]["status"] == "SUSPICIOUS" and quality["행/2/a"]["action"] == "RECHECK"
+
+
+def scan(path, layouts):
+    """A PDF whose page i draws ruled boxes `layouts[i]` (list of (x0, y0, x1, y1)) — a stand-in for the page image."""
+    with fitz.open() as pdf:
+        for boxes in layouts:
+            page = pdf.new_page(width=400, height=560)
+            for box in boxes:
+                page.draw_rect(fitz.Rect(*box), color=(0, 0, 0), fill=(0.2, 0.2, 0.2), width=1)
+        pdf.save(path)
+    return str(path)
+
+
+RECEIPT = [(20, 20, 380, 60), (20, 80, 200, 300), (220, 80, 380, 160), (220, 180, 380, 300), (20, 320, 380, 520)]
+DETAIL = [(x, 20, x + 6, 540) for x in range(20, 380, 30)]  # 열마다 세로줄이 그어진 표
+NUMBERS = ("2019-02-17 2019-02-28 40,000 32,000 8,000 1234567 4111436549 15,020 21,320 6,300 "
+           "11,800 3,540 2,210 760 13 18 45 1,500 92,170 2024-01-02")
+
+
+def page_blocks(*texts):
+    return [{"type": "table", "page": page, "text": f"<table><tr><td>{text}</td></tr></table>"} for page, text in enumerate(texts, 1)]
+
+
+def page_flags(blocks, source=None):
+    return {(f["code"], tuple(f["pages"])) for f in engine.unit_flags({}, TABLE, {}, blocks, source) if "pages" in f}
+
+
+def test_rescanned_page_with_slightly_different_ocr_is_a_duplicate(tmp_path):
+    shifted = [(x0 + 3, y0 + 4, x1 + 3, y1 + 4) for x0, y0, x1, y1 in RECEIPT]  # 다시 스캔해 조금 밀린 같은 쪽
+    path = scan(tmp_path / "rescan.pdf", [RECEIPT, shifted])
+    misread = NUMBERS.replace("15,020", "15,O20") + " 진료비 영수증 7"  # 숫자를 잘못 읽고 얼룩을 더 읽어 본문이 같지 않다
+    assert ("duplicate_page", (1, 2)) in page_flags(page_blocks(NUMBERS, misread), path)
+    assert ("duplicate_page", (1, 3)) in page_flags(page_blocks(NUMBERS, "2020-01-01 1,000 2,000", misread),
+                                                    scan(tmp_path / "three.pdf", [RECEIPT, DETAIL, shifted]))
+
+
+def test_same_form_with_other_numbers_or_other_layout_is_not_a_duplicate(tmp_path):
+    same_form = scan(tmp_path / "form.pdf", [RECEIPT, RECEIPT])
+    other_day = NUMBERS.replace("2019-02-17", "2019-10-21").replace("2019-02-28", "2019-10-31")  # 같은 환자 다른 날 영수증
+    assert not page_flags(page_blocks(NUMBERS, other_day), same_form)
+    assert not page_flags(page_blocks(NUMBERS, NUMBERS + " 세부내역"), scan(tmp_path / "two.pdf", [RECEIPT, DETAIL]))  # 같은 금액, 다른 서식
+    assert not page_flags(page_blocks(NUMBERS, NUMBERS + " 세부내역"))  # 쪽 그림이 없으면 본문이 같을 때만 중복
+    assert not page_flags(page_blocks("1 2 3 40,000", "1 2 3 40,000 가"), same_form)  # 고유 숫자가 너무 적다
+
+
+def title_page(page, *lines):
+    """Text lines `(text, height)` stacked top to bottom on `page`."""
+    out, top = [], 0
+    for text, height in lines:
+        out.append({"type": "text", "page": page, "text": text, "bbox": [10, top, 300, top + height],
+                    "lines": [{"text": text, "bbox": [10, top, 300, top + height]}]})
+        top += height + 5
+    return out
+
+
+BODY = [("환자성명 홍길동", 10), ("발급일 2024-01-02", 10), ("병명 급성 기관지염", 10)]
+
+
+def test_two_form_titles_on_one_page_or_a_switch_between_pages_is_a_document_boundary():
+    two = title_page(1, ("진 료 비 계산서·영수증", 22), *BODY, ("약제비 계산서·영수증", 20), *BODY)
+    found = engine.unit_flags({}, TABLE, {}, two)
+    assert [(f["code"], f["node"], f["pages"]) for f in found] == [("document_boundary", "P.STR.DOC", [1])]
+    assert found[0]["titles"] == {1: ["진료비영수증", "약제비영수증"]}
+    bundle = [*title_page(1, ("진단서", 24), *BODY), *title_page(2, ("진료비 세부산정내역", 24), *BODY)]
+    assert page_flags(bundle) == {("document_boundary", (2,))}
+
+
+def test_one_form_title_and_body_text_mentions_are_not_a_boundary():
+    assert not page_flags(title_page(1, ("수술 확인서", 24), *BODY, ("*상기 내용은 진단서와는 무관함.*", 10)))
+    assert not page_flags(title_page(1, ("[별지 제1호 서식] 진료비 세부산정내역", 12), ("진료비 세부산정내역", 24), *BODY))
+    continued = [*title_page(1, ("진료비 세부산정내역", 24), *BODY), *title_page(2, *BODY), *title_page(3, ("세부산정내역", 22), *BODY)]
+    assert not page_flags(continued)  # 같은 서식이 이어지는 쪽, 제목 없는 쪽은 경계가 아니다

@@ -447,3 +447,6 @@
 
 - **Creation**: [rowmajor 열 배치는 근거가 있을 때만 정하고, 약하면 알린다](2026-10-05-column-evidence.md) — 근본 원인 3가지(근거 없는 필수 열, 코드 두 열 인쇄 순서, 정규식 값 꼴 틀), 일반화 범위, 배치 비교 127건·다시 부른 7건, 테스트. 브랜치 `fix/column-evidence`, 워크트리 `.worktrees/column-evidence`.
 - **Update**: index.md에 연결.
+## 2026-10-05 쪽 단위 무결성 탐지
+
+- **Creation**: [2026-10-05-page-integrity.md](2026-10-05-page-integrity.md) — 근사 중복 쪽·문서 경계 탐지(feat/page-integrity), 근거 evidence/2026-10-05-page-integrity/.

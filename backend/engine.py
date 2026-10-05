@@ -17,7 +17,7 @@ from PIL import Image
 from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit
-from . import table_layout
+from . import doctypes, table_layout
 from .latency import note, parallel, remaining
 
 logger = logging.getLogger(__name__)
@@ -1012,7 +1012,19 @@ def _table_fields(schema):
 
 INTEGRITY_NODES = {"downscaled": "AUX.INPUT", "decode_failed": "AUX.INPUT", "image_not_sent": "P.MIS.AREA.1",
                    "duplicate_page": "P.OVR.DUP.1", "boundary_repeat": "E.OVR.DUP.1", "duplicate_run": "E.OVR.DUP.1",
-                   "page_order": "P.WRG.ORDER.1", "row_page_order": "P.WRG.ORDER.1", "table_page_gap": "P.STR.LINK.1"}
+                   "page_order": "P.WRG.ORDER.1", "row_page_order": "P.WRG.ORDER.1", "table_page_gap": "P.STR.LINK.1",
+                   "document_boundary": "P.STR.DOC"}
+# 근사 중복 쪽(P.OVR.DUP.1): 다시 스캔·캡처한 같은 쪽은 OCR 글자가 조금 달라 본문이 같지 않다. 그 쪽에서 한 번만 나오는
+# 2자리 이상 숫자(금액·날짜·번호)가 DUPLICATE_SIMILARITY 이상 겹치고(둘 다 DUPLICATE_MIN_NUMBERS개 이상) 인쇄된 날짜가 모두 같으며, 쪽 그림의 16×16 dHash가
+# DUPLICATE_IMAGE_DISTANCE 이하로 다를 때만 중복으로 본다. 같은 서식의 다른 문서(이어지는 쪽·같은 환자의 다른 날 영수증)는
+# 서식 글자·그림이 비슷해도 숫자가 갈린다. 근거: wiki/2026-10-05-page-integrity.md(359쪽·31,626쌍).
+DUPLICATE_SIMILARITY = 0.9
+DUPLICATE_MIN_NUMBERS = 5
+DUPLICATE_IMAGE_DISTANCE = 0.3
+# 서식 제목 줄(P.STR.DOC): 표 밖 줄 중 기호를 지워 TITLE_MAX_CHARS자 이하이고 doctypes.TITLES에 맞으며, 글자 높이가 그 쪽 줄 높이
+# 중앙값의 TITLE_HEIGHT_RATIO배 이상인 줄. 안내문 속 서식 이름(「…진단서는 무효임」)은 본문 크기라 빠진다.
+TITLE_MAX_CHARS = 24
+TITLE_HEIGHT_RATIO = 1.3
 
 
 def input_report(source, blocks, schema):
@@ -1058,9 +1070,54 @@ def _row_page(row_grounding):
     return next((leaf["page"] for leaf in (row_grounding or {}).values() if isinstance(leaf, dict) and leaf.get("page") is not None), None)
 
 
-def unit_flags(result, schema, groundings, blocks):
-    """Repeats and order anomalies across page and row boundaries (E.OVR.DUP.1, P.OVR.DUP.1, P.WRG.ORDER.1, P.STR.LINK.1).
-    Each flag is `{code, node, pages | table + rows}`; values are never changed (B2 only drops one exact repeat at a chunk boundary)."""
+def _page_numbers(page_blocks):
+    """`(distinct, dates)` of a page: numbers of 2+ digits printed exactly once (separators dropped, so `2019-02-17` is one
+    token) and every printed YYYYMMDD date. Two pages of one document print the same dates; another day's copy does not."""
+    found = Counter(re.sub(r"\D", "", token) for block in page_blocks
+                    for token in re.findall(r"\d(?:[\d,./-]*\d)?", re.sub(r"<[^>]+>", " ", block.get("text", ""))))
+    return ({token for token, count in found.items() if count == 1 and len(token) >= 2},
+            {token for token in found if re.fullmatch(r"(?:19|20)\d\d(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])", token)})
+
+
+def _page_hashes(source, pages, turns):
+    """page → 16×16 difference hash (256 bits) of the upright grayscale page image; empty for formats without page images."""
+    if not pages or not source or Path(source).suffix.lower() not in VISION_SUFFIXES:
+        return {}
+    hashes = {}
+    try:
+        with fitz.open(source) as document:
+            for number in pages:
+                if 1 <= number <= len(document):
+                    page = document[number - 1]
+                    zoom = 256 / max(page.rect.width, page.rect.height)
+                    pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom).prerotate(-turns.get(number, 0)), colorspace=fitz.csGRAY, alpha=False)
+                    pixels = list(Image.frombytes("L", (pixmap.width, pixmap.height), pixmap.samples).resize((17, 16), Image.BOX).getdata())
+                    hashes[number] = [pixels[i + 1] > pixels[i] for i in range(len(pixels) - 1) if (i + 1) % 17]
+    except Exception as exc:
+        logger.warning("integrity: page images of %s could not be hashed: %s", Path(source).name, exc)
+    return hashes
+
+
+def _page_titles(page_blocks):
+    """Document types of the form-title lines on a page (top to bottom): short non-table lines matching doctypes.TITLES
+    whose glyph height is at least TITLE_HEIGHT_RATIO × the page's median line height."""
+    lines = [(line.get("text", ""), line["bbox"]) for block in page_blocks if block.get("type") != "table"
+             for line in (block.get("lines") or [{"text": block.get("text", ""), "bbox": block.get("bbox")}]) if line.get("bbox")]
+    heights = sorted(bbox[3] - bbox[1] for _, bbox in lines)
+    titles = []
+    for text, bbox in sorted(lines, key=lambda line: line[1][1]):
+        cleaned = re.sub(r"[\W_\d]+", "", text)
+        if cleaned and len(cleaned) <= TITLE_MAX_CHARS and bbox[3] - bbox[1] >= TITLE_HEIGHT_RATIO * heights[len(heights) // 2]:
+            titles += [kind for kind, pattern in doctypes.TITLES.items() if re.search(pattern, cleaned)][:1]
+    return titles
+
+
+def unit_flags(result, schema, groundings, blocks, source=None):
+    """Repeats, order anomalies and document boundaries across page and row boundaries (E.OVR.DUP.1, P.OVR.DUP.1,
+    P.WRG.ORDER.1, P.STR.LINK.1, P.STR.DOC). Each flag is `{code, node, pages | table + rows}`; values are never changed
+    (B2 only drops one exact repeat at a chunk boundary). A page repeats an earlier one when its text is equal, or when
+    its distinct numbers and its image (`source`) are both near that page's; a document boundary is a page printing
+    form titles of two types, or whose first title differs from the previous titled page's last."""
     flags = []
 
     def flag(code, **where):
@@ -1069,13 +1126,28 @@ def unit_flags(result, schema, groundings, blocks):
     order = [block["page"] for block in blocks if block.get("page") is not None]
     if order != sorted(order):
         flag("page_order", pages=sorted(set(order)))
-    texts = {}
-    for number in _pages(blocks):
-        text = "".join(_normalized(block.get("text", "")) for block in blocks if block.get("page") == number)
-        texts.setdefault(text, []).append(number)
-    for text, numbers in texts.items():
-        if len(numbers) > 1 and len(text) >= 20:
-            flag("duplicate_page", pages=numbers)
+    pages = {number: [block for block in blocks if block.get("page") == number] for number in _pages(blocks)}
+    texts = {number: "".join(_normalized(block.get("text", "")) for block in found) for number, found in pages.items()}
+    numbers = {number: _page_numbers(found) for number, found in pages.items()}
+    near = [(a, b) for a in pages for b in pages if a < b and numbers[a][1] == numbers[b][1]
+            and min(len(numbers[a][0]), len(numbers[b][0])) >= DUPLICATE_MIN_NUMBERS
+            and 2 * len(numbers[a][0] & numbers[b][0]) / (len(numbers[a][0]) + len(numbers[b][0])) >= DUPLICATE_SIMILARITY]
+    hashes = _page_hashes(source, {number for pair in near for number in pair}, _turns(blocks))
+    near = {pair for pair in near if all(n in hashes for n in pair)
+            and sum(x != y for x, y in zip(hashes[pair[0]], hashes[pair[1]])) / len(hashes[pair[0]]) <= DUPLICATE_IMAGE_DISTANCE}
+    first = {}
+    for b in pages:
+        a = next((a for a in pages if a < b and ((a, b) in near or (texts[a] == texts[b] and len(texts[a]) >= 20))), None)
+        if a is not None:
+            first[b] = first.get(a, a)
+    for origin in sorted(set(first.values())):
+        flag("duplicate_page", pages=[origin, *sorted(b for b, a in first.items() if a == origin)])
+    titles = {number: _page_titles(found) for number, found in pages.items()}
+    titled = [number for number in pages if titles[number]]
+    boundary = {number for number in titled if len(set(titles[number])) > 1}
+    boundary |= {b for a, b in zip(titled, titled[1:]) if titles[a][-1] != titles[b][0]}
+    if boundary:
+        flag("document_boundary", pages=sorted(boundary), titles={number: titles[number] for number in titled})
     covered = set()
     for table in _table_fields(schema):
         rows = result.get(table) if isinstance(result, dict) else None
@@ -1109,7 +1181,7 @@ def apply_integrity(quality, result, schema, groundings, blocks, source):
     Adds the codes to `issue_codes` of the affected results (by page, or by table row) and returns the summary
     `{input, flags, lossy_pages}`. A confirmed value stays PASS unless `INTEGRITY_REVIEW=true`, which turns it into a RECHECK suspect."""
     report = input_report(source, blocks, schema)
-    flags = unit_flags(result, schema, groundings, blocks)
+    flags = unit_flags(result, schema, groundings, blocks, source)
     by_page = {number: list(item["codes"]) for number, item in report.get("pages", {}).items() if item["codes"]}
     by_row = {}
     for item in flags:
