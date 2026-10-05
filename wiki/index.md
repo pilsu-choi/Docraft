@@ -208,3 +208,5 @@ okf_version: "0.2"
 - [harness·Docraft 서식 자동분류 끄기 확인](2026-10-03-classification-toggle-check.md) — 제목 OCR 재분류 설정과 수동 서식 지정
 
 - [서식 재분류 기본 OFF와 재생성 가이드](2026-10-03-classification-default-off.md) — ON/OFF·API/worker·AWS/Helm 적용
+
+- [약제영수증 진료비내역-비급여 칸 반영](2026-10-05-pharmacy-noncovered-field.md) — 1005 약제 스키마 비교, 비급여 추가(상위 wiki 동기화)
