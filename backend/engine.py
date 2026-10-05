@@ -60,10 +60,12 @@ def _turns(blocks):
     return {b["page"]: b["orientation"] for b in blocks if b.get("orientation")}
 
 
-def _page_images(source, pages, turns=None):
+def _page_images(source, pages, turns=None, clips=None):
     """Page images of the document file `source` for the given 1-based page numbers (the same numbering the
     parser puts on blocks), each turned upright by `turns` (page → `orientation`). Empty when vision is off, the
-    format has no page image (docx/xlsx/csv/txt/html), or rendering fails — the call then falls back to the OCR text alone."""
+    format has no page image (docx/xlsx/csv/txt/html), or rendering fails — the call then falls back to the OCR text alone.
+    `clips` (boxes as page fractions [x0, y0, x1, y1] of the first page, e.g. a row band of `_bands`) attach those regions
+    of that page instead, at up to twice the whole-page zoom: a strip is smaller than the page."""
     if not source or not ai_settings()["vision"] or Path(source).suffix.lower() not in VISION_SUFFIXES:
         return []
     pages = list(pages)
@@ -72,6 +74,11 @@ def _page_images(source, pages, turns=None):
         pages = pages[:VISION_MAX_IMAGES]
     try:
         with fitz.open(source) as document:
+            if clips:
+                page, turn = document[pages[0] - 1], (turns or {}).get(pages[0], 0)
+                width, height = page.rect.width, page.rect.height
+                return [_data_url(page, fitz.Rect(x0 * width, y0 * height, x1 * width, y1 * height) & page.rect, 4.0, turn)
+                        for x0, y0, x1, y1 in clips]
             return [_data_url(document[number - 1], turn=(turns or {}).get(number, 0)) for number in pages if 1 <= number <= len(document)]
     except Exception as exc:
         logger.warning("vision: page image rendering failed for %s: %s", Path(source).name, exc, exc_info=True)
@@ -397,7 +404,9 @@ def _page_range(chunk_blocks):
 
 def _merge_chunk_results(results, schema):
     """Merge per-chunk extraction results by schema: object recurses per key, array concatenates in chunk
-    order (dropping an exact duplicate item at a chunk boundary), scalar keeps the first non-null value."""
+    order, scalar keeps the first non-null value. At a chunk boundary one item read twice (a row band repeats the last
+    text row of the band before: `_bands`) is kept once, as the fuller read: the two items are one when the filled
+    values of one are all in the other."""
     kind = schema.get("type")
     if kind == "object":
         merged = {}
@@ -410,10 +419,24 @@ def _merge_chunk_results(results, schema):
         for r in results:
             if not isinstance(r, list):
                 continue
-            chunk_items = r[1:] if r and items and r[0] == items[-1] else r
-            items.extend(chunk_items)
+            if r and items and _same_item(items[-1], r[0]):
+                items[-1], r = max(items[-1], r[0], key=lambda item: len(_filled(item))), r[1:]
+            items.extend(r)
         return items
     return next((value for value in results if value is not None), None)
+
+
+def _filled(item):
+    return {key: _normalized(value) for key, value in item.items() if value not in (None, "")} if isinstance(item, dict) else {}
+
+
+def _same_item(a, b):
+    """True when `a` and `b` are one item read twice: equal, or rows whose filled values (normalized) one holds all of
+    the other's."""
+    if a == b:
+        return True
+    one, other = sorted((_filled(a), _filled(b)), key=len)
+    return bool(one) and one.items() <= other.items()
 
 
 def _drop_null_optionals(value, schema):
@@ -464,6 +487,9 @@ ROWS_USER = (
 TABLE_REPLY_TOKENS = 16000  # Reply cap a page group of one table aims under: half the provider output limit (32k).
 PAGES_NOTE = (" These are page(s) {pages} of a table printed over page(s) {span}: read only the rows printed on these pages. "
               "A continuation page may have no header row; the fields above still give its columns in printed order.")
+BAND_NOTE = (" The image shows only a horizontal strip of this table: transcribe only the rows in it.",
+             " The first image is only the table's header (no rows to output); the second image is a horizontal strip of "
+             "this table: transcribe only the rows in it.")
 ROW_AMOUNT = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?![\d,])|(?<![\d.,])\d{3,}(?![\d.,])")  # 금액 꼴 숫자('12,300'·'4500')
 
 
@@ -522,19 +548,90 @@ def _table_plan(doc_type, table, spec, blocks):
 
 def _table_pages(blocks, budget, columns):
     """Consecutive whole pages grouped for reading one table so that each group's reply cap (`_reply_cap`) stays within
-    TABLE_REPLY_TOKENS, its text within the chunk budget and its pages within VISION_MAX_IMAGES. A page over the limits
-    alone is its own group."""
+    TABLE_REPLY_TOKENS, its text within the chunk budget and its pages within VISION_MAX_IMAGES. A page whose reply cap
+    alone is over the provider output limit (2 × TABLE_REPLY_TOKENS: its reply may not fit one call) is cut into row bands
+    (`_bands`), each its own group; any other page over the limits, or one that cannot be cut, is its own group."""
     groups = []
     for _, group in groupby(blocks, key=lambda b: b.get("page")):
         group = list(group)
+        if _reply_cap("\n".join(b["text"] for b in group), columns) > 2 * TABLE_REPLY_TOKENS and (bands := _bands(group, columns)):
+            groups += [[band] for band in bands]
+            continue
         last = groups[-1] if groups else None
-        if (last and len(_pages(last)) < VISION_MAX_IMAGES
+        if (last and "clips" not in last[0] and len(_pages(last)) < VISION_MAX_IMAGES
                 and len(text := "\n".join(b["text"] for b in last + group)) <= budget
                 and _reply_cap(text, columns) <= TABLE_REPLY_TOKENS):
             last.extend(group)
         else:
             groups.append(group)
     return groups
+
+
+def _line_rows(lines):
+    """OCR lines grouped into printed text rows top to bottom, each (top, bottom, its lines' text left to right joined by
+    ' | '): a line whose middle lies above the bottom of a row's first line joins that row. Lines over twice the median line
+    height (a merged cell's text across rows) are left out of the rows and returned second."""
+    heights = sorted(line["bbox"][3] - line["bbox"][1] for line in lines)
+    tall = [line for line in lines if line["bbox"][3] - line["bbox"][1] > 2 * heights[len(heights) // 2]]
+    rows = []
+    for line in sorted((line for line in lines if line not in tall), key=lambda line: line["bbox"][1] + line["bbox"][3]):
+        top, bottom = line["bbox"][1], line["bbox"][3]
+        if rows and (top + bottom) / 2 <= rows[-1][1]:
+            rows[-1][2] = max(rows[-1][2], bottom)
+            rows[-1][3].append(line)
+        else:
+            rows.append([top, bottom, bottom, [line]])
+    return [(top, bottom, " | ".join(line["text"] for line in sorted(parts, key=lambda line: line["bbox"][0])))
+            for top, _, bottom, parts in rows], tall
+
+
+def _bands(page_blocks, columns):
+    """Row bands of a page too dense for one reply. Each table block's OCR text rows (`_line_rows`) from its first row
+    carrying an amount (the rows above are its header) are cut into the fewest bands of about equal amount count whose
+    reply cap (`_reply_cap`) stays within TABLE_REPLY_TOKENS. A cut falls in the gap between two text rows, before a row
+    carrying an amount (a printed row's amounts are on its first line; a wrapped name line has none), and the next band
+    repeats the band's last printed row (from its last text row carrying an amount) so a row cut anyway is whole in one
+    band; the stitch (`_merge_chunk_results`) keeps one of the two reads. A band is a block with the header rows, its rows and the merged-cell lines it overlaps as text, and
+    `clips` (page fractions): the header strip (bands after the first) and the band strip, both table-wide.
+    Empty when a table block has no OCR line boxes or no block needs cutting (its lines carry fewer amounts than the page
+    text): the page is then read whole."""
+    from .parsers import unturn  # parsers → engine 순환을 피한다
+    tables = [b for b in page_blocks if b.get("type") == "table"]
+    if not tables or not all(b.get("page_size") and any(line.get("bbox") for line in b.get("lines") or []) for b in tables):
+        return []
+    most = max(1, TABLE_REPLY_TOKENS // (10 * columns + 20) - 20)  # amounts a band's reply cap allows
+    bands = []
+    for block in tables:
+        turn = block.get("orientation", 0)
+        upright = unturn([block], 360 - turn)[0] if turn else block
+        rows, tall = _line_rows([line for line in upright["lines"] if line.get("bbox") and str(line["text"]).strip()])
+        amounts = [len(ROW_AMOUNT.findall(row[2])) for row in rows]
+        head = next((i for i, count in enumerate(amounts) if count), 0)
+        target = -(-sum(amounts) // -(-sum(amounts) // most)) if sum(amounts) else 0  # 고른 띠 크기
+        x0, y0, x1, y1 = upright["bbox"]
+
+        def cut(i):
+            return y0 if i == 0 else y1 if i == len(rows) else (rows[i - 1][1] + rows[i][0]) / 2
+
+        def clip(top, bottom):
+            box = [x0, top, x1, bottom]
+            box = unturn([{"bbox": box, "page_size": upright["page_size"]}], turn)[0]["bbox"] if turn else box
+            width, height = block["page_size"]
+            return [box[0] / width, box[1] / height, box[2] / width, box[3] / height]
+
+        start = fresh = head
+        while fresh < len(rows):
+            end = len(rows) if sum(amounts[fresh:]) <= most else fresh + 1  # 남은 행이 한 띠에 들면 다 넣는다
+            while end < len(rows) and sum(amounts[fresh:end + 1]) <= target:
+                end += 1
+            if end < len(rows):
+                end = next((i for i in range(end, fresh, -1) if amounts[i]), end)
+            top, bottom = cut(0 if start == head else start), cut(end)
+            text = [row[2] for row in rows[:head] + rows[start:end]] + [line["text"] for line in tall if line["bbox"][1] < bottom and line["bbox"][3] > top]
+            bands.append({"page": block.get("page"), "type": "table", "page_size": block["page_size"], **({"orientation": turn} if turn else {}),
+                          "text": "\n".join(text), "clips": [clip(y0, cut(head)), clip(top, bottom)] if start > head and head else [clip(top, bottom)]})
+            start, fresh = next((i for i in range(end - 1, fresh - 1, -1) if amounts[i]), end - 1), end
+    return bands if len(bands) > len(tables) else []
 
 
 def _read_chunk(schema, chunk, index, count, source, budget, deadline=None, cancel=None, on_call=None):
@@ -554,7 +651,7 @@ def _read_chunk(schema, chunk, index, count, source, budget, deadline=None, canc
         raise TimeoutError("extraction deadline exceeded")
     page_range = _page_range(chunk)
     evidence = _chunk_text(chunk, budget)
-    images = _page_images(source, _pages(chunk), _turns(chunk))
+    images = _page_images(source, _pages(chunk), _turns(chunk), chunk[0].get("clips") if chunk else None)
     logger.debug("extract: chunk %d/%d pages=%s blocks=%d evidence_chars=%d images=%d", index + 1, count, page_range, len(chunk), len(evidence), len(images))
     system += VISION_NOTE if images else ""
     if count > 1:
@@ -630,10 +727,11 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
 
     def read_group(table, group, index, count):
         pages = _page_range(group)
-        if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group))):
+        if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group), group[0].get("clips"))):
             try:
                 return _read_rows(table, properties[table], plans[table], _chunk_text(group, budget), group_images,
-                                  PAGES_NOTE.format(pages=pages, span=_page_range(blocks)), deadline, cancel, on_call)
+                                  PAGES_NOTE.format(pages=pages, span=_page_range(blocks))
+                                  + (BAND_NOTE[len(group_images) > 1] if "clips" in group[0] else ""), deadline, cancel, on_call)
             except (RuntimeError, ValueError) as exc:  # a reply that broke the row contract: read these pages asis
                 if cancel is not None and cancel.is_set():
                     raise
