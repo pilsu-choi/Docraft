@@ -278,3 +278,137 @@ def test_valid_empty_page_table_is_complete(provider):
     completeness = {}
     engine.extract(table_schema(), [page(1), page(2)], provider.source, completeness=completeness)
     assert completeness["partial"] is False and completeness["successful_pages"] == [1, 2]
+
+
+# --- 빽빽한 쪽의 행 띠 -----------------------------------------------------------------
+# 머리글 줄(y 0~10) 아래에 R1..Rn 행(y 20i~20i+10, 금액 하나). 열 1개면 행당 상한 30토큰이고, 상한 720이면 띠당 금액 4개다.
+
+
+def dense(rows=30, wrapped=(), tall=None, number=1, orientation=None):
+    lines = [{"text": "항목", "bbox": [0, 0, 40, 10]}, {"text": "금액", "bbox": [50, 0, 90, 10]}]
+    y = 20
+    for i in range(1, rows + 1):
+        lines += [{"text": f"R{i}", "bbox": [0, y, 40, y + 10]}, {"text": "1,000", "bbox": [50, y, 90, y + 10]}]
+        if i in wrapped:  # 이름이 다음 줄로 넘어간 행: 금액이 없는 줄
+            y += 20
+            lines.append({"text": f"R{i}b", "bbox": [0, y, 40, y + 10]})
+        y += 20
+    if tall:
+        lines.append({"text": "검사료", "bbox": [95, tall[0], 100, tall[1]]})
+    block = {"page": number, "type": "table", "bbox": [0, 0, 100, y], "page_size": [100, 1000], "lines": lines,
+             "text": " ".join(line["text"] for line in lines)}
+    return {**block, "orientation": orientation} if orientation else block
+
+
+def band_rows(band):
+    return re.findall(r"R\d+b?", band["text"])
+
+
+@pytest.fixture
+def narrow(monkeypatch):
+    monkeypatch.setattr(engine, "TABLE_REPLY_TOKENS", 30 * 24)
+
+
+def test_page_groups_never_cut_a_page(narrow):
+    assert [len(group) for group in engine._table_pages([dense(rows=60)], 10 ** 6, 1)] == [1]  # 띠는 읽기가 깨졌을 때만
+
+
+def test_bands_cut_in_line_gaps_into_even_bands_that_repeat_one_row(narrow):
+    bands = engine._bands([dense()], 1)
+    rows = [band_rows(band) for band in bands]
+    assert [len(r) for r in rows] == [4, 5, 5, 5, 5, 5, 5, 3]  # 30행을 새 행 4개씩 띠 8개로, 뒤 띠는 앞 띠의 마지막 행을 다시 읽는다
+    assert all(a[-1] == b[0] for a, b in zip(rows, rows[1:]))
+    assert sorted({r for band in rows for r in band}, key=lambda r: int(r[1:])) == [f"R{i}" for i in range(1, 31)]
+    assert all(band["text"].startswith("항목 | 금액") for band in bands)  # 모든 띠가 머리글 줄을 근거로 받는다
+    edges = [y * 1000 for band in bands for clip in band["clips"] for y in (clip[1], clip[3])]
+    assert all(y in (0, 620) or y % 20 == 15 for y in edges)  # 줄 사이 틈(행 i의 아래 20i+10과 다음 행 위의 가운데)
+    assert bands[0]["clips"] == [[0, 0, 1, 0.095]]  # 첫 띠는 머리글부터
+    assert all(band["clips"][0] == [0, 0, 1, 0.015] and len(band["clips"]) == 2 for band in bands[1:])  # 뒤 띠는 머리글 띠 + 행 띠
+
+
+def test_a_cut_never_falls_before_a_wrapped_line_and_the_repeat_holds_the_whole_row(narrow):
+    bands = engine._bands([dense(wrapped=range(1, 31))], 1)
+    rows = [band_rows(band) for band in bands]
+    assert all(r[0].endswith(tuple("0123456789")) for r in rows)  # 띠는 금액이 있는 줄에서 시작한다
+    assert all(a[-2:] == b[:2] and b[1] == b[0] + "b" for a, b in zip(rows, rows[1:]))  # 넘어간 줄까지 함께 반복
+
+
+def test_merged_cell_lines_go_to_every_band_they_overlap_and_not_into_the_rows(narrow):
+    bands = engine._bands([dense(tall=(100, 300))], 1)  # R5(y 100)~R14(y 280~290)에 걸친 병합 칸
+    assert ["검사료" in band["text"] for band in bands] == [
+        any(5 <= int(r[1:]) <= 14 for r in band_rows(band)) for band in bands] == [False, True, True, True, False, False, False, False]
+    assert all(r.startswith("R") for band in bands for r in band_rows(band))
+
+
+def test_no_bands_without_line_boxes_or_when_nothing_needs_cutting(narrow):
+    assert engine._bands([{**dense(), "lines": []}], 1) == []
+    sideways = dense()  # 돌림을 모르는 옆으로 인쇄된 쪽: 줄 상자가 세로로 길다
+    sideways["lines"] = [{**line, "bbox": [line["bbox"][1], line["bbox"][0], line["bbox"][3], line["bbox"][2]]} for line in sideways["lines"]]
+    assert engine._bands([sideways], 1) == []
+    assert engine._bands([dense(rows=3)], 1) == []
+    assert engine._bands([{"page": 1, "type": "text", "text": "1,000 " * 100}], 1) == []
+
+
+def test_bands_of_a_turned_page_are_cut_upright_and_clipped_in_the_original_frame(narrow):
+    upright = dense()
+    from backend.parsers import unturn
+    turned = unturn([upright], 90)[0]  # 90° 돌아간 쪽에서 읽은 블록(좌표는 원본 기준)
+    want = [[unturn([{"bbox": [c[0] * 100, c[1] * 1000, c[2] * 100, c[3] * 1000], "page_size": [100, 1000]}], 90)[0]["bbox"]
+             for c in band["clips"]] for band in engine._bands([upright], 1)]
+    got = engine._bands([turned], 1)
+    assert [band_rows(band) for band in got] == [band_rows(band) for band in engine._bands([upright], 1)]
+    assert [[[round(v * s, 6) for v, s in zip(c, (1000, 100, 1000, 100))] for c in band["clips"]] for band in got] == \
+        [[[round(v, 6) for v in box] for box in boxes] for boxes in want]
+    assert all(band["orientation"] == 90 for band in got)
+
+
+def test_two_reads_of_a_repeated_row_are_one_row_when_the_amounts_of_one_are_among_the_others():
+    full = {"항목": "주사료", "EDI명칭": "나페아주", "단가": "17,633", "총액": "17633", "일수": "1"}
+    assert engine._same_row(full, {"EDI명칭": "나이추지액", "총액": "17,633", "본인부담": "17633"})  # 다른 열·다른 명칭 오독
+    assert engine._same_row({"단가": "17633", "총액": "17633"}, full)  # 일부만 읽은 행
+    assert not engine._same_row({"총액": "17633"}, full)  # 값 하나로는 판단하지 않는다
+    assert not engine._same_row(full, {"항목": "주사료", "총액": "2,000"})  # 다른 금액은 다른 행
+    assert not engine._same_row({"항목": "소계"}, {"항목": "소계"})  # 금액이 없으면 판단하지 않는다
+    assert not engine._same_row({"시작일자": "20221227", "EDI명칭": "CK5/6"}, {"시작일자": "20221227", "EDI명칭": "EGFR", "총액": "32540"})
+
+
+@pytest.mark.parametrize("pages", [1, 2])
+def test_a_page_whose_reply_breaks_is_read_again_band_by_band_and_a_failed_band_alone_asis(provider, monkeypatch, pages):
+    monkeypatch.setattr(engine, "TABLE_REPLY_TOKENS", 210 * 24)  # 스키마 19열: 띠당 금액 4개
+    def fake(messages, timeout=None, timeout_cap=None, json_schema=None, max_tokens=None):
+        content = messages[1]["content"]
+        text = content[-1]["text"]
+        names = list(dict.fromkeys(re.findall(r"R\d+", text.split("[[SOURCE_END]]")[0] if json_schema else text)))
+        with provider.lock:
+            provider.calls.append({"json_schema": json_schema, "names": names, "text": text,
+                                   "images": sum(part["type"] == "image_url" for part in content)})
+        if json_schema is not None:
+            if "R10" in names or len(names) > 10:  # 쪽 전체와 R10 띠는 rowmajor가 깨진다
+                raise RuntimeError("broken JSON")
+            width = json_schema["properties"]["rows"]["items"]["minItems"]
+            return {"rows": [[name] + [None] * (width - 3) + ["1,000", "500"] for name in names]}
+        return {"항목내역": [{"항목": name + "?", "총액": "1000", "본인부담": "500"} for name in names]}  # asis는 같은 행을 조금 달리 읽는다
+    monkeypatch.setattr(engine, "_provider", fake)
+    monkeypatch.setattr(engine, "_table_plan", lambda *args: None)
+    blocks = [dense()] + ([{**dense(rows=2), "page": 2, "text": "R31 1,000 R32 1,000"}] if pages == 2 else [])
+    completeness = {}
+
+    result, _ = engine.extract(table_schema(), blocks, provider.source, table_extract="rowmajor", completeness=completeness)
+
+    assert [row["항목"].rstrip("?") for row in result["항목내역"]] == [f"R{i}" for i in range(1, 31 + 2 * (pages - 1))]  # 반복한 행은 한 번만
+    whole = [call for call in provider.calls if len(call["names"]) == 30]
+    asis = [call for call in provider.calls if call["json_schema"] is None]
+    assert len(whole) == 1 and whole[0]["json_schema"]  # 쪽 전체는 rowmajor로 한 번만, asis로 다시 읽지 않는다
+    assert len(asis) == 1 and asis[0]["names"] == ["R8", "R9", "R10", "R11", "R12"]  # 깨진 띠 하나만 asis
+    assert all(call["images"] == 2 for call in provider.calls if call["names"][:1] not in (["R1"], ["R31"]) and len(call["names"]) < 30)
+    assert all("horizontal strip" in call["text"] for call in provider.calls if call["json_schema"] and len(call["names"]) < 30 and "R31" not in call["names"])
+    assert completeness["partial"] is False
+
+
+def test_a_page_that_reads_well_is_one_call(provider, monkeypatch):
+    monkeypatch.setattr(engine, "TABLE_REPLY_TOKENS", 210 * 24)
+    provider.rows = {None: []}
+    monkeypatch.setattr(engine, "_provider", lambda messages, **kw: provider.calls.append(1) or {"rows": [[None] * 18 + ["1,000"]]})
+    monkeypatch.setattr(engine, "_table_plan", lambda *args: None)
+    engine.extract(table_schema(), [dense()], provider.source, table_extract="rowmajor")
+    assert len(provider.calls) == 1

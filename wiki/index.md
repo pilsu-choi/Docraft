@@ -213,3 +213,5 @@ okf_version: "0.2"
 - [서식 재분류 기본 OFF와 재생성 가이드](2026-10-03-classification-default-off.md) — ON/OFF·API/worker·AWS/Helm 적용
 
 - [약제영수증 진료비내역-비급여 칸 반영](2026-10-05-pharmacy-noncovered-field.md) — 1005 약제 스키마 비교, 비급여 추가(상위 wiki 동기화)
+
+- [빽빽한 표 쪽을 행 띠로 나눠 읽기](2026-10-05-dense-page-split.md) — 한 응답에 들지 않는 쪽만 OCR 줄 틈에서 띠로 잘라 읽기, 건국대 41→195행·청담 2·3쪽 0→124행

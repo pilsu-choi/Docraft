@@ -636,7 +636,7 @@ def test_header_order_is_read_on_the_upright_page_of_a_turned_block(turn):
 
 def test_rowmajor_page_image_is_turned_upright(provider, monkeypatch):
     turns = []
-    monkeypatch.setattr(engine, "_page_images", lambda source, pages, turns_=None: turns.append(turns_) or ["data:x"])
+    monkeypatch.setattr(engine, "_page_images", lambda source, pages, turns_=None, clips=None: turns.append(turns_) or ["data:x"])
     provider.objects = [{"환자성명": "홍길동"}]
     blocks = [{**BLOCKS[0], "orientation": 90}]
 
