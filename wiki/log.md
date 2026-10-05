@@ -450,3 +450,7 @@
 ## 2026-10-05 쪽 단위 무결성 탐지
 
 - **Creation**: [2026-10-05-page-integrity.md](2026-10-05-page-integrity.md) — 근사 중복 쪽·문서 경계 탐지(feat/page-integrity), 근거 evidence/2026-10-05-page-integrity/.
+
+## 2026-10-05 빽빽한 표 쪽 행 띠 나누기
+
+- **Creation** (2026-10-05): [2026-10-05-dense-page-split.md](2026-10-05-dense-page-split.md) — 빽빽한 쪽 행 띠 나누기 설계·측정(브랜치 `fix/dense-page-split`).
