@@ -8,6 +8,7 @@ okf_version: "0.2"
 
 # Docraft wiki
 
+* [하네스·Docraft 에이전트 자가교정 설계](2026-10-05-agent-self-correction-design.md) - 실행 고리·개발 고리, 관문, 도입 순서(상위 wiki 동기화)
 * [원본 데이터셋 7종의 이슈 노드 발생 조건](2026-10-04-dataset-node-conditions.md) - 97건 검토, 노드별 조건·회귀 후보
 
 * [쪽 단위 무결성 탐지 — 근사 중복 쪽과 문서 경계](2026-10-05-page-integrity.md) - P.OVR.DUP.1·P.STR.DOC 탐지, 359쪽·31,626쌍 기준값, 정답지 59건 오탐 0
