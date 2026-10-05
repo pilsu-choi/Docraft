@@ -36,6 +36,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date as _calendar_date
 from functools import cached_property
+from itertools import groupby
 from statistics import median
 from html import unescape
 from pathlib import Path
@@ -1415,9 +1416,9 @@ def _printed_under(blocks):
 def _detail_swaps(rows, blocks):
     """세부내역서 항목 표에서 통째로 맞바뀐 열 쌍 ``(바꿀 쌍, 의심만 하는 쌍)``. 값은 옮기기만 하고 바꾸거나 만들지 않는다.
 
-    - 원내코드·EDI코드: 두 칸이 다른 행이 셋 이상이고, 원내코드 칸의 8할 이상이 EDI 수가코드 꼴(``table_layout.EDI``)이며
-      EDI코드 칸보다 그 비율이 5할 이상 높고, EDI코드 칸의 8할 이상이 한글·공백 없는 코드 꼴이면 바꾼다(명칭이 든 칸과는 바꾸지
-      않는다). 3할 이상 높기만 하면 의심.
+    - 원내코드·EDI코드: 두 칸이 다른 행의 EDI 수가코드 꼴(``table_layout.EDI``) 비율을 열 배치와 같은 잣대(``table_layout.edi_side``)로
+      본다. 원내코드 칸 쪽이 확실히 EDI 꼴이고(8할 이상, 5할 이상 높다) 그런 행이 셋 이상이며 EDI코드 칸의 8할 이상이 한글·공백 없는
+      코드 꼴이면 바꾼다(명칭이 든 칸과는 바꾸지 않는다). 원내코드 칸 쪽이 3할 이상 높기만 하면 의심.
     - 본인부담·공단부담: 두 값이 OCR에서 각각 한 열 아래에만 찍힌 행 가운데 머리글 자리가 엇갈린 행이 셋 이상이고 바른 행의
       네 배 이상이면 바꾼다. 엇갈린 행이 더 많기만 하면 의심. 자리 근거가 없을 때(바른 행이 셋 미만) 본인부담 비율
       (본인/(본인+공단))의 중앙값이 0.75 이상이면 의심 — 본인부담률은 20~60%라 공단부담보다 큰 일이 드물다."""
@@ -1426,10 +1427,8 @@ def _detail_swaps(rows, blocks):
     if codes:
         mine, edi = (sum(map(_is_edi, side)) / len(codes) for side in zip(*codes))
         coded = sum(not re.search(r"[가-힣\s]", str(b)) for _, b in codes) / len(codes)  # EDI코드 칸이 명칭이 아니라 코드 꼴이다
-        if len(codes) >= 3 and mine >= 0.8 and mine - edi >= 0.5 and coded >= 0.8:
-            sure.append(("원내코드", "EDI코드"))
-        elif mine - edi >= 0.3:
-            unsure.append(("원내코드", "EDI코드"))
+        if (side := table_layout.edi_side((mine, edi))) and side[0] == 0:
+            (sure if side[1] and len(codes) >= 3 and coded >= 0.8 else unsure).append(("원내코드", "EDI코드"))
     under = _printed_under(blocks)
     paid = [(a, b) for row in rows if (a := _money(row.get("본인부담"))) and (b := _money(row.get("공단부담"))) and a != b]
     places = [(under.get(a), under.get(b)) for a, b in paid]
@@ -1463,6 +1462,21 @@ def _swap_checks(doc):
     """항목 금액 열 두 개가 통째로 맞바뀌었는지(``_swaps``)."""
     return [_flag("column_shift", f"항목 행의 '{a}'·'{b}' 열을 통째로 맞바꾸면 두 열의 합이 합계 행과 맞는다.",
                   column=a, target=b) for a, b in _swaps(doc.rows)]
+
+
+PLAN_FLAGS = {  # table_layout.planned 알림 → 문구. 근거가 약해 열 배치에서 추측하지 않은 곳이다
+    "column_unplaced": "'{0}' 열이 인쇄됐을 수 있지만 머리글·값 근거가 약해 열로 넣지 않았다.",
+    "code_order": "코드 두 열을 값 꼴·머리글 낱말로 가르지 못해 인쇄 순서(앞 = 원내코드)로 정했다.",
+    "column_shape": "머리글 없는 표의 {0}번째 열은 값 꼴로 어느 열인지 정하지 못해 읽지 않았다.",
+}
+
+
+def _plan_checks(doc):
+    """세부내역서 항목 표 열 배치(``table_layout.planned``, 쪽마다)에서 근거가 약해 추측하지 않은 곳."""
+    union = doctypes.spec(doc.doc_type)["tables"][ITEM_TABLE]
+    found = {tuple(flag) for _, group in groupby(doc.blocks or [], key=lambda block: block.get("page"))
+             for flag in table_layout.planned(doc.doc_type, ITEM_TABLE, list(group), "", dict.fromkeys(union, ""))[3]}
+    return [_flag("column_plan", PLAN_FLAGS[code].format(column), column=column, reason=code) for code, column in sorted(found)]
 
 
 def _detail_swap_checks(doc):
@@ -1812,6 +1826,7 @@ RULES = (  # 검사 순서가 곧 check()가 내는 이상 징후 순서다
     Rule("DETAIL.WARD", "ward", "FMT", DETAIL, _ward_checks, _fix_clear, "CORRECT"),
     Rule("DETAIL.EMPTY_COLUMN", "empty_column", "STRUCT", DETAIL, _empty_columns, None, "RE_EXTRACT"),
     Rule("DETAIL.COLUMN_SWAP", "column_swap", "STRUCT", DETAIL, _detail_swap_checks, None, "ESCALATE"),
+    Rule("DETAIL.COLUMN_PLAN", "column_plan", "STRUCT", DETAIL, _plan_checks, None, "ESCALATE"),
     Rule("GROUND.UNPRINTED", "ungrounded", "LOGIC", (), _unprinted, _fix_total, "CORRECT"),
     Rule("RECEIPT.MULTI_AMOUNT", "multi_amount", "FMT", RECEIPT, _multi_amounts, None, "RE_EXTRACT"),
     Rule("RECEIPT.NO_COLUMN", "no_column", "STRUCT", RECEIPT, _no_columns, None, "RE_EXTRACT"),

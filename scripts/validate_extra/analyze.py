@@ -32,7 +32,7 @@ def pct(values, p):
 
 def plan_reason(blocks):
     """열 배치 출처(header·value), 못 정했으면 머리글을 못 읽은 사유(``table_layout.planned``)."""
-    _, source, reason = table_layout.planned(DOC, TABLE, blocks, "", dict.fromkeys(SPEC, ""))
+    _, source, reason, _ = table_layout.planned(DOC, TABLE, blocks, "", dict.fromkeys(SPEC, ""))
     return source if source != "union" else reason
 
 
