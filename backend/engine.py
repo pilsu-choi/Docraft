@@ -404,9 +404,7 @@ def _page_range(chunk_blocks):
 
 def _merge_chunk_results(results, schema):
     """Merge per-chunk extraction results by schema: object recurses per key, array concatenates in chunk
-    order, scalar keeps the first non-null value. At a chunk boundary one item read twice (a row band repeats the last
-    text row of the band before: `_bands`) is kept once, as the fuller read: the two items are one when the filled
-    values of one are all in the other."""
+    order (dropping an exact duplicate item at a chunk boundary), scalar keeps the first non-null value."""
     kind = schema.get("type")
     if kind == "object":
         merged = {}
@@ -419,24 +417,18 @@ def _merge_chunk_results(results, schema):
         for r in results:
             if not isinstance(r, list):
                 continue
-            if r and items and _same_item(items[-1], r[0]):
-                items[-1], r = max(items[-1], r[0], key=lambda item: len(_filled(item))), r[1:]
-            items.extend(r)
+            chunk_items = r[1:] if r and items and r[0] == items[-1] else r
+            items.extend(chunk_items)
         return items
     return next((value for value in results if value is not None), None)
 
 
-def _filled(item):
-    return {key: _normalized(value) for key, value in item.items() if value not in (None, "")} if isinstance(item, dict) else {}
-
-
-def _same_item(a, b):
-    """True when `a` and `b` are one item read twice: equal, or rows whose filled values (normalized) one holds all of
-    the other's."""
-    if a == b:
-        return True
-    one, other = sorted((_filled(a), _filled(b)), key=len)
-    return bool(one) and one.items() <= other.items()
+def _same_row(a, b):
+    """True when `a` and `b` are two reads of the row a band repeats (`_bands`): the amount-like values (two at least: one
+    shared date or count says nothing) of one are all among the other's, whatever columns the two reads put them in."""
+    one, other = sorted((Counter(_normalized(v) for v in row.values() if ROW_AMOUNT.fullmatch(str(v).strip())) for row in (a, b)),
+                        key=lambda values: values.total())
+    return one.total() >= 2 and not one - other
 
 
 def _drop_null_optionals(value, schema):
@@ -591,7 +583,7 @@ def _bands(page_blocks, columns):
     reply cap (`_reply_cap`) stays within TABLE_REPLY_TOKENS. A cut falls in the gap between two text rows, before a row
     carrying an amount (a printed row's amounts are on its first line; a wrapped name line has none), and the next band
     repeats the band's last printed row (from its last text row carrying an amount) so a row cut anyway is whole in one
-    band; the stitch (`_merge_chunk_results`) keeps one of the two reads. A band is a block with the header rows, its rows and the merged-cell lines it overlaps as text, and
+    band (`repeats`); `extract` keeps one of the two reads (`_same_row`). A band is a block with the header rows, its rows and the merged-cell lines it overlaps as text, and
     `clips` (page fractions): the header strip (bands after the first) and the band strip, both table-wide.
     Empty when a table block has no OCR line boxes or no block needs cutting (its lines carry fewer amounts than the page
     text): the page is then read whole."""
@@ -629,6 +621,7 @@ def _bands(page_blocks, columns):
             top, bottom = cut(0 if start == head else start), cut(end)
             text = [row[2] for row in rows[:head] + rows[start:end]] + [line["text"] for line in tall if line["bbox"][1] < bottom and line["bbox"][3] > top]
             bands.append({"page": block.get("page"), "type": "table", "page_size": block["page_size"], **({"orientation": turn} if turn else {}),
+                          **({"repeats": True} if start < fresh else {}),
                           "text": "\n".join(text), "clips": [clip(y0, cut(head)), clip(top, bottom)] if start > head and head else [clip(top, bottom)]})
             start, fresh = next((i for i in range(end - 1, fresh - 1, -1) if amounts[i]), end - 1), end
     return bands if len(bands) > len(tables) else []
@@ -758,6 +751,10 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         }
         if all(isinstance(part, Exception) for part in parts):
             raise parts[-1]
+        for group, before, part in zip(groups[table][1:], parts, parts[1:]):  # 띠가 다시 읽은 앞 띠의 마지막 행은 한 번만
+            if group[0].get("repeats") and before and part and not isinstance(before, Exception) and not isinstance(part, Exception) \
+                    and _same_row(before[-1], part[0]):
+                before[-1] = max(before[-1], part.pop(0), key=lambda row: sum(value not in (None, "") for value in row.values()))
         return _merge_chunk_results([part for part in parts if not isinstance(part, Exception)], properties[table])
 
     def read(table):

@@ -362,15 +362,14 @@ def test_bands_of_a_turned_page_are_cut_upright_and_clipped_in_the_original_fram
     assert all(band["orientation"] == 90 for band in got)
 
 
-def test_the_stitch_keeps_one_read_of_the_repeated_row():
-    spec = {"type": "array", "items": {"type": "object"}}
-    full, part = {"항목": "주사료", "총액": "1,000"}, {"총액": "1000"}
-    assert engine._merge_chunk_results([[{"항목": "A"}, part], [full, {"항목": "B"}]], spec) == [{"항목": "A"}, full, {"항목": "B"}]
-    assert engine._merge_chunk_results([[full], [part]], spec) == [full]
-    assert engine._merge_chunk_results([[full], [full]], spec) == [full]
-    other = {"항목": "주사료", "총액": "2,000"}  # 다른 값이 있으면 다른 행이다
-    assert engine._merge_chunk_results([[full], [other]], spec) == [full, other]
-    assert engine._merge_chunk_results([[full], [{"항목": None}]], spec) == [full, {"항목": None}]  # 빈 행은 같은 행이 아니다
+def test_two_reads_of_a_repeated_row_are_one_row_when_the_amounts_of_one_are_among_the_others():
+    full = {"항목": "주사료", "EDI명칭": "나페아주", "단가": "17,633", "총액": "17633", "일수": "1"}
+    assert engine._same_row(full, {"EDI명칭": "나이추지액", "총액": "17,633", "본인부담": "17633"})  # 다른 열·다른 명칭 오독
+    assert engine._same_row({"단가": "17633", "총액": "17633"}, full)  # 일부만 읽은 행
+    assert not engine._same_row({"총액": "17633"}, full)  # 값 하나로는 판단하지 않는다
+    assert not engine._same_row(full, {"항목": "주사료", "총액": "2,000"})  # 다른 금액은 다른 행
+    assert not engine._same_row({"항목": "소계"}, {"항목": "소계"})  # 금액이 없으면 판단하지 않는다
+    assert not engine._same_row({"시작일자": "20221227", "EDI명칭": "CK5/6"}, {"시작일자": "20221227", "EDI명칭": "EGFR", "총액": "32540"})
 
 
 def test_a_dense_page_is_read_band_by_band_and_a_failed_band_alone_is_read_asis(provider, monkeypatch):
@@ -386,8 +385,8 @@ def test_a_dense_page_is_read_band_by_band_and_a_failed_band_alone_is_read_asis(
             if "R10" in names:
                 raise RuntimeError("broken JSON")
             width = json_schema["properties"]["rows"]["items"]["minItems"]
-            return {"rows": [[name] + [None] * (width - 1) for name in names]}
-        return {"항목내역": [{"항목": name} for name in names]}
+            return {"rows": [[name] + [None] * (width - 3) + ["1,000", "500"] for name in names]}
+        return {"항목내역": [{"항목": name + "?", "총액": "1000", "본인부담": "500"} for name in names]}  # asis는 같은 행을 조금 달리 읽는다
     monkeypatch.setattr(engine, "_provider", fake)
     monkeypatch.setattr(engine, "_table_plan", lambda *args: None)
     blocks = [dense()]
@@ -395,7 +394,7 @@ def test_a_dense_page_is_read_band_by_band_and_a_failed_band_alone_is_read_asis(
 
     result, _ = engine.extract(table_schema(), blocks, provider.source, table_extract="rowmajor", completeness=completeness)
 
-    assert [row["항목"] for row in result["항목내역"]] == [f"R{i}" for i in range(1, 31)]
+    assert [row["항목"].rstrip("?") for row in result["항목내역"]] == [f"R{i}" for i in range(1, 31)]  # 반복한 행은 한 번만
     asis = [call for call in provider.calls if call["json_schema"] is None]
     assert len(asis) == 1 and asis[0]["names"] == ["R8", "R9", "R10", "R11", "R12"]  # 깨진 띠 하나만 asis로 다시 읽는다
     assert len(provider.calls) == len(engine._bands(blocks, 19)) + 1
