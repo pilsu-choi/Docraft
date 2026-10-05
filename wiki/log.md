@@ -456,3 +456,4 @@
 - **Creation** (2026-10-05): [2026-10-05-dense-page-split.md](2026-10-05-dense-page-split.md) — 빽빽한 쪽 행 띠 나누기 설계·측정(브랜치 `fix/dense-page-split`).
 - **Update** (2026-10-05): [2026-10-05-dense-page-split.md](2026-10-05-dense-page-split.md) — 병합 전 확인(정상 문서 10건 dev 비교, 2건 악화 → 실패한 쪽만 띠로 다시 읽기, 건국대·청담 재측정).
 - **Creation** (2026-10-05): [2026-10-05-agent-self-correction-design.md](2026-10-05-agent-self-correction-design.md) — 에이전트 자가교정 설계(상위 wiki 동기화).
+- **Update** (2026-10-05): [2026-10-05-agent-self-correction-design.md](2026-10-05-agent-self-correction-design.md) — 사용자 결정 5건 반영(합성 7종 세트·pre-dev 자동 병합·에이전트 10개 상한), 상위 wiki 동기화.
