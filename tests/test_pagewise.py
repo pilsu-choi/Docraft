@@ -309,11 +309,8 @@ def narrow(monkeypatch):
     monkeypatch.setattr(engine, "TABLE_REPLY_TOKENS", 30 * 24)
 
 
-def test_a_page_under_the_provider_limit_is_not_cut(monkeypatch):
-    monkeypatch.setattr(engine, "TABLE_REPLY_TOKENS", 30 * 24)
-    assert [len(group) for group in engine._table_pages([dense(rows=28)], 10 ** 6, 1)] == [1]  # (28+20)×30 = 2×720
-    assert "clips" not in engine._table_pages([dense(rows=28)], 10 ** 6, 1)[0][0]
-    assert all("clips" in group[0] for group in engine._table_pages([dense(rows=29)], 10 ** 6, 1))
+def test_page_groups_never_cut_a_page(narrow):
+    assert [len(group) for group in engine._table_pages([dense(rows=60)], 10 ** 6, 1)] == [1]  # 띠는 읽기가 깨졌을 때만
 
 
 def test_bands_cut_in_line_gaps_into_even_bands_that_repeat_one_row(narrow):
@@ -345,6 +342,9 @@ def test_merged_cell_lines_go_to_every_band_they_overlap_and_not_into_the_rows(n
 
 def test_no_bands_without_line_boxes_or_when_nothing_needs_cutting(narrow):
     assert engine._bands([{**dense(), "lines": []}], 1) == []
+    sideways = dense()  # 돌림을 모르는 옆으로 인쇄된 쪽: 줄 상자가 세로로 길다
+    sideways["lines"] = [{**line, "bbox": [line["bbox"][1], line["bbox"][0], line["bbox"][3], line["bbox"][2]]} for line in sideways["lines"]]
+    assert engine._bands([sideways], 1) == []
     assert engine._bands([dense(rows=3)], 1) == []
     assert engine._bands([{"page": 1, "type": "text", "text": "1,000 " * 100}], 1) == []
 
@@ -372,7 +372,8 @@ def test_two_reads_of_a_repeated_row_are_one_row_when_the_amounts_of_one_are_amo
     assert not engine._same_row({"시작일자": "20221227", "EDI명칭": "CK5/6"}, {"시작일자": "20221227", "EDI명칭": "EGFR", "총액": "32540"})
 
 
-def test_a_dense_page_is_read_band_by_band_and_a_failed_band_alone_is_read_asis(provider, monkeypatch):
+@pytest.mark.parametrize("pages", [1, 2])
+def test_a_page_whose_reply_breaks_is_read_again_band_by_band_and_a_failed_band_alone_asis(provider, monkeypatch, pages):
     monkeypatch.setattr(engine, "TABLE_REPLY_TOKENS", 210 * 24)  # 스키마 19열: 띠당 금액 4개
     def fake(messages, timeout=None, timeout_cap=None, json_schema=None, max_tokens=None):
         content = messages[1]["content"]
@@ -382,22 +383,32 @@ def test_a_dense_page_is_read_band_by_band_and_a_failed_band_alone_is_read_asis(
             provider.calls.append({"json_schema": json_schema, "names": names, "text": text,
                                    "images": sum(part["type"] == "image_url" for part in content)})
         if json_schema is not None:
-            if "R10" in names:
+            if "R10" in names or len(names) > 10:  # 쪽 전체와 R10 띠는 rowmajor가 깨진다
                 raise RuntimeError("broken JSON")
             width = json_schema["properties"]["rows"]["items"]["minItems"]
             return {"rows": [[name] + [None] * (width - 3) + ["1,000", "500"] for name in names]}
         return {"항목내역": [{"항목": name + "?", "총액": "1000", "본인부담": "500"} for name in names]}  # asis는 같은 행을 조금 달리 읽는다
     monkeypatch.setattr(engine, "_provider", fake)
     monkeypatch.setattr(engine, "_table_plan", lambda *args: None)
-    blocks = [dense()]
+    blocks = [dense()] + ([{**dense(rows=2), "page": 2, "text": "R31 1,000 R32 1,000"}] if pages == 2 else [])
     completeness = {}
 
     result, _ = engine.extract(table_schema(), blocks, provider.source, table_extract="rowmajor", completeness=completeness)
 
-    assert [row["항목"].rstrip("?") for row in result["항목내역"]] == [f"R{i}" for i in range(1, 31)]  # 반복한 행은 한 번만
+    assert [row["항목"].rstrip("?") for row in result["항목내역"]] == [f"R{i}" for i in range(1, 31 + 2 * (pages - 1))]  # 반복한 행은 한 번만
+    whole = [call for call in provider.calls if len(call["names"]) == 30]
     asis = [call for call in provider.calls if call["json_schema"] is None]
-    assert len(asis) == 1 and asis[0]["names"] == ["R8", "R9", "R10", "R11", "R12"]  # 깨진 띠 하나만 asis로 다시 읽는다
-    assert len(provider.calls) == len(engine._bands(blocks, 19)) + 1
-    assert all(call["images"] == 2 for call in provider.calls if "R1" not in call["names"])
-    assert all("horizontal strip" in call["text"] for call in provider.calls if call["json_schema"])
+    assert len(whole) == 1 and whole[0]["json_schema"]  # 쪽 전체는 rowmajor로 한 번만, asis로 다시 읽지 않는다
+    assert len(asis) == 1 and asis[0]["names"] == ["R8", "R9", "R10", "R11", "R12"]  # 깨진 띠 하나만 asis
+    assert all(call["images"] == 2 for call in provider.calls if call["names"][:1] not in (["R1"], ["R31"]) and len(call["names"]) < 30)
+    assert all("horizontal strip" in call["text"] for call in provider.calls if call["json_schema"] and len(call["names"]) < 30 and "R31" not in call["names"])
     assert completeness["partial"] is False
+
+
+def test_a_page_that_reads_well_is_one_call(provider, monkeypatch):
+    monkeypatch.setattr(engine, "TABLE_REPLY_TOKENS", 210 * 24)
+    provider.rows = {None: []}
+    monkeypatch.setattr(engine, "_provider", lambda messages, **kw: provider.calls.append(1) or {"rows": [[None] * 18 + ["1,000"]]})
+    monkeypatch.setattr(engine, "_table_plan", lambda *args: None)
+    engine.extract(table_schema(), [dense()], provider.source, table_extract="rowmajor")
+    assert len(provider.calls) == 1

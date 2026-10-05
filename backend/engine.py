@@ -540,17 +540,13 @@ def _table_plan(doc_type, table, spec, blocks):
 
 def _table_pages(blocks, budget, columns):
     """Consecutive whole pages grouped for reading one table so that each group's reply cap (`_reply_cap`) stays within
-    TABLE_REPLY_TOKENS, its text within the chunk budget and its pages within VISION_MAX_IMAGES. A page whose reply cap
-    alone is over the provider output limit (2 × TABLE_REPLY_TOKENS: its reply may not fit one call) is cut into row bands
-    (`_bands`), each its own group; any other page over the limits, or one that cannot be cut, is its own group."""
+    TABLE_REPLY_TOKENS, its text within the chunk budget and its pages within VISION_MAX_IMAGES. A page over the limits
+    alone is its own group."""
     groups = []
     for _, group in groupby(blocks, key=lambda b: b.get("page")):
         group = list(group)
-        if _reply_cap("\n".join(b["text"] for b in group), columns) > 2 * TABLE_REPLY_TOKENS and (bands := _bands(group, columns)):
-            groups += [[band] for band in bands]
-            continue
         last = groups[-1] if groups else None
-        if (last and "clips" not in last[0] and len(_pages(last)) < VISION_MAX_IMAGES
+        if (last and len(_pages(last)) < VISION_MAX_IMAGES
                 and len(text := "\n".join(b["text"] for b in last + group)) <= budget
                 and _reply_cap(text, columns) <= TABLE_REPLY_TOKENS):
             last.extend(group)
@@ -578,15 +574,15 @@ def _line_rows(lines):
 
 
 def _bands(page_blocks, columns):
-    """Row bands of a page too dense for one reply. Each table block's OCR text rows (`_line_rows`) from its first row
+    """Row bands of one page whose table reply broke (`extract` reads them again band by band). Each table block's OCR text rows (`_line_rows`) from its first row
     carrying an amount (the rows above are its header) are cut into the fewest bands of about equal amount count whose
     reply cap (`_reply_cap`) stays within TABLE_REPLY_TOKENS. A cut falls in the gap between two text rows, before a row
     carrying an amount (a printed row's amounts are on its first line; a wrapped name line has none), and the next band
     repeats the band's last printed row (from its last text row carrying an amount) so a row cut anyway is whole in one
     band (`repeats`); `extract` keeps one of the two reads (`_same_row`). A band is a block with the header rows, its rows and the merged-cell lines it overlaps as text, and
     `clips` (page fractions): the header strip (bands after the first) and the band strip, both table-wide.
-    Empty when a table block has no OCR line boxes or no block needs cutting (its lines carry fewer amounts than the page
-    text): the page is then read whole."""
+    Empty when a table block has no OCR line boxes or runs its text across (most line boxes taller than wide: a page
+    printed sideways without a known turn), or when no block is cut in two: the page is then read whole asis."""
     from .parsers import unturn  # parsers → engine 순환을 피한다
     tables = [b for b in page_blocks if b.get("type") == "table"]
     if not tables or not all(b.get("page_size") and any(line.get("bbox") for line in b.get("lines") or []) for b in tables):
@@ -596,7 +592,10 @@ def _bands(page_blocks, columns):
     for block in tables:
         turn = block.get("orientation", 0)
         upright = unturn([block], 360 - turn)[0] if turn else block
-        rows, tall = _line_rows([line for line in upright["lines"] if line.get("bbox") and str(line["text"]).strip()])
+        lines = [line for line in upright["lines"] if line.get("bbox") and str(line["text"]).strip()]
+        if sum(line["bbox"][3] - line["bbox"][1] > line["bbox"][2] - line["bbox"][0] for line in lines) * 2 > len(lines):
+            return []
+        rows, tall = _line_rows(lines)
         amounts = [len(ROW_AMOUNT.findall(row[2])) for row in rows]
         head = next((i for i, count in enumerate(amounts) if count), 0)
         target = -(-sum(amounts) // -(-sum(amounts) // most)) if sum(amounts) else 0  # 고른 띠 크기
@@ -681,7 +680,9 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     A table whose pages do not fit one reply (`_table_pages` gives several page groups) is read page group by page group in
     parallel (`TABLE_PAGE_CONCURRENCY`, default 4) and its rows are concatenated in page order: one call has to hold the
     whole table otherwise, and a long table runs past the provider output limit. rowmajor reads each group with the column
-    plan most pages agree on (`_table_plan`), and a group whose reply fails is read asis alone."""
+    plan most pages agree on (`_table_plan`), and a group whose reply fails is read asis alone. A single page whose rowmajor
+    reply breaks is read again in row bands (`_bands`) when its OCR lines allow, each band falling back to asis alone: a
+    long, repetitive page breaks the reply where a short strip of it does not. Pages that read well are never cut."""
     coverage = {"partial": False, "pages": _pages(blocks), "successful_pages": _pages(blocks), "failed_pages": [], "tables": {}}
     def report():
         failed = sorted({page for item in coverage["tables"].values() for page in item["failed_pages"]})
@@ -725,9 +726,12 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
                 return _read_rows(table, properties[table], plans[table], _chunk_text(group, budget), group_images,
                                   PAGES_NOTE.format(pages=pages, span=_page_range(blocks))
                                   + (BAND_NOTE[len(group_images) > 1] if "clips" in group[0] else ""), deadline, cancel, on_call)
-            except (RuntimeError, ValueError) as exc:  # a reply that broke the row contract: read these pages asis
+            except (RuntimeError, ValueError) as exc:  # a reply that broke the row contract: read these pages by bands or asis
                 if cancel is not None and cancel.is_set():
                     raise
+                if "clips" not in group[0] and len(_pages(group)) == 1 and (bands := _bands(group, len(properties[table]["items"]["properties"]))):
+                    logger.warning("extract: rowmajor table=%s pages=%s failed, reading it in %d row bands: %s", table, pages, len(bands), exc)
+                    return read_bands(table, bands)
                 logger.warning("extract: rowmajor table=%s pages=%s failed, reading them asis: %s", table, pages, exc)
         try:
             rows = _read_chunk(narrowed({table}), group, index, count, source, budget, deadline, cancel, on_call).get(table)
@@ -741,6 +745,21 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
             note("table_pages_failed", 1)
             return exc
 
+    def read_bands(table, bands):
+        """The rows of one page read band by band (`_bands`), in band order; a band that repeats the row before it
+        (`repeats`) keeps one of the two reads (`_same_row`). The last band's error when no band could be read."""
+        parts = parallel(lambda item: read_group(table, [item[1]], item[0], len(bands)), enumerate(bands), limit("TABLE_PAGE_CONCURRENCY", 4, 32))
+        rows, before = [], None
+        for band, part in zip(bands, parts):
+            if isinstance(part, Exception):
+                before = part
+                continue
+            if band.get("repeats") and rows and part and not isinstance(before, Exception) and _same_row(rows[-1], part[0]):
+                rows[-1] = max(rows[-1], part[0], key=lambda row: sum(value not in (None, "") for value in row.values()))
+                part = part[1:]
+            rows, before = rows + part, part
+        return rows if any(not isinstance(part, Exception) for part in parts) else parts[-1]
+
     def read_pages(table):
         count = len(groups[table])
         logger.info("extract: table=%s read in %d page groups %s", table, count, [_page_range(group) for group in groups[table]])
@@ -751,10 +770,6 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         }
         if all(isinstance(part, Exception) for part in parts):
             raise parts[-1]
-        for group, before, part in zip(groups[table][1:], parts, parts[1:]):  # 띠가 다시 읽은 앞 띠의 마지막 행은 한 번만
-            if group[0].get("repeats") and before and part and not isinstance(before, Exception) and not isinstance(part, Exception) \
-                    and _same_row(before[-1], part[0]):
-                before[-1] = max(before[-1], part.pop(0), key=lambda row: sum(value not in (None, "") for value in row.values()))
         return _merge_chunk_results([part for part in parts if not isinstance(part, Exception)], properties[table])
 
     def read(table):
@@ -765,9 +780,13 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         try:
             return _read_rows(table, properties[table], plans[table],
                               _chunk_text(blocks, budget), images, "", deadline, cancel, on_call)
-        except (RuntimeError, ValueError) as exc:  # a reply that broke the row contract: read the table asis below
-            logger.warning("extract: rowmajor table=%s failed, reading it asis: %s", table, exc)
+        except (RuntimeError, ValueError) as exc:  # a reply that broke the row contract: read it by bands, else asis below
             note("rowmajor_fallback", str(exc)[:200], add=False)
+            if len(_pages(blocks)) == 1 and (bands := _bands(blocks, len(properties[table]["items"]["properties"]))):
+                logger.warning("extract: rowmajor table=%s failed, reading it in %d row bands: %s", table, len(bands), exc)
+                if not isinstance(rows := read_bands(table, bands), Exception):
+                    return rows
+            logger.warning("extract: rowmajor table=%s failed, reading it asis: %s", table, exc)
             return None
 
     separate = whole + paged
