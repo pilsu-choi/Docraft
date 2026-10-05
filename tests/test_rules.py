@@ -9,6 +9,8 @@ from jsonschema import Draft202012Validator
 from backend import doctypes, rules, verify
 
 AO_SAMPLES = Path("/home/pilsu/projects/mirae-assets/harness-v2/docs/agentic-ocr-2.0.1-results")
+# AO 2.0.1 예시(2026-09-09) 뒤 고객사 추출 스키마에 생긴 키. 예시 응답에는 없다(2026-10-05 약제영수증 스키마의 비급여 열).
+AO_LATER_KEYS = {"약제비영수증": {"진료비내역-비급여"}}
 
 
 @pytest.fixture(autouse=True)
@@ -353,8 +355,9 @@ def test_schema_matches_ao_keys_and_order_exactly(doc_type):
     order += [field["key"] for group in document["extracted_groups"] for field in group["fields"]]
     spec = doctypes.spec(doc_type)
     # 값이 없는 표를 AO는 "[]" 스칼라로 내므로 스칼라·표 키를 합쳐 비교한다.
-    assert set(order) | {table["key"] for table in document["extracted_tables"]} == set(doctypes.schema(doc_type)["properties"])
-    assert [key for key in order if key in spec["fields"]] == list(spec["fields"])
+    later = AO_LATER_KEYS.get(doc_type, set())
+    assert set(order) | {table["key"] for table in document["extracted_tables"]} | later == set(doctypes.schema(doc_type)["properties"])
+    assert [key for key in order if key in spec["fields"]] == [key for key in spec["fields"] if key not in later]
 
 
 # --- 진료비영수증 이상 검출·교정 (rules.check / rules.correct) ----------------
@@ -1175,9 +1178,10 @@ def test_surgery_date_written_in_the_name_cell_moves_to_its_column():
 def test_pharmacy_receipt_accident_date_is_the_dispensing_date_and_sums_are_checked():
     fields = {"조제일자": "2021-06-03", "진료비내역-총액": "19,930", "진료비내역-급여본인부담": "4,100",
               "진료비내역-공단부담액": "9,730", "진료비내역-비급여및전액본인부담금": "6,100",
-              "진료비내역-환자부담총액": "10,200", "약국정보(사업자등록번호)": "277-74-00289"}
+              "진료비내역-환자부담총액": "10,200", "약국정보(사업자등록번호)": "277-74-00289", "진료비내역-비급여": "1,200원"}
     out = rules.apply("약제비영수증", fields, [])
     assert out["사고발생일자"] == "20210603"
+    assert doctypes.kind("약제비영수증", "진료비내역-비급여") == "amount" and out["진료비내역-비급여"] == "1200"
     assert out["약국정보(사업자등록번호)"] == "2777400289"
     assert not [flag for flag in rules.check("약제비영수증", out, out, []) if flag["code"] == "sum_mismatch"]
     out["진료비내역-환자부담총액"] = "12200"

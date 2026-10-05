@@ -15,6 +15,7 @@ from starlette.requests import Request
 from backend import doctypes, engine, rules, verify
 from backend.main import app
 from test_ai_provider import FakeClient, configure, install_response
+from test_rules import AO_LATER_KEYS
 
 
 client = TestClient(app)
@@ -129,7 +130,8 @@ def test_flatten_and_add_missing_on_the_new_types_real_results(doc_type, name):
     assert doctypes.ALIASES.get(document["doc_type"], document["doc_type"]) == doc_type == doctypes.ALIASES.get(name, name)
     flat = verify.flatten(document)
     assert set(flat) <= set(doctypes.schema(doc_type)["properties"])
-    assert verify._add_missing(document, doc_type) == 0  # AO 예시에 이미 모든 키가 있다
+    # AO 예시에는 예시 뒤에 생긴 키만 없다
+    assert verify._add_missing(document, doc_type) == len(AO_LATER_KEYS.get(doc_type, ()))
 
 
 def test_flatten_falls_back_to_predicted_value_and_maps_empty_values_to_none():
