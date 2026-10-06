@@ -35,7 +35,7 @@ status: active
 - Docraft: `/api/health` ok, `verify_inflight` 0, OCR ready, VLM `qwen/qwen3-vl-32b-instruct`(openrouter). 서버 `DEPLOYED`는 `revision=134f385 time=2026-10-06T06:08:49Z`이고 `deploy.lock`은 풀려 있다(flock 확인).
 - harness: `/healthz` ok. 컨테이너 안의 `get_settings().rule_set_version`은 `2026.09.22`. api·worker 2개·scanner·postgres를 재기동했고, vllm-embedding·clickhouse·redis는 그대로 두었다.
 - label-viewer와 medical-studio는 건드리지 않았고 둘 다 healthy다.
-- 테스트 호출: 0건. 59건 회귀가 필요한지는 배포 담당 3b가 판단하고 취합해서 1회 돌린다.
+- 테스트 호출: 0건. 59건 회귀는 3b가 15:45에 돌리려 했으나 사용자 지시로 보류했다(호출 없음).
 
 ## 관련 문서
 
