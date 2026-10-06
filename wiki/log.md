@@ -460,3 +460,4 @@
 - **Update** (2026-10-05): [2026-10-05-agent-self-correction-design.md](2026-10-05-agent-self-correction-design.md) — 노드 재현 판정 정책 결정 반영(상위 wiki 동기화).
 - **Creation** (2026-10-06): [2026-10-06-clinical-opinion-extract.md](2026-10-06-clinical-opinion-extract.md) — 진단서4종 진료소견 판독 필드 추가(상위 wiki 동기화).
 - Creation (2026-10-06): [AWS 통합 배포 1006a](2026-10-06-aws-integrated-deploy-1006a.md) — 상위 wiki 동기화.
+- Update (2026-10-06): [AWS 통합 배포 1006a](2026-10-06-aws-integrated-deploy-1006a.md) — 59건 회귀 보류 반영.
