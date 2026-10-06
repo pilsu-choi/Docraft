@@ -9,8 +9,8 @@ from jsonschema import Draft202012Validator
 from backend import doctypes, rules, verify
 
 AO_SAMPLES = Path("/home/pilsu/projects/mirae-assets/harness-v2/docs/agentic-ocr-2.0.1-results")
-# AO 2.0.1 예시(2026-09-09) 뒤 고객사 추출 스키마에 생긴 키. 예시 응답에는 없다(2026-10-05 약제영수증 스키마의 비급여 열).
-AO_LATER_KEYS = {"약제비영수증": {"진료비내역-비급여"}}
+# AO 2.0.1 예시(2026-09-09) 뒤 고객사 추출 스키마에 생긴 키. 예시 응답에는 없다(2026-10-05 약제영수증 스키마의 비급여 열, 진단서4종 스키마의 진료소견).
+AO_LATER_KEYS = {"약제비영수증": {"진료비내역-비급여"}, **dict.fromkeys(("진단서", "소견서", "수술확인서", "입퇴원확인서"), {"진료소견"})}
 
 
 @pytest.fixture(autouse=True)
@@ -358,6 +358,11 @@ def test_schema_matches_ao_keys_and_order_exactly(doc_type):
     later = AO_LATER_KEYS.get(doc_type, set())
     assert set(order) | {table["key"] for table in document["extracted_tables"]} | later == set(doctypes.schema(doc_type)["properties"])
     assert [key for key in order if key in spec["fields"]] == [key for key in spec["fields"] if key not in later]
+
+
+@pytest.mark.parametrize("doc_type", ["진단서", "소견서", "수술확인서", "입퇴원확인서"])
+def test_clinical_opinion_is_text_field(doc_type):
+    assert doctypes.spec(doc_type)["fields"]["진료소견"]["kind"] == "text"
 
 
 # --- 진료비영수증 이상 검출·교정 (rules.check / rules.correct) ----------------
