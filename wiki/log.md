@@ -458,3 +458,4 @@
 - **Creation** (2026-10-05): [2026-10-05-agent-self-correction-design.md](2026-10-05-agent-self-correction-design.md) — 에이전트 자가교정 설계(상위 wiki 동기화).
 - **Update** (2026-10-05): [2026-10-05-agent-self-correction-design.md](2026-10-05-agent-self-correction-design.md) — 사용자 결정 5건 반영(합성 7종 세트·pre-dev 자동 병합·에이전트 10개 상한), 상위 wiki 동기화.
 - **Update** (2026-10-05): [2026-10-05-agent-self-correction-design.md](2026-10-05-agent-self-correction-design.md) — 노드 재현 판정 정책 결정 반영(상위 wiki 동기화).
+- **Creation** (2026-10-06): [2026-10-06-clinical-opinion-extract.md](2026-10-06-clinical-opinion-extract.md) — 진단서4종 진료소견 판독 필드 추가(상위 wiki 동기화).
