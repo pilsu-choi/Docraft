@@ -1,5 +1,10 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-07 영수증 별칭 동기화
+
+- **Creation**: [영수증 선별급여 법령 문구 별칭 동기화](2026-10-07-receipt-alias-sync.md) — 하네스 dev fcc2ff3 의 공용 yaml 반영, test_rules 398 passed.
+- **Update**: index.md에 연결.
+
 ## 2026-10-03 CI 공통 영수증 규칙
 
 - **Creation**: [CI 공통 영수증 규칙 동기화](2026-10-03-ci-shared-receipt-policy.md) — 작업6087 실패 원인과 사본 동기화 범위.
