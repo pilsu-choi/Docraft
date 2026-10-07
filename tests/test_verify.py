@@ -678,8 +678,8 @@ def test_run_adds_defined_fields_and_tables_the_ao_result_left_out(monkeypatch):
     assert len(added) == len(spec["fields"]) - 1  # 발행일만 이미 있었다
     assert added["진료비총액"]["ao_value"] is None
     assert (added["진료비총액"]["value"], added["진료비총액"]["source"]) == ("216470", "docraft")
-    assert added["상환액초과금"]["value"] is None  # Docraft도 못 읽은 필드는 값 없이 agree
-    assert added["상환액초과금"]["source"] == "agree"
+    assert added["상한액초과금"]["value"] is None  # Docraft도 못 읽은 필드는 값 없이 agree
+    assert added["상한액초과금"]["source"] == "agree"
     table = result["tables"][0]
     assert table["added"] and table["key"] == "항목내역" and table["headers"] == list(spec["tables"]["항목내역"])
     assert [cell["value"] for cell in table["rows"][0][:2]] == ["진찰료", "1000"]

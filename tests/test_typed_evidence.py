@@ -1,6 +1,8 @@
 """Typed OCR evidence must preserve printed tokens and field roles."""
 
-from backend import doctypes, engine, reprocess
+import pytest
+
+from backend import doctypes, engine, reprocess, verify
 
 
 def block(text, bbox=None):
@@ -84,10 +86,10 @@ def test_scalar_blank_requires_adjacent_verified_cell():
                         "page": 1, "page_size": [200, 100], "rowspan": 1, "colspan": 1, "verified": True, "blank": False},
                        {"row": 0, "column": 1, "text": "", "bbox": [90, 0, 180, 30],
                         "page": 1, "page_size": [200, 100], "rowspan": 1, "colspan": 1, "verified": True, "blank": True}]}
-    source = engine.ground({"상환액초과금": None}, schema, [block])["상환액초과금"]
+    source = engine.ground({"상한액초과금": None}, schema, [block])["상한액초과금"]
     assert source["evidence_type"] == "table_blank" and source["source_text"] == ""
     block["cells"][1]["verified"] = False
-    assert engine.ground({"상환액초과금": None}, schema, [block])["상환액초과금"].get("match") != "blank"
+    assert engine.ground({"상한액초과금": None}, schema, [block])["상한액초과금"].get("match") != "blank"
 
 
 def test_total_scalar_uses_unique_leaf_header_and_total_cell_not_table_box():
@@ -150,8 +152,8 @@ def test_other_date_label_stops_line_group_before_its_value():
 def test_reprocess_can_replace_misread_with_proven_blank_only(monkeypatch):
     monkeypatch.setenv("REPROCESS_MAX_ATTEMPTS", "1")
     monkeypatch.setenv("REPROCESS_MAX_MODEL_CALLS", "0")
-    schema = {"title": "진료비영수증", "type": "object", "required": ["상환액초과금"],
-              "properties": {"상환액초과금": {"type": ["string", "null"]}}}
+    schema = {"title": "진료비영수증", "type": "object", "required": ["상한액초과금"],
+              "properties": {"상한액초과금": {"type": ["string", "null"]}}}
     block_ = {"text": "<table><tr><td>상한액초과금</td><td></td></tr></table>",
               "page": 1, "bbox": [0, 0, 180, 30], "page_size": [200, 100],
               "rows": [["상한액초과금", ""]],
@@ -159,22 +161,22 @@ def test_reprocess_can_replace_misread_with_proven_blank_only(monkeypatch):
                          "page": 1, "page_size": [200, 100], "verified": True, "blank": False},
                         {"row": 0, "column": 1, "text": "", "bbox": [90, 0, 180, 30],
                          "page": 1, "page_size": [200, 100], "verified": True, "blank": True}]}
-    fields, _, quality, summary = reprocess.run("scan.png", schema, [block_], {"상환액초과금": "777"},
+    fields, _, quality, summary = reprocess.run("scan.png", schema, [block_], {"상한액초과금": "777"},
                                                   normalize=lambda values, blocks: values)
-    assert fields["상환액초과금"] is None
-    assert quality["상환액초과금"]["status"] == "CORRECTED"
+    assert fields["상한액초과금"] is None
+    assert quality["상한액초과금"]["status"] == "CORRECTED"
     assert summary["trace"][-1]["proposed"] is None and summary["trace"][-1]["adopted"]
     block_["cells"][1]["verified"] = False
-    fields, _, _, summary = reprocess.run("scan.png", schema, [block_], {"상환액초과금": "777"},
+    fields, _, _, summary = reprocess.run("scan.png", schema, [block_], {"상한액초과금": "777"},
                                           normalize=lambda values, blocks: values)
-    assert fields["상환액초과금"] == "777" and not any(step["adopted"] for step in summary["trace"])
+    assert fields["상한액초과금"] == "777" and not any(step["adopted"] for step in summary["trace"])
 
 
 def test_roi_parse_new_blank_proof_can_recover_without_model_call(monkeypatch):
     monkeypatch.setenv("REPROCESS_MAX_ATTEMPTS", "2")
     monkeypatch.setenv("REPROCESS_MAX_MODEL_CALLS", "0")
-    schema = {"title": "진료비영수증", "type": "object", "required": ["상환액초과금"],
-              "properties": {"상환액초과금": {"type": ["string", "null"]}}}
+    schema = {"title": "진료비영수증", "type": "object", "required": ["상한액초과금"],
+              "properties": {"상한액초과금": {"type": ["string", "null"]}}}
     original = {"text": "상한액초과금", "page": 1, "bbox": [0, 0, 100, 40], "page_size": [100, 100]}
     local = {"text": "<table><tr><td>상한액초과금</td><td></td></tr></table>",
              "page": 1, "bbox": [0, 0, 100, 40], "page_size": [100, 100],
@@ -185,11 +187,11 @@ def test_roi_parse_new_blank_proof_can_recover_without_model_call(monkeypatch):
                         "page": 1, "page_size": [100, 100], "verified": True, "blank": True}]}
     monkeypatch.setattr(reprocess, "_crop", lambda *args: (0, 0, 100, 100))
     monkeypatch.setattr(reprocess, "parse", lambda *args, **kwargs: ("", [local]))
-    fields, groundings, _, summary = reprocess.run("scan.png", schema, [original], {"상환액초과금": "777"},
+    fields, groundings, _, summary = reprocess.run("scan.png", schema, [original], {"상한액초과금": "777"},
                                                    normalize=lambda values, blocks: values)
-    assert fields["상환액초과금"] is None and summary["extra_model_calls"] == 0
+    assert fields["상한액초과금"] is None and summary["extra_model_calls"] == 0
     assert any(step["stage"] == "roi_parse" and step["adopted"] for step in summary["trace"])
-    assert groundings["상환액초과금"]["bbox"] == [50, 0, 100, 40]
+    assert groundings["상한액초과금"]["bbox"] == [50, 0, 100, 40]
 
 
 def test_forged_typed_claim_cannot_make_missing_value_pass():
@@ -199,13 +201,13 @@ def test_forged_typed_claim_cannot_make_missing_value_pass():
     fake = {"confidence": 1, "page": 1, "bbox": [10, 10, 180, 30], "page_size": [200, 100],
             "source_text": "", "match": "blank", "evidence_type": "table_blank", "transform": "blank_to_null",
             "role": "field_cell", "label": "상한액초과금", "geometry_scope": "cell", "normalized_value": None,
-            "verified": True, "basis": "image_cell_blank", "field_key": "상환액초과금",
+            "verified": True, "basis": "image_cell_blank", "field_key": "상한액초과금",
             "blank_method": "closed_cell"}
     assert valid(fake, None)
     fake["bbox"] = [10, 10, 210, 30]
     assert not valid(fake, None)
-    quality = engine.assess({"상환액초과금": None}, schema, [block_], {"상환액초과금": fake})
-    assert quality["상환액초과금"]["status"] != "PASS"
+    quality = engine.assess({"상한액초과금": None}, schema, [block_], {"상한액초과금": fake})
+    assert quality["상한액초과금"]["status"] != "PASS"
 
 
 def test_typed_value_mismatch_is_unresolved_and_not_exposed():
@@ -276,3 +278,9 @@ def test_checkbox_inference_requires_registered_group_and_unique_mark():
     assert typed.inferred_checkbox_candidate("진료비영수증", "최종진단", [selected]) is None
     selected["lines"][1]["text"] = "☑ 최종진단"
     assert typed.inferred_checkbox_candidate("진단서", "최종진단", [selected]) is None
+
+
+def test_resolve_keys_accepts_the_legal_limit_excess_key_and_rejects_the_old_misspelling():
+    assert verify.resolve_keys("진료비영수증", ["상한액초과금"]) == {"상한액초과금"}
+    with pytest.raises(ValueError):
+        verify.resolve_keys("진료비영수증", ["상환액초과금"])
