@@ -1180,6 +1180,13 @@ def _row_signature(row):
     return tuple(_normalized(value) for value in row.values() if value not in (None, "")) if isinstance(row, dict) else ()
 
 
+def _row_grounding(table_grounding, index):
+    """Row `index` of a table grounding: the document queue keeps `{"<row>": {column: leaf}}`, `/api/read` exposes `[{column: leaf}, ...]`."""
+    if isinstance(table_grounding, list):
+        return table_grounding[index] if index < len(table_grounding) else None
+    return table_grounding.get(str(index)) if isinstance(table_grounding, dict) else None
+
+
 def _row_page(row_grounding):
     return next((leaf["page"] for leaf in (row_grounding or {}).values() if isinstance(leaf, dict) and leaf.get("page") is not None), None)
 
@@ -1267,7 +1274,7 @@ def unit_flags(result, schema, groundings, blocks, source=None):
         rows = result.get(table) if isinstance(result, dict) else None
         rows = rows if isinstance(rows, list) else []
         signatures = [_row_signature(row) for row in rows]
-        pages = [_row_page((groundings.get(table) or {}).get(str(index))) for index in range(len(rows))]
+        pages = [_row_page(_row_grounding(groundings.get(table), index)) for index in range(len(rows))]
         covered.update(page for page in pages if page is not None)
         boundary = [i for i in range(1, len(rows)) if signatures[i] and signatures[i] == signatures[i - 1]
                     and None not in (pages[i - 1], pages[i]) and pages[i] != pages[i - 1]]

@@ -601,10 +601,12 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
     recovered = recovery_groundings = recovered_quality = None
     if auto_reprocess is not False and Path(image).is_file() and reprocess_schema.get("properties"):
         with latency.timed("reprocess_ms"):
-            fields, recovery_groundings, recovered_quality, recovered = reprocess.run(
-                image, reprocess_schema, blocks, fields, normalize=lambda values, evidence: rules.apply(doc_type, values, evidence),
+            # rules.apply는 유형의 모든 key를 내므로, 재처리에는 좁힌 스키마 안의 key만 넘기고 요청 밖 key는 그대로 둔다
+            reprocessed, recovery_groundings, recovered_quality, recovered = reprocess.run(
+                image, reprocess_schema, blocks, {key: value for key, value in fields.items() if key in reprocess_schema["properties"]}, normalize=lambda values, evidence: rules.apply(doc_type, values, evidence),
                 check_rules=lambda values, evidence: rules.check(doc_type, values, values, evidence),
                 cancel=cancel, deadline=deadline, enabled=auto_reprocess)
+            fields = {**fields, **reprocessed}
     if recovered is None and with_reprocess:
         recovered = {"attempts": 0, "model_calls": 0, "stop_reason": "disabled" if auto_reprocess is False else "no_schema",
                      "elapsed_ms": 0, "trace": []}

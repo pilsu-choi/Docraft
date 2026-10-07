@@ -2,6 +2,7 @@
 okf_version: "0.2"
 ---
 
+- [/api/read groundings 자료형·재처리 key 불일치 수정](2026-10-07-read-groundings-reprocess-keys.md) — unit_flags list 502, 재처리 KeyError
 - [영수증 선별급여 법령 문구 별칭 동기화](2026-10-07-receipt-alias-sync.md) — 하네스 receipt_items.yaml 사본 동기화, 상세는 상위 wiki
 - [진료비영수증 항목명 원본 인쇄 표기 유지](2026-10-07-receipt-item-print-name.md) — 요약, 상세는 상위 wiki, dev 9ced432
 - [진단서4종 진료소견 판독 필드 추가](2026-10-06-clinical-opinion-extract.md) — `_MEDICAL_FIELDS` 진료소견 text, dev 3d4f9e5
