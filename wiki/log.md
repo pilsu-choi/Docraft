@@ -1,5 +1,10 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-07 /api/read 재판독 수정
+
+- **Creation**: [groundings 자료형·재처리 key 불일치 수정](2026-10-07-read-groundings-reprocess-keys.md) — 브랜치 `fix/read-groundings-reprocess`.
+- **Update**: index.md에 연결.
+
 ## 2026-10-07 영수증 별칭 동기화
 
 - **Creation**: [영수증 선별급여 법령 문구 별칭 동기화](2026-10-07-receipt-alias-sync.md) — 하네스 dev fcc2ff3 의 공용 yaml 반영, test_rules 398 passed.
