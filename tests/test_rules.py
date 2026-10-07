@@ -1,5 +1,6 @@
 """doctypes 스키마와 rules 정규화·보충 룰(twin reader 이식분) 테스트."""
 
+import types
 import json
 from pathlib import Path
 
@@ -399,7 +400,9 @@ def case(folder, name):
     ("진칠료", "진찰료"), ("진찰로", "진찰료"), ("입윈료", "입원료"), ("검사로", "검사료"), ("미취료", "마취료"),
     ("식데", "식대"), ("합게", "합계"), ("기티", "기타"),  # 세 글자 이하는 자모 하나 오독만 고친다
     ("주사료", "주사료"), ("검사", "검사"),  # 짧은 이름은 글자 하나가 통째로 다르면 둔다('주사료'↔'검사료')
-    ("한약접약", "한약첩약"), ("치료재대", "치료재료대"), ("보수처리조정금액", "끝수처리조정금액"),  # 네 글자·중간 글자 빠짐
+    ("한약접약", "한약(첩약)"), ("한약(청약)", "한약(첩약)"), ("한약첩약", "한약(첩약)"), ("한약(첩약)", "한약(첩약)"),
+    ("선별급여 및 기타", "선별급여및기타"), ("선별급여항목", "선별급여항목"),  # 인쇄된 표기를 유지한다(사용자 결정 2026-10-07)
+    ("치료재대", "치료재료대"), ("보수처리조정금액", "끝수처리조정금액"),  # 네 글자·중간 글자 빠짐
     ("재활및물리치료", "재활및물리치료료"), ("조제료 약품비", "투약및조제료_약품비"),  # 이름 규칙(끝 글자 변형·두 칸 갈림)
     ("65세이상등경감", "65세이상등경감"),  # 두 글자 이상 차이는 둔다
 ])
@@ -754,6 +757,14 @@ def test_receipt_item_names_are_normalized_in_apply():
 ])
 def test_edi_code_normalize(raw, expected):
     assert rules.normalize("edi", raw) == expected
+
+
+def test_item_names_flags_misprints_but_keeps_printed_standard_names():
+    rows = [{"항목": "한약(첩약)"}, {"항목": "한약(청약)"}, {"항목": "선별급여 및 기타"}]
+
+    flags = rules._item_names(types.SimpleNamespace(rows=rows))
+
+    assert [(flag["row"], flag["name"]) for flag in flags] == [(1, "한약(첩약)")]
 
 
 @pytest.mark.parametrize("raw, expected", [
