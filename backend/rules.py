@@ -1002,6 +1002,13 @@ _OTHER_THAN = re.compile(r"선택진료[료비]?.?외")  # '이외'를 '미외'�
 _RECEIPT_ITEM_TEXT = re.compile(r"^[0-9A-Z가-힣_()/%-]{1,24}$")
 
 
+def _plain(text):
+    return re.sub(r"[^0-9A-Za-z가-힣]", "", text)
+
+
+_PRINTED = {_plain(name): name for name in RECEIPT_ITEM_NAMES}  # 기호를 뗀 키 → 인쇄된 표준 항목명('한약(첩약)')
+
+
 def _alias(text):
     return next((canonical for pattern, canonical in ITEM_ALIASES if pattern.match(text)), text or None)
 
@@ -1011,9 +1018,10 @@ def item(name) -> str | None:
 
     서식의 분류 칸 글자가 붙어 온 이름('필주사료_약품비'·'선택항목_CT진단료')은 떼어 낸 나머지가 표준 항목일 때만 뗀다.
     """
-    text = re.sub(r"[^0-9A-Za-z가-힣]", "", str(name or ""))
+    text = _plain(str(name or ""))
     bare = _alias(_ITEM_GROUP.sub("", text, count=1))
-    name = bare if bare in RECEIPT_ITEM_NAMES else _alias(text)
+    name = _alias(text) if bare is None or _plain(bare) not in _PRINTED else bare
+    name = _PRINTED.get(_plain(name or ""), name)
     return name if name in RECEIPT_ITEM_NAMES or name is None or len(name) < 2 else _misread(name)
 
 
@@ -1024,8 +1032,9 @@ def _misread(name):
     네 글자 이상에서 한 글자만 다른 것이다('시행및처치료'→'시술및처치료', '치료재대'→'치료재료대').
     짧은 이름은 글자 하나를 통째로 바꾸면 다른 항목이 되므로('주사료'·'검사료') 자모 하나까지만 본다.
     서식 라벨에는 쓰지 않는다 — 라벨은 닫힌 목록이 아니라 '발생일'이 '발행일'로, '종료일자'가 '진료일자'로 붙는다."""
-    hits = [other for other in RECEIPT_ITEM_NAMES if len(other) == len(name) and _one_off(_jamo(other), _jamo(name))
-            or len(other) >= 4 and _one_off(other, name)]
+    hits = [other for other in RECEIPT_ITEM_NAMES
+            if len(_plain(other)) == len(name) and _one_off(_jamo(_plain(other)), _jamo(name))
+            or len(_plain(other)) >= 4 and _one_off(_plain(other), name)]
     return hits[0] if len(hits) == 1 else name
 
 
@@ -1253,7 +1262,7 @@ def _item_names(doc):
     found = []
     for index, row in enumerate(doc.rows):
         name = item(row.get("항목"))
-        if name and name != re.sub(r"[^0-9A-Za-z가-힣_-]", "", str(row.get("항목"))):
+        if name and name != re.sub(r"[^0-9A-Za-z가-힣_()-]", "", str(row.get("항목"))):
             found.append(_flag("item_name", f"AO 표 {index}행 항목명 '{row.get('항목')}'은 '{name}'로 적는다.",
                                row=index, name=name))
     return found
