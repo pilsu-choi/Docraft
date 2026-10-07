@@ -2,6 +2,7 @@
 okf_version: "0.2"
 ---
 
+- [진료비영수증 항목명 원본 인쇄 표기 유지](2026-10-07-receipt-item-print-name.md) — 요약, 상세는 상위 wiki, dev 9ced432
 - [진단서4종 진료소견 판독 필드 추가](2026-10-06-clinical-opinion-extract.md) — `_MEDICAL_FIELDS` 진료소견 text, dev 3d4f9e5
 - [CI 공통 영수증 규칙 동기화](2026-10-03-ci-shared-receipt-policy.md) — 종료일 필수 키 사본 불일치 수정·gitlink 검증
 
