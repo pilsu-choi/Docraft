@@ -929,10 +929,10 @@ def _receipt_table(doc_type, out, blocks):
             rows.insert(_insert_at(rows, rebuilt, row["항목"]), row)
             present.add(row["항목"])
     # 표준 항목이 아닌 이름은 위·아래 이웃 행이 서식 순서로 좁혀 주는 표준 항목과 느슨하게 맞춘다(두 글자 이상 오독)
-    names = [row.get("항목") for row in rows]
+    names = [item(row.get("항목")) for row in rows]  # 이름 정규화(derive)는 뒤에서 하므로 여기서는 비교용으로만 맞춘다
     for index, name in enumerate(names):
-        if isinstance(name, str) and name not in RECEIPT_ITEM_NAMES and len(name) >= 2:
-            names[index] = rows[index]["항목"] = _misread(name, _between(names, index))
+        if name and name not in RECEIPT_ITEM_NAMES and len(name) >= 2 and (near := _misread(name, _between(names, index))) != name:
+            names[index] = rows[index]["항목"] = near
     out[ITEM_TABLE] = rows
 
 
@@ -1040,7 +1040,8 @@ def _misread(name, near=None):
 
     ``near``(이웃 행 위치로 좁힌 후보, ``_receipt_table``)가 있으면 그 후보와만 느슨하게 맞춘다: 음절 수 차이가
     ``_NEAR_LENGTH`` 이하이고(낱말을 더하거나 뺀 이름 — '투약재료'·'제증명료및기타'·'보철료' — 은 오독이 아니라 인쇄된 다른
-    이름이다) 자모 편집거리 비율 유사도가 ``_NEAR_LIKENESS`` 이상인 후보가 하나뿐이거나, 1등이 2등보다 ``_NEAR_LEAD`` 이상
+    이름이다), 한쪽이 다른 쪽의 앞부분이 아니며(끝 글자만 다른 '보철교정'·'보철교정료'는 ``_one_off``처럼 서식 변형으로 본다)
+    자모 편집거리 비율 유사도가 ``_NEAR_LIKENESS`` 이상인 후보가 하나뿐이거나, 1등이 2등보다 ``_NEAR_LEAD`` 이상
     앞설 때만 바꾼다(기준은 T tune 98건에서 정했다, 2026-10-08).
 
     가깝다는 것은 글자 수가 같고 자모 하나만 다르거나(바뀜·빠짐·더해짐 — '진칠료'→'진찰료', '식데'→'식대'),
@@ -1049,7 +1050,8 @@ def _misread(name, near=None):
     서식 라벨에는 쓰지 않는다 — 라벨은 닫힌 목록이 아니라 '발생일'이 '발행일'로, '종료일자'가 '진료일자'로 붙는다."""
     if near is not None:
         scored = sorted(((_name_likeness(name, other), other) for other in near
-                         if abs(len(_plain(other)) - len(_plain(name))) <= _NEAR_LENGTH), reverse=True)
+                         if abs(len(_plain(other)) - len(name)) <= _NEAR_LENGTH
+                         and not _plain(other).startswith(name) and not name.startswith(_plain(other))), reverse=True)
         sure = scored and scored[0][0] >= _NEAR_LIKENESS and (len(scored) == 1 or scored[0][0] - scored[1][0] >= _NEAR_LEAD)
         return scored[0][1] if sure else name
     hits = [other for other in RECEIPT_ITEM_NAMES
