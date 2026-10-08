@@ -2,6 +2,8 @@
 
 ## 2026-10-08 영수증 정답지 30건 오류 원인
 
+- **Update**: [정답지 30건 Docraft 오류 원인](2026-10-08-receipt-g30-error-cause.md) — 열 혼동 원인 추적.
+
 - **Creation**: [정답지 30건 Docraft 오류 원인](2026-10-08-receipt-g30-error-cause.md) — 상위 wiki 동기화.
 - **Update**: index.md에 연결.
 
