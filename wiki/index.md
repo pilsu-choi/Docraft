@@ -2,6 +2,7 @@
 okf_version: "0.2"
 ---
 
+- [영수증 Docraft 항목표 오류 원인 분석](2026-10-08-receipt-docraft-error-cause.md) — 0원 행 미출력 60%, 제외 시 94.26%, 표 구조 인식이 주원인, 상세는 상위 wiki
 - [/api/read groundings 자료형·재처리 key 불일치 수정](2026-10-07-read-groundings-reprocess-keys.md) — unit_flags list 502, 재처리 KeyError
 - [영수증 선별급여 법령 문구 별칭 동기화](2026-10-07-receipt-alias-sync.md) — 하네스 receipt_items.yaml 사본 동기화, 상세는 상위 wiki
 - [진료비영수증 항목명 원본 인쇄 표기 유지](2026-10-07-receipt-item-print-name.md) — 요약, 상세는 상위 wiki, dev 9ced432
