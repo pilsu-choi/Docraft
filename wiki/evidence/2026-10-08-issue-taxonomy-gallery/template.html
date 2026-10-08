@@ -12,7 +12,7 @@
   --move-bg:#ffedd2; --move-fg:#9a5200;
   --struct-bg:#d9f1ec; --struct-fg:#11665a;
   --hold-bg:#e8eae9; --hold-fg:#4b5550;
-  --obs:#1f6b52; --syn:#3d5f9e; --asm:#8a6d1c;
+  --hl:#e0301e; --obs:#1f6b52; --syn:#3d5f9e; --asm:#8a6d1c;
   --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
   --mono:"IBM Plex Mono","IBM Plex Sans KR",ui-monospace,monospace;
 }
@@ -93,6 +93,9 @@ td.m-miss,.m-miss{color:var(--miss-fg);outline:1.5px dashed var(--miss-line);out
 @media (min-width:720px){.shots.two{grid-template-columns:1fr 1fr}}
 .shot{margin:0;display:grid;gap:3px;min-width:0}
 .shot img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.frame{position:relative;line-height:0}
+.hl{position:absolute;border:3px solid var(--hl);border-radius:3px;box-shadow:0 0 0 2px rgba(255,255,255,.7);pointer-events:none}
+.hlkey{color:var(--hl)}
 .shot figcaption{font-size:.72rem;color:var(--muted)}
 .imgnote{font-size:.8rem;color:var(--muted)}
 .src{font-size:.74rem;color:var(--muted);word-break:break-all}
@@ -187,8 +190,10 @@ function panel(p){
 }
 function shots(x){
   const g = x.img; if (!g || !g.edge) return "";
-  const fig = (src, wh, cap) => `<figure class="shot"><img src="${esc(src)}" alt="${esc(x.id)} ${esc(cap)}"${wh ? ` width="${wh[0]}" height="${wh[1]}"` : ""}><figcaption>${esc(cap)}</figcaption></figure>`;
-  return `<div class="shots${g.base ? " two" : ""}">${g.base ? fig(g.base, g.base_wh, "합성 이미지 · 이슈 없음") : ""}${fig(g.edge, g.edge_wh, "합성 이미지 · 이슈 있음")}</div>${g.note ? `<p class="imgnote">${esc(g.note)}</p>` : ""}`;
+  const boxes = bs => (bs || []).map(b => `<span class="hl" style="left:${b[0]*100}%;top:${b[1]*100}%;width:${(b[2]-b[0])*100}%;height:${(b[3]-b[1])*100}%"></span>`).join("");
+  const fig = (src, wh, cap, bs) => `<figure class="shot"><div class="frame"><img src="${esc(src)}" alt="${esc(x.id)} ${esc(cap)}"${wh ? ` width="${wh[0]}" height="${wh[1]}"` : ""}>${boxes(bs)}</div><figcaption>${esc(cap)}</figcaption></figure>`;
+  const zoom = g.zoom ? `<figure class="shot zoom"><div class="frame"><img src="${esc(g.zoom)}" alt="${esc(x.id)} 이슈 부분 확대"${g.zoom_wh ? ` width="${g.zoom_wh[0]}" height="${g.zoom_wh[1]}"` : ""}></div><figcaption><b class="hlkey">이슈 부분 확대</b>${g.label ? " · " + esc(g.label) : ""} (합성 이미지)</figcaption></figure>` : "";
+  return `${zoom}<div class="shots${g.base ? " two" : ""}">${g.base ? fig(g.base, g.base_wh, "전체 쪽 · 이슈 없음", g.base_boxes) : ""}${fig(g.edge, g.edge_wh, "전체 쪽 · 이슈 있음", g.boxes)}</div>${g.note ? `<p class="imgnote">${esc(g.note)}</p>` : ""}`;
 }
 function card(x){
   const res = x.result ? ` <span class="res">→ ${esc(x.result)}</span>` : "";

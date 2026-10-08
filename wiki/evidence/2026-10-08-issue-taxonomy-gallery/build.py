@@ -24,6 +24,9 @@ ids = [x["id"] for x in data]
 assert sorted(set(ids)) == sorted(ids), "dup"
 assert not [e for e in exp if e not in ids], [e for e in exp if e not in ids]
 idx = json.load(open(f"{S}/img-index.json")) if os.path.exists(f"{S}/img-index.json") else {}
+hl = {}
+for f in ("hl-P.json", "hl-E.json"):
+    if os.path.exists(f"{S}/{f}"): hl.update(json.load(open(f"{S}/{f}")))
 for x in data:
     x.pop("img", None)
     g = idx.get(x["id"])
@@ -32,6 +35,11 @@ for x in data:
            "run": g.get("run", ""), "mechanism": g.get("mechanism", "")}
     if g.get("base") and os.path.exists(f"{S}/{g['base']}"):
         img["base"] = g["base"]; img["base_wh"] = list(Image.open(f"{S}/{g['base']}").size)
+    h = hl.get(x["id"])
+    if h:
+        img.update(boxes=h.get("boxes", []), base_boxes=h.get("base_boxes", []), label=h.get("label", ""))
+        z = f"img/{x['id']}-zoom.jpg"
+        if os.path.exists(f"{S}/{z}"): img.update(zoom=z, zoom_wh=list(Image.open(f"{S}/{z}").size))
     x["img"] = img
 order = {e: i for i, e in enumerate(exp)}
 data.sort(key=lambda x: (order.get(x["id"], 999), x["id"]))
@@ -39,4 +47,4 @@ json.dump(data, open(f"{S}/issue-examples.json", "w"), ensure_ascii=False, inden
 t = open(f"{S}/template.html").read()
 open(f"{S}/issue-taxonomy-gallery.html", "w").write(t.replace("/*DATA*/", json.dumps(data, ensure_ascii=False).replace("</", "<\\/")))
 c = {s: sum(x["status"] == s for x in data) for s in ("observed", "synthetic", "assumed")}
-print(len(data), c, "img", sum("img" in x for x in data), "base", sum("base" in x.get("img", {}) for x in data))
+print(len(data), c, "img", sum("img" in x for x in data), "base", sum("base" in x.get("img", {}) for x in data), "zoom", sum("zoom" in x.get("img", {}) for x in data))
