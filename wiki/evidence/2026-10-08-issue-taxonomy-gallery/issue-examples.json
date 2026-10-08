@@ -1,0 +1,5007 @@
+[
+ {
+  "id": "P.MIS.AREA.1",
+  "name": "페이지 누락",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "XD-17 · observed-cases.md",
+  "caption": "여러 쪽 문서에서 3쪽이 통째로 빠졌다",
+  "truth": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1쪽",
+     "sub": "항목 1~20"
+    },
+    {
+     "t": "2쪽",
+     "sub": "항목 21~40"
+    },
+    {
+     "t": "3쪽",
+     "sub": "항목 41~52",
+     "m": "miss"
+    }
+   ]
+  },
+  "output": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1쪽",
+     "sub": "항목 1~20"
+    },
+    {
+     "t": "2쪽",
+     "sub": "항목 21~40"
+    },
+    {
+     "t": "3쪽",
+     "sub": "(없음)",
+     "m": "miss"
+    }
+   ]
+  }
+ },
+ {
+  "id": "P.MIS.AREA.2",
+  "name": "표·본문·서식 블록 누락",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "region_loss",
+  "caption": "표 아래쪽 합계 블록이 통째로 인식되지 않았다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "구분",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진료비 총액",
+     "120,000"
+    ],
+    [
+     {
+      "t": "환자부담 합계",
+      "m": "miss"
+     },
+     {
+      "t": "48,000",
+      "m": "miss"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "구분",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진료비 총액",
+     "120,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.MIS.UNIT.1",
+  "name": "행·열·목록 항목 누락",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "AR-9 · observed-cases.md",
+  "caption": "투여량 열이 통째로 비었다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "투여량",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "2",
+     "3,000"
+    ],
+    [
+     "검사료",
+     "1",
+     "8,500"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "투여량",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     {
+      "t": "",
+      "m": "miss"
+     },
+     "3,000"
+    ],
+    [
+     "검사료",
+     {
+      "t": "",
+      "m": "miss"
+     },
+     "8,500"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.MIS.UNIT.2",
+  "name": "셀·머리글·라벨 누락",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "HDR-8 · observed-cases.md",
+  "caption": "표의 머리글 행이 인식되지 않았다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "급여액",
+    "비급여액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "3,000",
+     "0"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    {
+     "t": "",
+     "m": "miss"
+    },
+    {
+     "t": "",
+     "m": "miss"
+    },
+    {
+     "t": "",
+     "m": "miss"
+    }
+   ],
+   "rows": [
+    [
+     "주사료",
+     "3,000",
+     "0"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.MIS.CHAR.1",
+  "name": "문자열 전체·일부 누락",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "PF-2 · observed-cases.md",
+  "caption": "금액의 쉼표와 일부 글자가 빠졌다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "주사료 ",
+     {
+      "t": "12,500",
+      "m": "miss"
+     },
+     " 가나의원"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "주사료 ",
+     {
+      "t": "125",
+      "m": "wrong",
+      "note": "쉼표·끝자리 누락"
+     },
+     " 가나의원"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.MIS.CHAR.2",
+  "name": "숫자·소수점·부호·단위 누락",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "resolution_loss",
+  "caption": "저해상도로 소수점과 마이너스 부호가 사라졌다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "수량",
+    "금액"
+   ],
+   "rows": [
+    [
+     "약품A",
+     {
+      "t": "0.5",
+      "m": "miss"
+     },
+     {
+      "t": "-3,000",
+      "m": "miss"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "수량",
+    "금액"
+   ],
+   "rows": [
+    [
+     "약품A",
+     {
+      "t": "05",
+      "m": "wrong",
+      "note": "소수점 소실"
+     },
+     {
+      "t": "3,000",
+      "m": "wrong",
+      "note": "부호 소실"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.MIS.MARK.1",
+  "name": "선택 표시 누락",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "selection_marks",
+  "caption": "요양기관 종류의 체크 표시가 글자로 남지 않았다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "요양기관 종류: ",
+     {
+      "t": "■",
+      "m": "miss"
+     },
+     " 의원  □ 병원"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "요양기관 종류: ",
+     {
+      "t": "",
+      "m": "miss"
+     },
+     " 의원  □ 병원"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.MIS.MARK.2",
+  "name": "수정 표시 누락",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "correction_relation",
+  "caption": "취소선으로 지운 금액의 취소선이 인식되지 않았다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진료비",
+     {
+      "t": "12,000",
+      "m": "miss",
+      "note": "취소선"
+     }
+    ],
+    [
+     "진료비(정정)",
+     "15,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진료비",
+     {
+      "t": "12,000",
+      "m": "miss"
+     }
+    ],
+    [
+     "진료비(정정)",
+     "15,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.MIS.MARK.3",
+  "name": "서명·도장·바코드·도형 누락",
+  "status": "synthetic",
+  "doc": "수술확인서",
+  "source": "nontext_element",
+  "caption": "의사 서명과 직인 자리가 비어 나왔다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "담당의사: 김가온 ",
+     {
+      "t": "[서명][직인]",
+      "m": "miss"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "담당의사: 김가온"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.MIS.MARK.4",
+  "name": "글자 서식이 담는 의미 누락",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "semantic_format",
+  "caption": "빨간 글씨로 표시된 감액 금액의 의미가 사라졌다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "감액",
+     {
+      "t": "3,000",
+      "m": "miss",
+      "note": "빨간 글씨"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "감액",
+     {
+      "t": "3,000",
+      "m": "miss",
+      "note": "서식 없음"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.READ.1",
+  "name": "문자·숫자 오인식",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "HDR-9 · observed-cases.md",
+  "caption": "머리글 '총투'가 '층투'로 읽혔다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    {
+     "t": "총투",
+     "m": "wrong"
+    },
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "2",
+     "3,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    {
+     "t": "층투",
+     "m": "wrong"
+    },
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "2",
+     "3,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.READ.2",
+  "name": "소수점·부호·기호 오인식",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "PF-4 · observed-cases.md",
+  "caption": "소수점이 쉼표로 읽혀 값이 1,000이 되었다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "수량 ",
+     {
+      "t": "1.0000",
+      "m": "wrong"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "수량 ",
+     {
+      "t": "1,000",
+      "m": "wrong",
+      "note": ". → ,"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.READ.3",
+  "name": "손글씨와 인쇄 글자 구분 실패",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "handwriting",
+  "caption": "손으로 쓴 메모 숫자를 인쇄된 금액으로 읽었다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진료비",
+     "12,000"
+    ],
+    [
+     "(메모) 확인",
+     {
+      "t": "v",
+      "m": "wrong",
+      "note": "손글씨"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진료비",
+     "12,000"
+    ],
+    [
+     "(메모) 확인",
+     {
+      "t": "12,000",
+      "m": "wrong"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.READ.4",
+  "name": "띄어쓰기·단어 경계 오류",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "TF-1 · observed-cases.md",
+  "caption": "단어 사이에 공백이 끼어 항목명이 달라졌다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "항목명: ",
+     {
+      "t": "초음파검사",
+      "m": "wrong"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "항목명: ",
+     {
+      "t": "초음 파검 사",
+      "m": "wrong",
+      "note": "공백 삽입"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.READ.5",
+  "name": "문자 코드 변형",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "unicode_surface",
+  "caption": "합성 문자 ㈜가 (주)로 바뀌었다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "기관명: 가나",
+     {
+      "t": "㈜",
+      "m": "wrong"
+     },
+     "의원"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "기관명: 가나",
+     {
+      "t": "(주)",
+      "m": "wrong"
+     },
+     "의원"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.POS.1",
+  "name": "다른 행·셀·영역에 배정",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "TR-5 · observed-cases.md",
+  "caption": "한 줄의 세 값이 한 칸씩 옆 열로 밀렸다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "단가",
+    "횟수",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "1,500",
+     "2",
+     {
+      "t": "3,000",
+      "m": "move"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "단가",
+    "횟수",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "1,500",
+     {
+      "t": "3,000",
+      "m": "move"
+     },
+     {
+      "t": "",
+      "m": "move"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.POS.2",
+  "name": "잘못된 좌표·페이지에 배정",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "PE-3 · observed-cases.md",
+  "caption": "회전한 스캔에서 글자 좌표가 엉뚱한 위치로 잡혔다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "금액 글자",
+     "12,000"
+    ],
+    [
+     "좌표",
+     "열 3, 행 5"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "금액 글자",
+     "12,000"
+    ],
+    [
+     "좌표",
+     {
+      "t": "열 1, 행 12",
+      "m": "move"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.ORDER.1",
+  "name": "행·블록·페이지 순서 뒤바뀜",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "WO-05 · observed-cases.md",
+  "caption": "행 순서가 뒤바뀌어 항목과 금액 짝이 틀어졌다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "순번",
+    "항목"
+   ],
+   "rows": [
+    [
+     "1",
+     "진찰료"
+    ],
+    [
+     "2",
+     "주사료"
+    ],
+    [
+     "3",
+     "검사료"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "순번",
+    "항목"
+   ],
+   "rows": [
+    [
+     "1",
+     "진찰료"
+    ],
+    [
+     {
+      "t": "3",
+      "m": "struct"
+     },
+     "검사료"
+    ],
+    [
+     {
+      "t": "2",
+      "m": "struct"
+     },
+     "주사료"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.ORDER.2",
+  "name": "서로 다른 영역의 글자 혼합",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "reading_layout",
+  "caption": "옆 칸 글자와 본문 글자가 한 줄로 섞였다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "진료과 내과  영수증 번호 12345"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "진료과 ",
+     {
+      "t": "영수증",
+      "m": "struct"
+     },
+     " 내과 ",
+     {
+      "t": "번호 12345",
+      "m": "struct"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.ORDER.3",
+  "name": "다단·세로쓰기 읽기 방향 오류",
+  "status": "observed",
+  "doc": "수술확인서",
+  "source": "TF-6 · observed-cases.md",
+  "caption": "세로로 쓴 글자가 거꾸로 읽혔다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "수술명: ",
+     {
+      "t": "충수절제술",
+      "m": "wrong"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "수술명: ",
+     {
+      "t": "술제절수충",
+      "m": "wrong",
+      "note": "역방향"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.TYPE.1",
+  "name": "머리말·꼬리말·쪽 번호를 본문으로 인식",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "G3 보조 · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "쪽 번호 3/4가 금액 314로 합쳐졌다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "합계 금액 ",
+     "4,100",
+     {
+      "t": "  3/4",
+      "m": "extra",
+      "note": "쪽 번호"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "합계 금액 ",
+     {
+      "t": "4,100314",
+      "m": "extra"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.TYPE.2",
+  "name": "요소 유형 오분류",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "RE-머리글행 · observed-cases.md",
+  "caption": "머리글 행이 데이터 행으로 분류되었다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     {
+      "t": "항목",
+      "m": "wrong"
+     },
+     {
+      "t": "금액",
+      "m": "wrong"
+     }
+    ],
+    [
+     "진찰료",
+     "8,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     {
+      "t": "항목",
+      "m": "wrong",
+      "note": "데이터 행"
+     },
+     {
+      "t": "금액",
+      "m": "wrong"
+     }
+    ],
+    [
+     "진찰료",
+     "8,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.STATE.1",
+  "name": "선택·취소 표시 상태 반전",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "selection_marks",
+  "caption": "체크된 칸과 비어 있는 칸이 서로 바뀌었다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     {
+      "t": "■ 의원",
+      "m": "wrong"
+     },
+     "  □ 병원"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     {
+      "t": "□ 의원",
+      "m": "wrong"
+     },
+     "  ",
+     {
+      "t": "■ 병원",
+      "m": "wrong"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.STATE.2",
+  "name": "판독 불가를 빈칸으로 처리",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "TP-1 · observed-cases.md",
+  "caption": "가려져 못 읽은 값을 '없음'(빈칸)으로 내보냈다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     {
+      "t": "[가려짐]",
+      "m": "hold"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     {
+      "t": "",
+      "m": "wrong",
+      "note": "빈칸"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.WRG.STATE.3",
+  "name": "판독 가능한 글자를 판독 불가로 처리",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "occlusion",
+  "caption": "얼룩이 조금 있어도 읽을 수 있는 금액을 못 읽는다고 표시했다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     {
+      "t": "3,000",
+      "m": "wrong"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     {
+      "t": "[판독불가]",
+      "m": "hold"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.OVR.FALSE.1",
+  "name": "잡음·도장·선택 표시를 문자로 인식",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "stamp",
+  "caption": "병원 직인의 글씨가 금액 글자로 읽혔다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "8,000"
+    ],
+    [
+     "(직인)",
+     {
+      "t": "",
+      "m": "extra",
+      "note": "도장"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "8,000"
+    ],
+    [
+     "(직인)",
+     {
+      "t": "5170",
+      "m": "extra"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.OVR.FALSE.2",
+  "name": "보이지 않는 텍스트 층·뒷면 글자 인식",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "backside_showthrough",
+  "caption": "뒷면에 비친 글자가 앞면 내용으로 들어왔다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "진료비 총액 120,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "진료비 총액 120,000",
+     {
+      "t": " 뒷면: 처방전 보관",
+      "m": "extra"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.OVR.DUP.1",
+  "name": "같은 영역·행 중복 인식",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "repeated_region",
+  "caption": "쪽 경계에서 같은 행이 두 번 인식되었다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "3,000"
+    ],
+    [
+     "검사료",
+     "8,500"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "3,000"
+    ],
+    [
+     "검사료",
+     "8,500"
+    ],
+    [
+     {
+      "t": "검사료",
+      "m": "extra"
+     },
+     {
+      "t": "8,500",
+      "m": "extra"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.OVR.DUP.2",
+  "name": "같은 글자·값 중복 출력",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "semantic_duplicate",
+  "caption": "같은 금액이 한 칸 안에 두 번 적혀 나왔다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "3,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     {
+      "t": "3,000 3,000",
+      "m": "extra"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.OVR.GEN.1",
+  "name": "원문에 없는 문자·값 생성",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "RF-1 · observed-cases.md",
+  "caption": "인쇄되지 않은 합계 칸을 하위 칸 합으로 만들어 채웠다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액",
+    "합계"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "3,000",
+     {
+      "t": "",
+      "m": "extra"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액",
+    "합계"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "3,000",
+     {
+      "t": "3,000",
+      "m": "extra",
+      "note": "계산해 채움"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.OVR.GEN.2",
+  "name": "원문에 없는 행·셀·블록 생성",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "blank_grid",
+  "caption": "빈 격자 칸을 데이터 행으로 만들어 냈다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "3,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "3,000"
+    ],
+    [
+     {
+      "t": "",
+      "m": "extra"
+     },
+     {
+      "t": "0",
+      "m": "extra"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.STR.SPLIT.1",
+  "name": "여러 행·셀·블록을 하나로 합침",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "RK-3 · observed-cases.md",
+  "caption": "두 행이 한 칸으로 합쳐졌다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "3,000"
+    ],
+    [
+     "검사료",
+     "8,500"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     {
+      "t": "주사료 검사료",
+      "m": "struct"
+     },
+     {
+      "t": "3,000 8,500",
+      "m": "struct"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.STR.SPLIT.2",
+  "name": "한 행·셀·블록을 여러 개로 분리",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "multiline_record",
+  "caption": "줄바꿈된 긴 항목명이 두 행으로 갈라졌다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "비급여 초음파 검사(복부)",
+     "45,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     {
+      "t": "비급여 초음파",
+      "m": "struct"
+     },
+     "45,000"
+    ],
+    [
+     {
+      "t": "검사(복부)",
+      "m": "struct"
+     },
+     {
+      "t": "",
+      "m": "struct"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.STR.REL.1",
+  "name": "병합 셀 범위 복원 실패",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "TE-02 · observed-cases.md",
+  "caption": "분류명 병합 칸이 첫 행에만 붙고 나머지 행은 분류가 비었다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "분류",
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     {
+      "t": "19. 비급여",
+      "m": "struct",
+      "note": "3행 병합"
+     },
+     "CT",
+     "90,000"
+    ],
+    [
+     "",
+     "MRI",
+     "120,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "분류",
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "19. 비급여",
+     "CT",
+     "90,000"
+    ],
+    [
+     {
+      "t": "",
+      "m": "struct"
+     },
+     "MRI",
+     "120,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.STR.REL.2",
+  "name": "다단 머리글 연결 실패",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "RE-열밀림 · observed-cases.md",
+  "caption": "두 단 머리글이 뭉개져 열 이름이 하나씩 밀렸다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "급여: 본인부담금",
+    "급여: 공단부담금"
+   ],
+   "rows": [
+    [
+     "3,000",
+     "7,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    {
+     "t": "급여: 공단부담금",
+     "m": "struct"
+    },
+    {
+     "t": "(없음)",
+     "m": "struct"
+    }
+   ],
+   "rows": [
+    [
+     "3,000",
+     "7,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.STR.REL.3",
+  "name": "라벨과 값 짝짓기 실패",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "G1-a · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "'비급여 총액' 옆의 값 대신 멀리 있는 0과 짝지었다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "비급여 총액",
+     {
+      "t": "45,000",
+      "m": "wrong"
+     }
+    ],
+    [
+     "본인부담",
+     "3,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "비급여 총액",
+     {
+      "t": "0",
+      "m": "wrong"
+     }
+    ],
+    [
+     "본인부담",
+     "3,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.STR.REL.4",
+  "name": "표시·기존값·수정값 연결 실패",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "correction_relation",
+  "caption": "취소선 금액과 옆의 정정 금액의 관계를 잃었다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "원래",
+    "정정"
+   ],
+   "rows": [
+    [
+     "진료비",
+     {
+      "t": "12,000",
+      "m": "struct",
+      "note": "취소선"
+     },
+     "15,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진료비",
+     {
+      "t": "12,000",
+      "m": "struct"
+     }
+    ],
+    [
+     "진료비",
+     {
+      "t": "15,000",
+      "m": "struct"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.STR.HIER.1",
+  "name": "제목·목록의 계층 수준 오류",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "span_hierarchy",
+  "caption": "소분류가 대분류와 같은 수준으로 나왔다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "19. 비급여"
+    ],
+    [
+     "  가. CT"
+    ],
+    [
+     "  나. MRI"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "19. 비급여"
+    ],
+    [
+     {
+      "t": "가. CT",
+      "m": "struct"
+     }
+    ],
+    [
+     {
+      "t": "나. MRI",
+      "m": "struct"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.STR.HIER.2",
+  "name": "각주·캡션과 대상 연결 실패",
+  "status": "assumed",
+  "doc": "진료비영수증",
+  "source": "",
+  "caption": "각주 '* 선택진료 포함'이 엉뚱한 항목에 붙었다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료*",
+     "8,000"
+    ],
+    [
+     "주사료",
+     "3,000"
+    ],
+    [
+     "* 선택진료 포함",
+     ""
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "8,000"
+    ],
+    [
+     "주사료*",
+     {
+      "t": "3,000 (선택진료 포함)",
+      "m": "struct"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.STR.HIER.3",
+  "name": "중첩 표·표 안 서식 구조 복원 실패",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "nested_structure",
+  "caption": "표 안의 작은 표가 바깥 표의 행처럼 펼쳐졌다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "구분",
+    "내용"
+   ],
+   "rows": [
+    [
+     "산정내역",
+     {
+      "t": "[작은 표] 기본 8,000 / 가산 2,000",
+      "m": "struct"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "구분",
+    "내용"
+   ],
+   "rows": [
+    [
+     "산정내역",
+     "기본 8,000"
+    ],
+    [
+     {
+      "t": "",
+      "m": "struct"
+     },
+     {
+      "t": "가산 2,000",
+      "m": "struct"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.STR.LINK.1",
+  "name": "별개 표·블록을 하나로 연결",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "adjacent_tables",
+  "caption": "나란한 두 표가 한 표로 이어져 나왔다",
+  "truth": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "표 A",
+     "sub": "항목·금액"
+    },
+    {
+     "t": "표 B",
+     "sub": "결제 내역"
+    }
+   ]
+  },
+  "output": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "표 A+B",
+     "sub": "한 표로 합침",
+     "m": "struct"
+    }
+   ]
+  }
+ },
+ {
+  "id": "P.STR.LINK.2",
+  "name": "쪽을 넘는 표를 잇지 못함",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "RC-5#1 · observed-cases.md",
+  "caption": "쪽에 걸친 표가 잇지 못해 두 표로 남았다",
+  "truth": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1~2쪽",
+     "sub": "표 한 개"
+    }
+   ]
+  },
+  "output": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1쪽",
+     "sub": "표 1",
+     "m": "struct"
+    },
+    {
+     "t": "2쪽",
+     "sub": "표 2 (머리글 없음)",
+     "m": "struct"
+    }
+   ]
+  }
+ },
+ {
+  "id": "P.STR.DOC.1",
+  "name": "서로 다른 문서를 하나로 합침",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "document_boundary",
+  "caption": "영수증과 세부내역서가 한 문서로 묶였다",
+  "truth": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1쪽",
+     "sub": "영수증"
+    },
+    {
+     "t": "2쪽",
+     "sub": "세부내역서"
+    }
+   ]
+  },
+  "output": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1~2쪽",
+     "sub": "문서 1개",
+     "m": "struct"
+    }
+   ]
+  }
+ },
+ {
+  "id": "P.STR.DOC.2",
+  "name": "한 문서를 여러 문서로 분리",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "document_boundary",
+  "caption": "3쪽짜리 세부내역서가 두 문서로 나뉘었다",
+  "truth": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1~3쪽",
+     "sub": "세부내역서 1건"
+    }
+   ]
+  },
+  "output": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1~2쪽",
+     "sub": "문서 1",
+     "m": "struct"
+    },
+    {
+     "t": "3쪽",
+     "sub": "문서 2",
+     "m": "struct"
+    }
+   ]
+  }
+ },
+ {
+  "id": "P.CON.FMT.1",
+  "name": "출력 직렬화 형식 오류",
+  "status": "assumed",
+  "doc": "진료비세부내역서",
+  "source": "",
+  "caption": "결과 파일이 형식에 맞지 않아 읽을 수 없다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "결과",
+     "{\"rows\": [[\"주사료\", \"3,000\"]]}"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "결과",
+     {
+      "t": "{\"rows\": [[\"주사료\", \"3,000\"]]",
+      "m": "wrong",
+      "note": "닫는 괄호 누락"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.CON.FMT.2",
+  "name": "셀·좌표·병합 정보 불일치",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "TF-8 · observed-cases.md",
+  "caption": "병합 셀 정보가 저장되지 않았다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "분류 칸",
+     "19. 비급여 (3행 병합)"
+    ],
+    [
+     "병합 정보",
+     "3행"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "분류 칸",
+     "19. 비급여"
+    ],
+    [
+     "병합 정보",
+     {
+      "t": "(없음)",
+      "m": "miss"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.CON.EVID.1",
+  "name": "필수 원문 위치 근거 누락",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "CO-6 · observed-cases.md",
+  "caption": "값은 있으나 원문 위치(좌표)가 없어 근거를 연결할 수 없다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "본인부담금",
+     "3,000"
+    ],
+    [
+     "위치",
+     "쪽 1, (120,340)"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "본인부담금",
+     "3,000"
+    ],
+    [
+     "위치",
+     {
+      "t": "(없음)",
+      "m": "miss"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "P.CON.DONE.1",
+  "name": "출력 중단·부분 처리의 완료 오표시",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "PQ-페이지수 · observed-cases.md",
+  "caption": "3쪽 중 2쪽만 처리하고 '완료'로 표시했다",
+  "truth": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1쪽",
+     "sub": "처리"
+    },
+    {
+     "t": "2쪽",
+     "sub": "처리"
+    },
+    {
+     "t": "3쪽",
+     "sub": "처리"
+    }
+   ]
+  },
+  "output": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1쪽",
+     "sub": "처리"
+    },
+    {
+     "t": "2쪽",
+     "sub": "처리"
+    },
+    {
+     "t": "3쪽",
+     "sub": "미처리, 상태 '완료'",
+     "m": "miss"
+    }
+   ]
+  }
+ },
+ {
+  "id": "E.MIS.TARGET.1",
+  "name": "필요한 표·그룹·섹션 전체 누락",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "length_scale",
+  "caption": "긴 문서에서 뒤쪽 표 한 개가 통째로 빠졌다",
+  "truth": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1쪽",
+     "sub": "진찰료·검사료 표"
+    },
+    {
+     "t": "2쪽",
+     "sub": "처치료·약품 표",
+     "m": "miss"
+    }
+   ]
+  },
+  "output": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1쪽",
+     "sub": "진찰료·검사료 표"
+    },
+    {
+     "t": "2쪽",
+     "sub": "(표 없음)",
+     "m": "miss"
+    }
+   ]
+  }
+ },
+ {
+  "id": "E.MIS.TARGET.2",
+  "name": "요약·집계 단위 누락",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "PE-2 · 2026-10-03-parse-extract-cause-review.md",
+  "caption": "인쇄된 소계·합계 행이 결과에서 빠졌다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "15,000"
+    ],
+    [
+     "검사료",
+     "42,000"
+    ],
+    [
+     {
+      "t": "합계",
+      "m": "miss"
+     },
+     {
+      "t": "57,000",
+      "m": "miss"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "15,000"
+    ],
+    [
+     "검사료",
+     "42,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.MIS.FIELD.1",
+  "name": "레코드 전체 누락",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "RE-행누락 · Docraft/2026-09-23-rules-edge-cases.md",
+  "caption": "항목 한 줄이 통째로 빠졌다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "15,000"
+    ],
+    [
+     {
+      "t": "선택진료료",
+      "m": "miss"
+     },
+     {
+      "t": "8,000",
+      "m": "miss"
+     }
+    ],
+    [
+     "검사료",
+     "42,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "15,000"
+    ],
+    [
+     "검사료",
+     "42,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.MIS.FIELD.2",
+  "name": "필드 값 누락",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "PX-4 · 2026-10-02-extraction-accuracy-paper-experiments.md",
+  "caption": "인쇄된 투여량 값이 빈칸으로 나왔다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "투여량",
+    "금액"
+   ],
+   "rows": [
+    [
+     "타이레놀정",
+     "2",
+     "1,200"
+    ],
+    [
+     "소화제",
+     "3",
+     "900"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "투여량",
+    "금액"
+   ],
+   "rows": [
+    [
+     "타이레놀정",
+     {
+      "t": "",
+      "m": "miss"
+     },
+     "1,200"
+    ],
+    [
+     "소화제",
+     {
+      "t": "",
+      "m": "miss"
+     },
+     "900"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.MIS.PART.1",
+  "name": "문자열 일부 잘림",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "PR-항목명오독 · Docraft/2026-09-25-edge-speed-accuracy-priorities.md",
+  "caption": "항목명 끝 한 글자가 빠졌다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "항목명",
+     "보철·교정료"
+    ],
+    [
+     "금액",
+     "30,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "항목명",
+     {
+      "t": "보철·교정",
+      "m": "miss",
+      "note": "끝 '료' 빠짐"
+     }
+    ],
+    [
+     "금액",
+     "30,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.MIS.PART.2",
+  "name": "숫자·소수점·부호·단위 일부 소실",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "V59-06 · Docraft/2026-09-23-verify-test-0922.md",
+  "caption": "소수점이 사라져 금액이 10배로 커졌다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "수량",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사액",
+     "1",
+     "954.5"
+    ],
+    [
+     "수액",
+     "1",
+     "19160.0"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "수량",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사액",
+     "1",
+     {
+      "t": "9545",
+      "m": "wrong",
+      "note": "소수점 소실"
+     }
+    ],
+    [
+     "수액",
+     "1",
+     {
+      "t": "191600",
+      "m": "wrong",
+      "note": "소수점 소실"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.MIS.PART.3",
+  "name": "복수 값 필드에서 일부 값만 출력",
+  "status": "synthetic",
+  "doc": "진단서",
+  "source": "multi_value_cell",
+  "caption": "한 칸에 적힌 병명 세 개 중 하나만 나왔다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "병명",
+     "M17.1 무릎 관절증 / E11.9 당뇨병 / I10 고혈압"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "병명",
+     {
+      "t": "M17.1 무릎 관절증",
+      "m": "miss",
+      "note": "2개 빠짐"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.MIS.ABST.1",
+  "name": "읽을 수 있는 값을 판독 불가로 보류",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "occlusion",
+  "caption": "흐리지만 읽히는 금액을 읽을 수 없다며 비워 두었다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "진료비총액",
+     "128,500"
+    ],
+    [
+     "납부할금액",
+     "28,500"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "진료비총액",
+     {
+      "t": "판독 불가",
+      "m": "hold",
+      "note": "읽을 수 있음"
+     }
+    ],
+    [
+     "납부할금액",
+     "28,500"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.MIS.ABST.2",
+  "name": "근거가 충분한 값을 검토 필요로 보류",
+  "status": "observed",
+  "doc": "진단서",
+  "source": "CORR-09 · harness-v2/2026-09-27-교정값-value-반영-Docraft-AO규칙-이식.md",
+  "caption": "맞게 읽은 날짜 칸을 확인 필요로 돌렸다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "사고발생일자",
+     "20240312"
+    ],
+    [
+     "진단일",
+     "20240315"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "사고발생일자",
+     {
+      "t": "검토 필요",
+      "m": "hold",
+      "note": "값은 맞았음"
+     }
+    ],
+    [
+     "진단일",
+     "20240315"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.READ.1",
+  "name": "이미지에서 문자·숫자를 잘못 읽음",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "G4-b · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "코드의 알파벳 O를 숫자 0으로 읽었다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "수가코드",
+     "AO254"
+    ],
+    [
+     "금액",
+     "12,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "수가코드",
+     {
+      "t": "A0254",
+      "m": "wrong",
+      "note": "O→0"
+     }
+    ],
+    [
+     "금액",
+     "12,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.READ.2",
+  "name": "원문 값을 옮기면서 원문과 다르게 변경",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "digit_sequence",
+  "caption": "옮겨 적다가 숫자 두 자리 순서가 바뀌었다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "청구코드",
+     "12345678"
+    ],
+    [
+     "금액",
+     "8,400"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "청구코드",
+     {
+      "t": "12345687",
+      "m": "wrong",
+      "note": "뒤 두 자리 바뀜"
+     }
+    ],
+    [
+     "금액",
+     "8,400"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.READ.3",
+  "name": "선택·취소 표시 상태를 잘못 읽음",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "G6 · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "체크된 병원급을 의원급으로 읽었다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "요양기관종류",
+     "□의원 ■병원 □종합병원"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "요양기관종류",
+     {
+      "t": "의원급",
+      "m": "wrong",
+      "note": "체크 위치 오판"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.ASSIGN.1",
+  "name": "다른 필드·그룹에 배정",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "VER-03 · Docraft/2026-09-22-ocr-verify.md",
+  "caption": "환자구분 값이 입통원구분 칸에 들어갔다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "입통원구분",
+     "외래"
+    ],
+    [
+     "환자구분",
+     "건강보험"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "입통원구분",
+     {
+      "t": "건강보험",
+      "m": "move"
+     }
+    ],
+    [
+     "환자구분",
+     {
+      "t": "",
+      "m": "miss"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.ASSIGN.2",
+  "name": "다른 행·열에 배정",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "G1-d · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "공단부담금 값이 비급여 열로 한 칸 밀렸다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "본인부담금",
+    "공단부담금",
+    "비급여"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "3,000",
+     {
+      "t": "7,000",
+      "m": "move"
+     },
+     "0"
+    ],
+    [
+     "검사료",
+     "5,000",
+     {
+      "t": "9,000",
+      "m": "move"
+     },
+     "0"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "본인부담금",
+    "공단부담금",
+    "비급여"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "3,000",
+     {
+      "t": "",
+      "m": "miss"
+     },
+     {
+      "t": "7,000",
+      "m": "move"
+     }
+    ],
+    [
+     "검사료",
+     "5,000",
+     {
+      "t": "",
+      "m": "miss"
+     },
+     {
+      "t": "9,000",
+      "m": "move"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.ASSIGN.3",
+  "name": "의미 역할(주체·시점·수량) 오배정",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "PQ-OCR역할 · Docraft/2026-09-25-edge-speed-accuracy-priorities.md",
+  "caption": "진료일 자리에 발행일이 들어갔다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "진료일",
+     "2024-03-12"
+    ],
+    [
+     "발행일",
+     "2024-03-20"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "진료일",
+     {
+      "t": "2024-03-20",
+      "m": "wrong",
+      "note": "발행일"
+     }
+    ],
+    [
+     "발행일",
+     "2024-03-20"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.CTX.1",
+  "name": "라벨·머리글 의미 연결 오류",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "XD-10 · 2026-10-02-extra-detail-validation.md",
+  "caption": "두 줄 머리글을 잘못 풀어 금액이 옆 열 이름으로 붙었다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "급여 | 본인",
+    "급여 | 공단"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "3,000",
+     "7,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    {
+     "t": "급여 | 공단",
+     "m": "struct"
+    },
+    {
+     "t": "급여 | 본인",
+     "m": "struct"
+    }
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "3,000",
+     "7,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.CTX.2",
+  "name": "병합·상속 값 연결 오류",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "PX-5 · 2026-10-02-extraction-accuracy-paper-experiments.md",
+  "caption": "병합 칸의 분류명이 아래 행에 이어지지 않았다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "분류",
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "초진",
+     "15,000"
+    ],
+    [
+     {
+      "t": "",
+      "m": "miss",
+      "note": "병합 칸(위와 같음)"
+     },
+     "재진",
+     "10,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "분류",
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "초진",
+     "15,000"
+    ],
+    [
+     {
+      "t": "",
+      "m": "miss",
+      "note": "분류명 상속 실패"
+     },
+     "재진",
+     "10,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.CTX.3",
+  "name": "페이지·섹션 경계 연결 오류",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "page_boundary_split",
+  "caption": "머리글이 1쪽에만 있어 2쪽 열을 잘못 대응했다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "쪽",
+    "항목",
+    "본인부담금",
+    "공단부담금"
+   ],
+   "rows": [
+    [
+     "2쪽",
+     "검사료",
+     "5,000",
+     "9,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "쪽",
+    "항목",
+    "본인부담금",
+    "공단부담금"
+   ],
+   "rows": [
+    [
+     "2쪽",
+     "검사료",
+     {
+      "t": "9,000",
+      "m": "move"
+     },
+     {
+      "t": "5,000",
+      "m": "move"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.CTX.4",
+  "name": "다른 개체·사건의 값 연결",
+  "status": "observed",
+  "doc": "진단서",
+  "source": "KV-11성명동의어 · Docraft/2026-09-22-kv-accuracy-review.md",
+  "caption": "환자 이름 칸에 의사 이름이 들어갔다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "환자성명",
+     "김가온"
+    ],
+    [
+     "의사성명",
+     "이나은"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "환자성명",
+     {
+      "t": "이나은",
+      "m": "wrong",
+      "note": "의사 이름"
+     }
+    ],
+    [
+     "의사성명",
+     "이나은"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.CTX.5",
+  "name": "원본·정정본·취소본 관계 연결 실패",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "correction_relation",
+  "caption": "정정본이 있는데 취소된 원본 금액을 가져왔다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "진료비총액",
+     "(정정) 130,000"
+    ],
+    [
+     "이전 값",
+     "~~128,500~~"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "진료비총액",
+     {
+      "t": "128,500",
+      "m": "wrong",
+      "note": "취소된 원본"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.NORM.1",
+  "name": "범주값·코드 체계·표기 관례 의미 오해",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "IT-5 · 2026-10-02-aws-integrated-deploy-r3.md",
+  "caption": "요양기관종류를 허용된 4가지 말로 맞추지 못했다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "요양기관종류",
+     "상급종합병원"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "요양기관종류",
+     {
+      "t": "상급종합",
+      "m": "wrong",
+      "note": "표준값 아님"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.NORM.2",
+  "name": "날짜·숫자·단위·통화 변환 오류",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "PR-괄호음수 · Docraft/2026-09-25-edge-speed-accuracy-priorities.md",
+  "caption": "괄호로 적힌 환급 금액이 양수로 바뀌었다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "조정금액",
+     "(3,000)"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "조정금액",
+     {
+      "t": "3000",
+      "m": "wrong",
+      "note": "음수여야 함"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.NORM.3",
+  "name": "빈값·0·미표기·판독 불가 혼동",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "G2-a · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "합계 행의 비어 있는 단가·횟수를 0으로 채웠다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "단가",
+    "횟수",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "5,000",
+     "3",
+     "15,000"
+    ],
+    [
+     "계",
+     "",
+     "",
+     "15,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "단가",
+    "횟수",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "5,000",
+     "3",
+     "15,000"
+    ],
+    [
+     "계",
+     {
+      "t": "0",
+      "m": "wrong"
+     },
+     {
+      "t": "0",
+      "m": "wrong"
+     },
+     "15,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.NORM.4",
+  "name": "과정규화: 정보가 줄거나 원문과 달라지는 변환",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "G9 · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "인쇄된 80/100 표기가 급여로 줄여 적혔다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "급여구분",
+    "금액"
+   ],
+   "rows": [
+    [
+     "MRI",
+     "80/100",
+     "120,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "급여구분",
+    "금액"
+   ],
+   "rows": [
+    [
+     "MRI",
+     {
+      "t": "급여",
+      "m": "wrong",
+      "note": "80/100 소실"
+     },
+     "120,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.ATTR.1",
+  "name": "확실성(부정·추정·확정·전언) 해석 오류",
+  "status": "synthetic",
+  "doc": "진단서",
+  "source": "fact_attributes",
+  "caption": "의증(R/O)으로 적힌 병명을 확정 진단으로 냈다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "진단명",
+     "R/O 위암 (의증)"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "진단명",
+     {
+      "t": "위암",
+      "m": "wrong",
+      "note": "확정으로 해석"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.ATTR.2",
+  "name": "시점(과거·현재·예정) 해석 오류",
+  "status": "synthetic",
+  "doc": "소견서",
+  "source": "fact_attributes",
+  "caption": "예정된 수술을 이미 받은 수술로 적었다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "수술",
+     "무릎 인공관절 수술 예정"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "수술",
+     {
+      "t": "무릎 인공관절 수술 시행",
+      "m": "wrong",
+      "note": "예정→시행"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.ATTR.3",
+  "name": "주체(당사자·제3자) 해석 오류",
+  "status": "synthetic",
+  "doc": "소견서",
+  "source": "fact_attributes",
+  "caption": "가족의 병력을 환자 본인의 병명으로 냈다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "가족력",
+     "부친 당뇨"
+    ],
+    [
+     "환자 진단",
+     "고혈압"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "가족력",
+     {
+      "t": "",
+      "m": "miss"
+     }
+    ],
+    [
+     "환자 진단",
+     {
+      "t": "고혈압, 당뇨",
+      "m": "extra",
+      "note": "부친 병력"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.PICK.1",
+  "name": "복수 후보의 선택 기준 오적용",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "E2E-4.1 · Docraft/2026-09-24-e2e-edge-cases.md",
+  "caption": "사고발생일자로 조회기간 시작일 대신 첫 명세 날짜를 골랐다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "조회기간 시작",
+     "2019-03-31"
+    ],
+    [
+     "첫 명세 날짜",
+     "2022-03-03"
+    ],
+    [
+     "사고발생일자",
+     "2019-03-31"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "조회기간 시작",
+     "2019-03-31"
+    ],
+    [
+     "첫 명세 날짜",
+     "2022-03-03"
+    ],
+    [
+     "사고발생일자",
+     {
+      "t": "2022-03-03",
+      "m": "wrong",
+      "note": "다른 후보"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.PICK.2",
+  "name": "상충 근거를 임의로 해소해 값 확정",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "printed_inconsistency",
+  "caption": "인쇄된 두 금액이 서로 달라도 한쪽을 골라 확정했다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "진료비총액(상단)",
+     "128,500"
+    ],
+    [
+     "진료비총액(합계 칸)",
+     "123,500"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "진료비총액",
+     {
+      "t": "128,500",
+      "m": "wrong",
+      "note": "불일치를 알리지 않음"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.HOLD.1",
+  "name": "판독 불가 구간을 추측해 확정값으로 출력",
+  "status": "synthetic",
+  "doc": "진료비영수증",
+  "source": "required_hold",
+  "caption": "가려져 안 보이는 금액을 짐작해 확정값으로 적었다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "납부할금액",
+     "[가림]"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "납부할금액",
+     {
+      "t": "28,500",
+      "m": "wrong",
+      "note": "추측"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.WRG.HOLD.2",
+  "name": "결락·불완전을 정상·완전으로 표시",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "missing_page_packet",
+  "caption": "3쪽이 빠진 내역서를 완전한 내역으로 냈다",
+  "truth": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1쪽",
+     "sub": "있음"
+    },
+    {
+     "t": "2쪽",
+     "sub": "있음"
+    },
+    {
+     "t": "3쪽",
+     "sub": "결번",
+     "m": "miss"
+    },
+    {
+     "t": "4쪽",
+     "sub": "합계 있음"
+    }
+   ]
+  },
+  "output": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1쪽",
+     "sub": "있음"
+    },
+    {
+     "t": "2쪽",
+     "sub": "있음"
+    },
+    {
+     "t": "4쪽",
+     "sub": "완전함으로 표시",
+     "m": "wrong"
+    }
+   ]
+  }
+ },
+ {
+  "id": "E.OVR.GEN.1",
+  "name": "원문에 없는 값·레코드 생성",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "SR-3 · map-obs-01.md",
+  "caption": "합계 행의 비어 있는 일자 칸에 날짜를 채워 넣었다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "구분",
+    "일자",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "2024-03-02",
+     "3,000"
+    ],
+    [
+     "합계",
+     {
+      "t": "",
+      "m": "extra"
+     },
+     "3,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "구분",
+    "일자",
+    "금액"
+   ],
+   "rows": [
+    [
+     "주사료",
+     "2024-03-02",
+     "3,000"
+    ],
+    [
+     "합계",
+     {
+      "t": "2024-03-02",
+      "m": "extra"
+     },
+     "3,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.OVR.GEN.2",
+  "name": "계산·추론한 값을 원문값처럼 출력",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "AL-1 · map-obs-02.md",
+  "caption": "인쇄되지 않은 급여 칸을 총액에서 계산해 적었다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "총액",
+    "급여",
+    "비급여"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "12,000",
+     {
+      "t": "",
+      "m": "extra"
+     },
+     "2,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "총액",
+    "급여",
+    "비급여"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "12,000",
+     {
+      "t": "10,000",
+      "m": "extra",
+      "note": "12,000-2,000 계산"
+     },
+     "2,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.OVR.DUP.1",
+  "name": "같은 원문 항목을 여러 레코드로 출력",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "KV-2 · map-obs-02.md",
+  "caption": "같은 항목 행이 두 번 출력됐다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "수량",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "1",
+     "12,000"
+    ],
+    [
+     "주사료",
+     "1",
+     "3,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "수량",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "1",
+     "12,000"
+    ],
+    [
+     {
+      "t": "진찰료",
+      "m": "extra"
+     },
+     {
+      "t": "1",
+      "m": "extra"
+     },
+     {
+      "t": "12,000",
+      "m": "extra"
+     }
+    ],
+    [
+     "주사료",
+     "1",
+     "3,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.OVR.DUP.2",
+  "name": "같은 내용을 여러 필드에 불필요하게 복제",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "LT-6 · map-obs-01.md",
+  "caption": "EDI코드만 있는 서식인데 원내코드 칸에도 같은 값을 넣었다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "원내코드",
+    "EDI코드",
+    "항목"
+   ],
+   "rows": [
+    [
+     {
+      "t": "",
+      "m": "extra"
+     },
+     "AA156",
+     "초진 진찰료"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "원내코드",
+    "EDI코드",
+    "항목"
+   ],
+   "rows": [
+    [
+     {
+      "t": "AA156",
+      "m": "extra"
+     },
+     "AA156",
+     "초진 진찰료"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.OVR.DUP.3",
+  "name": "같은 문서·개체를 별도 건으로 중복 집계",
+  "status": "synthetic",
+  "doc": "입퇴원확인서",
+  "source": "edge_cases.yaml · 문서 중복 집계(E.OVR.DUP.3 태그)",
+  "caption": "같은 영수증이 두 장 겹쳐 두 건으로 세어졌다",
+  "truth": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1건",
+     "sub": "영수증 A (1쪽+2쪽 사본)"
+    }
+   ]
+  },
+  "output": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1건",
+     "sub": "영수증 A (1쪽)"
+    },
+    {
+     "t": "2건",
+     "sub": "영수증 A (사본)",
+     "m": "extra"
+    }
+   ]
+  }
+ },
+ {
+  "id": "E.OVR.SCOPE.1",
+  "name": "머리글·구분 제목을 레코드로 출력",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "RE-머리글행 · map-obs-01.md",
+  "caption": "구분 제목 줄(01.진찰료)이 항목 행으로 나왔다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "수량",
+    "금액"
+   ],
+   "rows": [
+    [
+     {
+      "t": "01.진찰료",
+      "m": "extra"
+     },
+     "",
+     ""
+    ],
+    [
+     "초진 진찰료",
+     "1",
+     "12,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "수량",
+    "금액"
+   ],
+   "rows": [
+    [
+     {
+      "t": "01.진찰료",
+      "m": "extra"
+     },
+     {
+      "t": "",
+      "m": "extra"
+     },
+     {
+      "t": "",
+      "m": "extra"
+     }
+    ],
+    [
+     "초진 진찰료",
+     "1",
+     "12,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.OVR.SCOPE.2",
+  "name": "범위 밖 영역의 내용 포함",
+  "status": "observed",
+  "doc": "진단서",
+  "source": "RE-의사명조각 · map-obs-01.md",
+  "caption": "서식 안내 문구 조각이 의사명 값에 섞였다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "의사명",
+     "김가온"
+    ],
+    [
+     "안내문",
+     {
+      "t": "위 사실을 증명함",
+      "m": "extra"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "의사명",
+     {
+      "t": "김가온 위 사실을 증명함",
+      "m": "extra"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.OVR.SCOPE.3",
+  "name": "정책상 제외할 취소·구버전 내용 포함",
+  "status": "synthetic",
+  "doc": "약제비영수증",
+  "source": "edge_cases.yaml · 일반의약품 포함(E.OVR.SCOPE.3 태그)",
+  "caption": "처방 조제비에 일반의약품 구매분까지 더해졌다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "구분",
+    "금액"
+   ],
+   "rows": [
+    [
+     "처방 조제",
+     "8,000"
+    ],
+    [
+     {
+      "t": "일반의약품",
+      "m": "extra",
+      "note": "제외 대상"
+     },
+     {
+      "t": "2,500",
+      "m": "extra"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "구분",
+    "금액"
+   ],
+   "rows": [
+    [
+     "처방 조제",
+     {
+      "t": "10,500",
+      "m": "extra",
+      "note": "8,000+2,500"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.STR.SPLIT.1",
+  "name": "여러 원문 항목을 한 레코드로 합침",
+  "status": "observed",
+  "doc": "소견서",
+  "source": "KCD-04 · map-obs-01.md",
+  "caption": "한 칸의 두 병명이 한 레코드로 합쳐졌다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "병명",
+    "코드"
+   ],
+   "rows": [
+    [
+     {
+      "t": "당뇨병",
+      "m": "struct"
+     },
+     "E11"
+    ],
+    [
+     {
+      "t": "고혈압",
+      "m": "struct"
+     },
+     "I10"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "병명",
+    "코드"
+   ],
+   "rows": [
+    [
+     {
+      "t": "당뇨병, 고혈압",
+      "m": "struct"
+     },
+     {
+      "t": "E11",
+      "m": "miss",
+      "note": "I10 빠짐"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.STR.SPLIT.2",
+  "name": "한 원문 항목을 여러 레코드로 분리",
+  "status": "synthetic",
+  "doc": "진료비세부내역서",
+  "source": "edge_cases.yaml · 긴 표 쪽 경계 분할(E.STR.SPLIT.2 태그)",
+  "caption": "쪽 사이에 걸친 한 행이 두 행으로 나뉘었다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "수량",
+    "금액"
+   ],
+   "rows": [
+    [
+     {
+      "t": "정맥주사용 수액제 500ml",
+      "m": "struct"
+     },
+     "1",
+     "3,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "수량",
+    "금액"
+   ],
+   "rows": [
+    [
+     {
+      "t": "정맥주사용 수액제",
+      "m": "struct"
+     },
+     "",
+     ""
+    ],
+    [
+     {
+      "t": "500ml",
+      "m": "struct"
+     },
+     "1",
+     "3,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.STR.SPLIT.3",
+  "name": "개체 동일성 판단 오류",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "CORR-07 · map-obs-01.md",
+  "caption": "같은 이름의 서로 다른 행이 한 행으로 합쳐졌다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "수량",
+    "금액"
+   ],
+   "rows": [
+    [
+     "수액",
+     {
+      "t": "1",
+      "m": "struct"
+     },
+     {
+      "t": "3,000",
+      "m": "struct"
+     }
+    ],
+    [
+     "수액",
+     {
+      "t": "1",
+      "m": "struct"
+     },
+     {
+      "t": "3,000",
+      "m": "struct"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "수량",
+    "금액"
+   ],
+   "rows": [
+    [
+     {
+      "t": "수액",
+      "m": "struct"
+     },
+     {
+      "t": "1",
+      "m": "struct",
+      "note": "2여야 함"
+     },
+     {
+      "t": "3,000",
+      "m": "struct"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.STR.GROUP.1",
+  "name": "잘못된 그룹·중첩·레코드 종류에 둠",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "PR-출력그룹위치 · map-obs-01.md",
+  "caption": "쪽 합계 행이 항목 행으로 분류됐다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "구분",
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "항목",
+     "초진 진찰료",
+     "12,000"
+    ],
+    [
+     {
+      "t": "쪽 합계",
+      "m": "struct"
+     },
+     "",
+     "12,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "구분",
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "항목",
+     "초진 진찰료",
+     "12,000"
+    ],
+    [
+     {
+      "t": "항목",
+      "m": "struct"
+     },
+     {
+      "t": "",
+      "m": "struct"
+     },
+     "12,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.STR.ARRAY.1",
+  "name": "병렬 배열 길이·행 대응 불일치",
+  "status": "observed",
+  "doc": "수술확인서",
+  "source": "RC-4#1 · map-obs-02.md",
+  "caption": "수술명은 2개인데 수술일은 1개만 나와 짝이 어긋났다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "수술명",
+     "충수절제술, 담낭절제술"
+    ],
+    [
+     "수술일",
+     "2024-03-02, 2024-03-09"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "수술명",
+     {
+      "t": "충수절제술, 담낭절제술",
+      "m": "struct"
+     }
+    ],
+    [
+     "수술일",
+     {
+      "t": "2024-03-02",
+      "m": "miss",
+      "note": "2번째 빠짐"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.STR.COMPOSE.1",
+  "name": "값을 나눌 때 경계 오류",
+  "status": "observed",
+  "doc": "영수증",
+  "source": "KV-8진료기간 · map-obs-01.md",
+  "caption": "진료기간의 첫 날짜만 취해 시작일과 종료일이 같아졌다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "진료기간",
+     "2024-03-01 ~ 2024-03-10"
+    ],
+    [
+     "종료일",
+     {
+      "t": "2024-03-10",
+      "m": "wrong"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "시작일",
+     "2024-03-01"
+    ],
+    [
+     "종료일",
+     {
+      "t": "2024-03-01",
+      "m": "wrong",
+      "note": "시작일 복사"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.STR.COMPOSE.2",
+  "name": "조각을 합칠 때 누락·혼입",
+  "status": "observed",
+  "doc": "진단서",
+  "source": "S7-5 · map-obs-02.md",
+  "caption": "병명 앞의 라벨 문구가 값에 섞였다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "병명",
+     "당뇨병"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "병명",
+     {
+      "t": "(주 질병·부상) 당뇨병",
+      "m": "extra"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.STR.ORDER.1",
+  "name": "순서를 지켜야 하는 값의 순서 위반",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "KV-5시작일횟수 · map-obs-01.md",
+  "caption": "행 순서가 뒤바뀌어 시작일과 횟수가 어긋났다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "시작일",
+    "횟수"
+   ],
+   "rows": [
+    [
+     {
+      "t": "주사료",
+      "m": "struct"
+     },
+     "03-01",
+     "1"
+    ],
+    [
+     {
+      "t": "검사료",
+      "m": "struct"
+     },
+     "03-02",
+     "2"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "시작일",
+    "횟수"
+   ],
+   "rows": [
+    [
+     {
+      "t": "검사료",
+      "m": "struct"
+     },
+     "03-02",
+     "2"
+    ],
+    [
+     {
+      "t": "주사료",
+      "m": "struct"
+     },
+     "03-01",
+     "1"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.SCHEMA.1",
+  "name": "필수 키 누락·허용되지 않은 키 추가",
+  "status": "observed",
+  "doc": "소견서",
+  "source": "RC-6 · map-obs-02.md",
+  "caption": "계약에 없는 키 이름으로 내보내 병명 키가 비었다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "병명",
+     "당뇨병"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     {
+      "t": "진단명",
+      "m": "struct",
+      "note": "계약 키는 병명"
+     },
+     "당뇨병"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.SCHEMA.2",
+  "name": "타입 불일치",
+  "status": "observed",
+  "doc": "진단서",
+  "source": "CO-2 · map-obs-02.md",
+  "caption": "통원일이 배열이 아니라 파이썬 문자열로 나왔다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "통원일",
+     "[\"20210819\",\"20210826\"]"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "통원일",
+     {
+      "t": "['20210819', '20210826']",
+      "m": "wrong",
+      "note": "배열 아님, 문자열"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.SCHEMA.3",
+  "name": "단일·복수 값 개수 규칙 위반",
+  "status": "observed",
+  "doc": "소견서",
+  "source": "ST-3 · map-obs-01.md",
+  "caption": "한 개만 받는 칸에 날짜 여러 개를 쉼표로 이었다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "발병일",
+     "2024-03-01"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "발병일",
+     {
+      "t": "2024-03-01, 2024-03-05",
+      "m": "wrong",
+      "note": "단일 값 칸"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.RANGE.1",
+  "name": "허용 목록 밖의 값",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "FL-1 · map-obs-02.md",
+  "caption": "문서 종류가 허용 코드가 아닌 한글명으로 나왔다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "doc_type",
+     "receipt"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "doc_type",
+     {
+      "t": "진료비영수증",
+      "m": "wrong",
+      "note": "허용 목록 밖"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.RANGE.2",
+  "name": "형식이 틀린 날짜·코드·숫자",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "RE-등록번호형식 · map-obs-01.md",
+  "caption": "사업자등록번호가 정해진 자리 수를 어겼다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "등록번호",
+     "123-45-67890"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "등록번호",
+     {
+      "t": "123-45-6789",
+      "m": "wrong",
+      "note": "자리 수 부족"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.RANGE.3",
+  "name": "필드 간 제약 위반",
+  "status": "observed",
+  "doc": "입퇴원확인서",
+  "source": "RE-날짜역전 · map-obs-01.md",
+  "caption": "퇴원일이 입원일보다 앞선 날짜로 나왔다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "입원일",
+     "2024-03-01"
+    ],
+    [
+     "퇴원일",
+     "2024-03-10"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "입원일",
+     "2024-03-01"
+    ],
+    [
+     "퇴원일",
+     {
+      "t": "2023-03-10",
+      "m": "wrong",
+      "note": "입원일보다 앞섬"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.RANGE.4",
+  "name": "문서 간·묶음 단위 제약 위반",
+  "status": "observed",
+  "doc": "진료비영수증·세부내역서",
+  "source": "RE-합계불일치 · map-obs-01.md",
+  "caption": "영수증 총액과 세부내역서 합계가 서로 다르다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "문서",
+    "진료비 총액"
+   ],
+   "rows": [
+    [
+     "영수증",
+     "15,000"
+    ],
+    [
+     "세부내역서",
+     "15,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "문서",
+    "진료비 총액"
+   ],
+   "rows": [
+    [
+     "영수증",
+     "15,000"
+    ],
+    [
+     "세부내역서",
+     {
+      "t": "15,800",
+      "m": "wrong",
+      "note": "8→3 오독"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.EVID.1",
+  "name": "필수 위치·출처 근거 누락",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "RP-6 · map-obs-02.md",
+  "caption": "라벨 별칭이 달라 공단부담금의 근거 위치를 못 잡았다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "공단부담금",
+     {
+      "t": "8,000",
+      "note": "근거 위치 있어야 함"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "공단부담금",
+     {
+      "t": "8,000",
+      "m": "miss",
+      "note": "근거 위치 없음"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.EVID.2",
+  "name": "근거 ID·좌표의 참조 무결성 위반",
+  "status": "assumed",
+  "doc": "진료비영수증",
+  "source": "",
+  "caption": "존재하지 않는 글자 번호를 근거로 가리켰다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "총액",
+     {
+      "t": "15,000",
+      "note": "근거 #12 (있음)"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "총액",
+     {
+      "t": "15,000",
+      "m": "wrong",
+      "note": "근거 #97, 목록에 없음"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.EVID.3",
+  "name": "근거가 다른 위치를 가리킴",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "LG-2 · map-obs-02.md",
+  "caption": "서로 다른 칸 네 개가 같은 위치를 근거로 가리켰다",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "필드",
+    "값",
+    "근거 위치"
+   ],
+   "rows": [
+    [
+     "총액",
+     "47,300",
+     "(10,20)"
+    ],
+    [
+     "급여",
+     "30,000",
+     "(10,40)"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "필드",
+    "값",
+    "근거 위치"
+   ],
+   "rows": [
+    [
+     "총액",
+     "47,300",
+     {
+      "t": "(10,20)",
+      "m": "wrong"
+     }
+    ],
+    [
+     "급여",
+     "30,000",
+     {
+      "t": "(10,20)",
+      "m": "wrong",
+      "note": "총액과 같은 위치"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.DONE.1",
+  "name": "직렬화 문법 오류",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "MF-1 · map-obs-01.md",
+  "caption": "긴 행에서 JSON 문법이 깨져 읽을 수 없다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "{\"items\": [{\"name\": \"수액\", \"amount\": 3000}, {\"name\": \"주사료\", \"amount\": 12000}]}"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "{\"items\": [{\"name\": \"수액\", \"amount\": 3000}, {\"name\": \"주사료\", \"amount\": ",
+     {
+      "t": "12,000",
+      "m": "struct"
+     },
+     " }}"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.DONE.2",
+  "name": "중복 키로 인한 값 소실·덮어쓰기",
+  "status": "assumed",
+  "doc": "진료비영수증",
+  "source": "",
+  "caption": "같은 키가 두 번 나와 앞의 값이 사라졌다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "{\"총액\": \"15,000\", \"급여\": \"8,000\"}"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "{\"총액\": \"15,000\", ",
+     {
+      "t": "\"총액\": \"8,000\"",
+      "m": "wrong"
+     },
+     "}"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.DONE.3",
+  "name": "응답 잘림·불완전한 출력",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "XD-13 · map-obs-01.md",
+  "caption": "긴 표 중간에서 출력이 끊겼다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "{\"items\": [{\"n\":\"수액\"}, {\"n\":\"주사료\"}, {\"n\":\"검사료\"}]}"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "{\"items\": [{\"n\":\"수액\"}, {\"n\":\"주사",
+     {
+      "t": "(끊김)",
+      "m": "miss"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.DONE.4",
+  "name": "일부만 처리하고 전체 완료로 표시",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "AR-1@L57 · map-obs-01.md",
+  "caption": "1쪽만 처리하고 전체 처리 완료로 표시했다",
+  "truth": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1쪽",
+     "sub": "처리"
+    },
+    {
+     "t": "2쪽",
+     "sub": "처리"
+    }
+   ]
+  },
+  "output": {
+   "kind": "pages",
+   "items": [
+    {
+     "t": "1쪽",
+     "sub": "처리 완료"
+    },
+    {
+     "t": "2쪽",
+     "sub": "처리 안 됨, 상태는 완료",
+     "m": "miss"
+    }
+   ]
+  }
+ },
+ {
+  "id": "E.CON.PRIV.1",
+  "name": "출력 금지·가림 대상 값 노출",
+  "status": "observed",
+  "doc": "공통(감사 로그)",
+  "source": "FR-D4 · map-obs-02.md",
+  "caption": "감사 로그에 환자 성명이 그대로 적혔다",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "matched_name: ***"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "matched_name: ",
+     {
+      "t": "김가온",
+      "m": "wrong"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "E.CON.PRIV.2",
+  "name": "가림 형식 위반",
+  "status": "assumed",
+  "doc": "진단서",
+  "source": "",
+  "caption": "주민등록번호 뒷자리를 가리라 했는데 가림 자릿수가 틀렸다",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "주민등록번호",
+     "900101-1******"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "주민등록번호",
+     {
+      "t": "900101-1234***",
+      "m": "wrong",
+      "note": "뒷자리 일부 노출"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "AUX.EVAL",
+  "name": "평가·정답지",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "CLS-3 · 2026-10-04-issue-taxonomy-v4/map-obs-00.md",
+  "caption": "정답지는 상한액초과금, 추출은 상환액초과금이라 채점기가 칸을 못 찾음 → E.CON.SCHEMA.1",
+  "result": "E.CON.SCHEMA.1",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "상한액초과금",
+     {
+      "t": "30,000",
+      "m": "wrong",
+      "note": "정답지 키"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "상환액초과금",
+     {
+      "t": "30,000",
+      "m": "wrong",
+      "note": "값은 맞음"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "AUX.INPUT",
+  "name": "입력·디코딩·전처리",
+  "status": "assumed",
+  "doc": "진료비영수증",
+  "source": "EC-P02 · 2026-09-27-image-parse-extract-edge-cases.md",
+  "caption": "팩스 회전을 처리 못해 금액 칸을 못 읽음 → P.MIS.CHAR.2",
+  "result": "P.MIS.CHAR.2",
+  "truth": {
+   "kind": "text",
+   "lines": [
+    [
+     "비급여 ",
+     {
+      "t": "201,100",
+      "m": "miss"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "text",
+   "lines": [
+    [
+     "비급여 ",
+     {
+      "t": "",
+      "m": "miss",
+      "note": "90도 돌아간 쪽"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "AUX.POST.ALTER",
+  "name": "교정이 원문을 바꿈",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "BM-2 · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "기간 복사 교정이 맞게 읽은 종료일을 지움 → E.MIS.FIELD.2",
+  "result": "E.MIS.FIELD.2",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "시작일자",
+    "종료일자"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "2026-04-11",
+     {
+      "t": "2026-04-12",
+      "m": "miss"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "시작일자",
+    "종료일자"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "2026-04-11",
+     {
+      "t": "",
+      "m": "miss",
+      "note": "교정이 지움"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "AUX.POST.EVID",
+  "name": "근거가 잘못된 값 채택",
+  "status": "assumed",
+  "doc": "진료비영수증",
+  "source": "G6 · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "의심 표시된 판독값을 근거로 그대로 확정 → E.WRG.READ.3",
+  "result": "E.WRG.READ.3",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "본인부담금",
+     {
+      "t": "43,800",
+      "m": "wrong"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "본인부담금",
+     {
+      "t": "48,300",
+      "m": "wrong",
+      "note": "의심 표시 무시"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "AUX.POST.NORM",
+  "name": "정규화·변환 오류",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "G1-e · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "항목명을 표준명으로 바꾸다 원문 이름이 달라짐 → E.WRG.NORM.4",
+  "result": "E.WRG.NORM.4",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     {
+      "t": "요양급여",
+      "m": "wrong"
+     },
+     "85,000"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     {
+      "t": "합계",
+      "m": "wrong",
+      "note": "표준명 치환"
+     },
+     "85,000"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "AUX.POST.PICK",
+  "name": "복수 후보 중 오선택",
+  "status": "assumed",
+  "doc": "진료비영수증",
+  "source": "CLS-9 · 2026-10-04-issue-taxonomy-v4/map-obs-00.md",
+  "caption": "발행일이 두 번 찍혔는데 접수일을 골라 채택 → E.WRG.ASSIGN.3",
+  "result": "E.WRG.ASSIGN.3",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "진료일",
+     "2026-04-11"
+    ],
+    [
+     "발행일",
+     {
+      "t": "2026-04-15",
+      "m": "wrong"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "진료일",
+     "2026-04-11"
+    ],
+    [
+     "발행일",
+     {
+      "t": "2026-04-11",
+      "m": "wrong",
+      "note": "접수일 선택"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "AUX.POST.VALID",
+  "name": "검증 결과 과신",
+  "status": "observed",
+  "doc": "진료비영수증",
+  "source": "G1-a · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "회전 팩스에서 0으로 읽은 합계를 합계식이 맞는다며 채택 → E.WRG.READ.1",
+  "result": "E.WRG.READ.1",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "급여총액",
+     "50,000"
+    ],
+    [
+     "비급여총액",
+     {
+      "t": "201,100",
+      "m": "wrong"
+     }
+    ],
+    [
+     "합계",
+     "251,100"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "급여총액",
+     "50,000"
+    ],
+    [
+     "비급여총액",
+     {
+      "t": "0",
+      "m": "wrong",
+      "note": "식 일치로 채택"
+     }
+    ],
+    [
+     "합계",
+     "251,100"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "AUX.REF",
+  "name": "외부 참조",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "BM-4 · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "서식 코드를 문서 유형명으로 바꾸는 코드표 조회가 빠짐 → E.CON.RANGE.1",
+  "result": "E.CON.RANGE.1",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "문서유형",
+     {
+      "t": "진료비세부내역서",
+      "m": "wrong"
+     }
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "문서유형",
+     {
+      "t": "S01",
+      "m": "wrong",
+      "note": "코드 그대로"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": "AUX.RUN",
+  "name": "실행·결과 통합",
+  "status": "observed",
+  "doc": "진료비세부내역서",
+  "source": "IT-2 · 2026-10-02-golden26-misextraction-analysis.md",
+  "caption": "표 읽기 호출이 408 시간 초과로 끝나 일부 행이 통째로 빠짐 → E.MIS.FIELD.1",
+  "result": "E.MIS.FIELD.1",
+  "truth": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "15,000"
+    ],
+    [
+     {
+      "t": "CT",
+      "m": "miss"
+     },
+     {
+      "t": "120,000",
+      "m": "miss"
+     }
+    ],
+    [
+     "주사료",
+     "3,500"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "table",
+   "cols": [
+    "항목",
+    "금액"
+   ],
+   "rows": [
+    [
+     "진찰료",
+     "15,000"
+    ],
+    [
+     "주사료",
+     "3,500"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "AUX.SCHEMA",
+  "name": "문서 분류·스키마 선택",
+  "status": "assumed",
+  "doc": "입퇴원확인서",
+  "source": "",
+  "caption": "입퇴원확인서를 진단서로 잘못 분류해 입원일 칸이 없음 → E.MIS.FIELD.1",
+  "result": "E.MIS.FIELD.1",
+  "truth": {
+   "kind": "fields",
+   "items": [
+    [
+     "입원일",
+     {
+      "t": "2026-03-02",
+      "m": "miss"
+     }
+    ],
+    [
+     "퇴원일",
+     "2026-03-09"
+    ]
+   ]
+  },
+  "output": {
+   "kind": "fields",
+   "items": [
+    [
+     "진단명",
+     "급성 충수염"
+    ],
+    [
+     "입원일",
+     {
+      "t": "",
+      "m": "miss"
+     }
+    ]
+   ]
+  }
+ }
+]
