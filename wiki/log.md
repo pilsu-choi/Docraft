@@ -2,6 +2,8 @@
 
 ## 2026-10-08 영수증 행 골격 커버리지
 
+- **Update**: [OCR 행 골격 커버리지](2026-10-08-receipt-row-skeleton-coverage.md) — 확인셋·정답지 Docraft OCR 결과와 판단 추가.
+
 - **Creation**: [OCR 행 골격 커버리지](2026-10-08-receipt-row-skeleton-coverage.md) — 상위 wiki 요약.
 - **Update**: index.md에 연결.
 
