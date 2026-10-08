@@ -1,5 +1,11 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-08 영수증 항목명·열 규칙 개선
+
+- **Creation**: [별칭 재선별·위치 제약 이름·열 되돌림](2026-10-08-receipt-name-column-rules.md) — 상위 wiki 동기화.
+- **Update**: [별칭 보강](2026-10-08-receipt-schema-aliases.md) — 되돌림, deprecated.
+- **Update**: index.md에 연결.
+
 ## 2026-10-08 영수증 정답지 30건 오류 원인
 
 - **Update**: [정답지 30건 Docraft 오류 원인](2026-10-08-receipt-g30-error-cause.md) — 열 혼동 원인 추적.

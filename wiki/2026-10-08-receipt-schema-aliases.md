@@ -3,7 +3,7 @@ type: change
 title: 영수증 항목 별칭을 고객 후처리 스키마 근거로 보강
 description: 공유 receipt_items.yaml에 고객 후처리 스키마(keywordInfo)와 법정 서식을 근거로 한 별칭을 전체 일치로만 추가하고, 정액수가 별칭이 장기요양까지 삼키던 규칙을 좁혔다. 기존 표준 항목과 충돌하는 4건은 결정 대기
 tags: [harness, docraft, 진료비영수증, 항목명, receipt_items, alias]
-status: active
+status: deprecated
 ---
 
 날짜: 2026-10-08
@@ -80,3 +80,9 @@ status: active
   - Docraft 423 passed
   - 사본 `cmp` 일치
 - 커밋: harness `feab341` → 병합 `edc3111`, Docraft `b06984f` → 병합 `481a90c`. push 안 함.
+
+
+## Update — 되돌림 완료 (2026-10-08)
+
+- harness `d4ca701`·`209df5b`·`97308ba`로 되돌렸다. OCR 오독·잘림 별칭만 다시 넣었다(`142a811`, dev `9bfced1`). 이 문서의 고객 스키마 별칭 내용은 더 이상 유효하지 않다.
+- 후속: [별칭 재선별·위치 제약 이름·열 되돌림](2026-10-08-receipt-name-column-rules.md)

@@ -2,6 +2,7 @@
 okf_version: "0.2"
 ---
 
+- [영수증 별칭 재선별·위치 제약 이름·열 되돌림](2026-10-08-receipt-name-column-rules.md) — 정답지 30건 raw 96.44→97.37%
 - [영수증 정답지 30건 Docraft 오류 원인](2026-10-08-receipt-g30-error-cause.md) — 항목명 오독 37%, 위치 제약 이름 맞춤 제안
 - [영수증 항목 별칭 고객 스키마 근거 보강](2026-10-08-receipt-schema-aliases.md) — 전체 일치 별칭, 정액수가 삼킴 수정, 충돌 4건 결정 대기
 - [영수증 항목표 OCR 행 골격 커버리지](2026-10-08-receipt-row-skeleton-coverage.md) — 인쇄만 78.0%·보충 93.4% vs A 90.3%, 행 후보 목록으로 호출 실험 예정
