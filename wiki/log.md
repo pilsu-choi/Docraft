@@ -2,6 +2,7 @@
 
 ## 2026-10-08 영수증 항목 별칭 보강
 
+- **Update**: [영수증 항목 별칭 고객 스키마 근거 보강](2026-10-08-receipt-schema-aliases.md) — 충돌 4건 처리.
 - **Creation**: [영수증 항목 별칭 고객 스키마 근거 보강](2026-10-08-receipt-schema-aliases.md) — 상위 wiki 동기화.
 - **Update**: index.md에 연결.
 
