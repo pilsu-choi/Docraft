@@ -109,6 +109,7 @@ HEADER_WORDS = tuple(_TABLES["header_words"])
 MARK_HEADERS = frozenset(_TABLES["mark_headers"])
 ITEM_ALIASES = tuple((re.compile(pattern), canonical) for pattern, canonical in _SHARED["item_aliases"])
 RECEIPT_ITEM_NAMES = frozenset(_SHARED["receipt_item_names"])
+ITEM_ORDER = tuple(_SHARED["item_order"])  # 법정 서식 항목 행 순서(위치가 서식마다 갈리는 행은 없다)
 DATE_ORDER = tuple(map(tuple, _TABLES["date_order"]))
 ISSUED = tuple(_TABLES["issued"])
 LATER_OK = tuple(_TABLES["later_ok"])
@@ -921,16 +922,25 @@ def _receipt_table(doc_type, out, blocks):
         fixed = _realign(base, mine, moves) if mine is not None else None
         merged.append(fixed if not rich or base is None else {
             **base, **{key: value for key, value in (fixed or {}).items() if value is not None and key != "항목"}})
-    if rich:
-        out[ITEM_TABLE] = merged
-        return
     rows = merged
     present = {item(row.get("항목")) for row in rows}
-    for row in rebuilt:
+    for row in rebuilt if not rich else ():
         if row["항목"] not in present:
             rows.insert(_insert_at(rows, rebuilt, row["항목"]), row)
             present.add(row["항목"])
+    # 표준 항목이 아닌 이름은 위·아래 이웃 행이 서식 순서로 좁혀 주는 표준 항목과 느슨하게 맞춘다(두 글자 이상 오독)
+    names = [item(row.get("항목")) for row in rows]  # 이름 정규화(derive)는 뒤에서 하므로 여기서는 비교용으로만 맞춘다
+    for index, name in enumerate(names):
+        if name and name not in RECEIPT_ITEM_NAMES and len(name) >= 2 and (near := _misread(name, _between(names, index))) != name:
+            names[index] = rows[index]["항목"] = near
     out[ITEM_TABLE] = rows
+
+
+def _between(names, index):
+    """names[index] 자리에 올 수 있는 표준 항목: 위·아래로 가장 가까운 ``ITEM_ORDER`` 행 사이(이웃이 없으면 순서 끝까지)이고 표에 아직 없는 것."""
+    up = next((ITEM_ORDER.index(name) for name in reversed(names[:index]) if name in ITEM_ORDER), -1)
+    down = next((ITEM_ORDER.index(name) for name in names[index + 1:] if name in ITEM_ORDER), len(ITEM_ORDER))
+    return [name for name in ITEM_ORDER[up + 1:down] if name not in names]
 
 
 def _period(out):
@@ -1025,17 +1035,38 @@ def item(name) -> str | None:
     return name if name in RECEIPT_ITEM_NAMES or name is None or len(name) < 2 else _misread(name)
 
 
-def _misread(name):
+def _misread(name, near=None):
     """표준 항목명 가운데 name과 가까운 이름이 하나뿐이면 OCR 오독으로 보고 그 이름을, 아니면 name을 돌려준다.
+
+    ``near``(이웃 행 위치로 좁힌 후보, ``_receipt_table``)가 있으면 그 후보와만 느슨하게 맞춘다: 음절 수 차이가
+    ``_NEAR_LENGTH`` 이하이고(낱말을 더하거나 뺀 이름 — '투약재료'·'제증명료및기타'·'보철료' — 은 오독이 아니라 인쇄된 다른
+    이름이다), 한쪽이 다른 쪽의 앞부분이 아니며(끝 글자만 다른 '보철교정'·'보철교정료'는 ``_one_off``처럼 서식 변형으로 본다)
+    자모 편집거리 비율 유사도가 ``_NEAR_LIKENESS`` 이상인 후보가 하나뿐이거나, 1등이 2등보다 ``_NEAR_LEAD`` 이상
+    앞설 때만 바꾼다(기준은 T tune 98건에서 정했다, 2026-10-08).
 
     가깝다는 것은 글자 수가 같고 자모 하나만 다르거나(바뀜·빠짐·더해짐 — '진칠료'→'진찰료', '식데'→'식대'),
     네 글자 이상에서 한 글자만 다른 것이다('시행및처치료'→'시술및처치료', '치료재대'→'치료재료대').
     짧은 이름은 글자 하나를 통째로 바꾸면 다른 항목이 되므로('주사료'·'검사료') 자모 하나까지만 본다.
     서식 라벨에는 쓰지 않는다 — 라벨은 닫힌 목록이 아니라 '발생일'이 '발행일'로, '종료일자'가 '진료일자'로 붙는다."""
+    if near is not None:
+        scored = sorted(((_name_likeness(name, other), other) for other in near
+                         if abs(len(_plain(other)) - len(name)) <= _NEAR_LENGTH
+                         and not _plain(other).startswith(name) and not name.startswith(_plain(other))), reverse=True)
+        sure = scored and scored[0][0] >= _NEAR_LIKENESS and (len(scored) == 1 or scored[0][0] - scored[1][0] >= _NEAR_LEAD)
+        return scored[0][1] if sure else name
     hits = [other for other in RECEIPT_ITEM_NAMES
             if len(_plain(other)) == len(name) and _one_off(_jamo(_plain(other)), _jamo(name))
             or len(_plain(other)) >= 4 and _one_off(_plain(other), name)]
     return hits[0] if len(hits) == 1 else name
+
+
+_NEAR_LENGTH, _NEAR_LIKENESS, _NEAR_LEAD = 1, 0.55, 0.1
+
+
+def _name_likeness(a, b):
+    """두 이름의 자모 편집거리 비율 유사도(1 = 같다)."""
+    a, b = _jamo(_plain(a)), _jamo(_plain(b))
+    return 1 - table_layout._distance(a, b, None) / max(len(a), len(b), 1)
 
 
 def _jamo(text):

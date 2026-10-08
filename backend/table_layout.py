@@ -58,9 +58,10 @@ def receipt_form(blocks):
     return 2 if "본인부담" in text.replace(" ", "") else None
 
 
-def _distance(a, b):
-    if abs(len(a) - len(b)) > 1:  # 거리 1 이하만 쓰므로 길이가 둘 이상 다르면 계산하지 않는다
-        return 2
+def _distance(a, b, limit=1):
+    """편집거리. limit보다 길이가 더 다르면 계산하지 않고 limit+1을 돌려준다(거리 limit 이하만 쓰는 곳). limit=None이면 끝까지 센다."""
+    if limit is not None and abs(len(a) - len(b)) > limit:
+        return limit + 1
     row = list(range(len(b) + 1))
     for i, ca in enumerate(a, 1):
         prev, row[0] = row[0], i
