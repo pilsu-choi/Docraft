@@ -473,3 +473,4 @@
 - Update (2026-10-06): [AWS 통합 배포 1006a](2026-10-06-aws-integrated-deploy-1006a.md) — 59건 회귀 보류 반영.
 - Creation (2026-10-07): [진료비영수증 항목명 원본 인쇄 표기 유지](2026-10-07-receipt-item-print-name.md) — 상위 wiki 요약 링크.
 - Creation (2026-10-07): [진료비영수증 키 상한액초과금 정정](2026-10-07-limit-excess-key.md) — 오기 상환액초과금 정정.
+- **Creation** (2026-10-08): [Parse·Extract 이슈 도감](2026-10-08-issue-taxonomy-gallery.md) — 상위 wiki에서 동기화, 노드별 시각 예시 121건.
