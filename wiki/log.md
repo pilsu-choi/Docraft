@@ -13,6 +13,8 @@
 
 ## 2026-10-08 영수증 행 골격 커버리지
 
+- **Update**: [OCR 행 골격 커버리지](2026-10-08-receipt-row-skeleton-coverage.md) — 재질의 v2 결과.
+
 - **Update**: [OCR 행 골격 커버리지](2026-10-08-receipt-row-skeleton-coverage.md) — 재질의 호출 실험 결과.
 
 - **Update**: [OCR 행 골격 커버리지](2026-10-08-receipt-row-skeleton-coverage.md) — 확인셋·정답지 Docraft OCR 결과와 판단 추가.
