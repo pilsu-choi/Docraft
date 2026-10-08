@@ -1,5 +1,10 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-08 영수증 행 골격 커버리지
+
+- **Creation**: [OCR 행 골격 커버리지](2026-10-08-receipt-row-skeleton-coverage.md) — 상위 wiki 요약.
+- **Update**: index.md에 연결.
+
 ## 2026-10-08 영수증 오류 원인 분석
 
 - **Creation**: [영수증 Docraft 항목표 오류 원인 분석](2026-10-08-receipt-docraft-error-cause.md) — 상위 wiki 요약, 브랜치 `docs/receipt-error-cause`.
