@@ -1,0 +1,252 @@
+<title>Parse·Extract 이슈 도감</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: 한 열 카드 목록. 카드 = 노드 하나, 원문(정답)과 출력을 위아래(넓으면 좌우)로 비교 */
+:root{
+  --bg:#f6f7f5; --surface:#ffffff; --fg:#1d2420; --muted:#5f6b64; --line:#d9dfdb; --accent:#1f6b52;
+  --wrong-bg:#fde3df; --wrong-fg:#a3271b;
+  --miss-bg:transparent; --miss-fg:#3d5f9e; --miss-line:#7d99cf;
+  --extra-bg:#efe1fb; --extra-fg:#6b2fa0;
+  --move-bg:#ffedd2; --move-fg:#9a5200;
+  --struct-bg:#d9f1ec; --struct-fg:#11665a;
+  --hold-bg:#e8eae9; --hold-fg:#4b5550;
+  --obs:#1f6b52; --syn:#3d5f9e; --asm:#8a6d1c;
+  --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"IBM Plex Mono","IBM Plex Sans KR",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141917; --surface:#1c2320; --fg:#e4ebe7; --muted:#9aa8a0; --line:#2f3934; --accent:#6fc7a5;
+  --wrong-bg:#4a201c; --wrong-fg:#ffb3a8; --miss-fg:#a9c1f0; --miss-line:#6f8cc4;
+  --extra-bg:#3a2550; --extra-fg:#ddb8ff; --move-bg:#46310f; --move-fg:#ffc978;
+  --struct-bg:#123b35; --struct-fg:#8fe0cf; --hold-bg:#2c3330; --hold-fg:#c3cdc8;
+  --obs:#6fc7a5; --syn:#a9c1f0; --asm:#e0c068; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141917; --surface:#1c2320; --fg:#e4ebe7; --muted:#9aa8a0; --line:#2f3934; --accent:#6fc7a5;
+  --wrong-bg:#4a201c; --wrong-fg:#ffb3a8; --miss-fg:#a9c1f0; --miss-line:#6f8cc4;
+  --extra-bg:#3a2550; --extra-fg:#ddb8ff; --move-bg:#46310f; --move-fg:#ffc978;
+  --struct-bg:#123b35; --struct-fg:#8fe0cf; --hold-bg:#2c3330; --hold-fg:#c3cdc8;
+  --obs:#6fc7a5; --syn:#a9c1f0; --asm:#e0c068; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.55}
+.wrap{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:20px 60px}
+h1{font-size:1.5rem;margin:0 0 4px;text-wrap:balance}
+h2{font-size:1.25rem;margin:0;text-wrap:balance}
+h3{font-size:1.05rem;margin:0;text-wrap:balance}
+p{margin:0}
+.lead{color:var(--muted);max-width:62ch}
+header{display:grid;gap:12px;margin-bottom:12px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:.82rem;color:var(--muted);align-items:center}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:8px;border-bottom:1px solid var(--line);display:grid;gap:8px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{font:inherit;font-size:.82rem;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:3px 11px;cursor:pointer;text-decoration:none}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+.chip:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input[type=search]{font:inherit;font-size:.9rem;width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+.count{font-size:.8rem;color:var(--muted)}
+section.d1{margin-top:28px;display:grid;gap:18px}
+.d1 > h2{font-size:1.4rem;border-bottom:2px solid var(--fg);padding-bottom:4px}
+.d2{display:grid;gap:14px}
+.d2head{display:grid;gap:4px}
+.d2head .def{color:var(--muted);font-size:.88rem}
+.toc{display:flex;flex-wrap:wrap;gap:4px}
+.toc a{font-size:.78rem;color:var(--accent);text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:1px 7px;background:var(--surface)}
+.d3{display:grid;gap:10px;scroll-margin-top:120px}
+.d3 > h3 .id{font-family:var(--mono);font-size:.8rem;color:var(--muted);font-weight:400;margin-left:6px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:10px;min-width:0}
+.ch{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.ch .id{font-family:var(--mono);font-size:.82rem;font-weight:500}
+.ch .nm{font-weight:700}
+.badge{font-size:.72rem;border-radius:4px;padding:0 6px;border:1px solid currentColor;letter-spacing:.02em}
+.b-defer{color:var(--muted);border-style:dashed}
+.card.defer{opacity:.6}
+.b-observed{color:var(--obs)} .b-synthetic{color:var(--syn)} .b-assumed{color:var(--asm)}
+.doc{font-size:.78rem;color:var(--muted)}
+.cap{font-size:.92rem}
+.cap .res{font-family:var(--mono);font-size:.8rem;color:var(--accent)}
+.cmp{display:grid;gap:8px;grid-template-columns:1fr}
+@media (min-width:720px){.cmp{grid-template-columns:1fr 1fr}}
+.pane{min-width:0;display:grid;gap:4px}
+.pane .lb{font-size:.72rem;color:var(--muted);letter-spacing:.06em}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;font-family:var(--mono);font-size:.82rem;font-variant-numeric:tabular-nums}
+th,td{border:1px solid var(--line);padding:3px 7px;text-align:left;white-space:nowrap;vertical-align:top}
+th{background:var(--bg);font-weight:500;font-family:var(--sans)}
+.fields td:first-child{font-family:var(--sans);color:var(--muted)}
+.text{font-family:var(--mono);font-size:.84rem;border:1px solid var(--line);border-radius:6px;padding:6px 8px;white-space:pre-wrap;word-break:break-all}
+.pages{display:flex;flex-wrap:wrap;gap:6px}
+.pg{border:1px solid var(--line);border-radius:4px;width:74px;min-height:62px;padding:5px;font-size:.75rem;display:flex;flex-direction:column;gap:2px;background:var(--surface)}
+.pg b{font-weight:500}
+.pg span{color:var(--muted)}
+.m{border-radius:3px;padding:0 2px}
+td.m-wrong,.m-wrong{background:var(--wrong-bg);color:var(--wrong-fg)}
+td.m-extra,.m-extra{background:var(--extra-bg);color:var(--extra-fg)}
+td.m-move,.m-move{background:var(--move-bg);color:var(--move-fg)}
+td.m-struct,.m-struct{background:var(--struct-bg);color:var(--struct-fg)}
+td.m-hold,.m-hold{background:var(--hold-bg);color:var(--hold-fg)}
+td.m-miss,.m-miss{color:var(--miss-fg);outline:1.5px dashed var(--miss-line);outline-offset:-2px}
+.pg.m-miss,.pg.m-wrong,.pg.m-extra,.pg.m-move,.pg.m-struct,.pg.m-hold{border-color:transparent}
+.empty{opacity:.75;font-style:italic;font-family:var(--sans);font-size:.75rem}
+.note{display:block;font-family:var(--sans);font-size:.7rem;opacity:.85;white-space:normal}
+.notice{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--surface);border-radius:6px;padding:8px 10px;font-size:.86rem;max-width:72ch}
+.shots{display:grid;gap:8px;grid-template-columns:1fr}
+@media (min-width:720px){.shots.two{grid-template-columns:1fr 1fr}}
+.shot{margin:0;display:grid;gap:3px;min-width:0}
+.shot img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.shot figcaption{font-size:.72rem;color:var(--muted)}
+.imgnote{font-size:.8rem;color:var(--muted)}
+.src{font-size:.74rem;color:var(--muted);word-break:break-all}
+.key{display:inline-flex;gap:4px;align-items:center}
+.sw{display:inline-block;padding:0 6px;border-radius:3px;font-family:var(--mono);font-size:.75rem}
+footer{margin-top:40px;color:var(--muted);font-size:.8rem;display:grid;gap:4px}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>Parse·Extract 이슈 도감</h1>
+  <p class="lead">이슈 유형 트리 v4의 노드마다 원문(정답)과 실제 출력을 나란히 놓았다. 색칠된 칸이 틀어진 곳이다.</p>
+  <p class="notice"><b>개인정보 보호:</b> 이 페이지의 이미지는 모두 합성 생성기로 만든 가상 문서이고, 실제 고객 문서는 쓰지 않았다. 표의 이름·주민번호·기관명·환자번호도 가상값이다. "관측" 카드는 실제로 나온 현상을 가상값으로 재현한 것이다.</p>
+  <div class="legend">
+    <span class="key"><span class="sw m-wrong">12,800</span>틀림</span>
+    <span class="key"><span class="sw m-miss">빈칸</span>빠짐</span>
+    <span class="key"><span class="sw m-extra">+값</span>더해짐</span>
+    <span class="key"><span class="sw m-move">값</span>자리 바뀜</span>
+    <span class="key"><span class="sw m-struct">합침</span>구조(합침·나눔·연결·순서)</span>
+    <span class="key"><span class="sw m-hold">?</span>보류·판독불가</span>
+  </div>
+  <div class="legend">
+    <span class="badge b-observed">관측</span>실제로 나온 사례
+    <span class="badge b-synthetic">합성</span>합성 생성기로 재현한 유형
+    <span class="badge b-assumed">추정</span>아직 관측 안 됨, 예상 예시
+    <span class="badge b-defer">당장 대상 아님</span>2026-10-08 사용자 판단, 분류에는 유지
+  </div>
+</header>
+<div class="bar">
+  <div class="row" id="jump"></div>
+  <div class="row" id="filters">
+    <button class="chip" data-f="all" aria-pressed="true">전체</button>
+    <button class="chip" data-f="observed" aria-pressed="false">관측</button>
+    <button class="chip" data-f="synthetic" aria-pressed="false">합성</button>
+    <button class="chip" data-f="assumed" aria-pressed="false">추정</button>
+    <button class="chip" id="hideDefer" aria-pressed="false">당장 대상 아님 숨기기</button>
+    <span class="count" id="count"></span>
+  </div>
+  <input type="search" id="q" placeholder="ID·이름·문서로 찾기 (예: ASSIGN, 세부내역서, 합계)">
+</div>
+<main id="main"></main>
+<footer>
+  <p>기준: wiki 2026-10-03-parse-extract-issue-taxonomy.md(v4, 2026-10-04 개정). 관측 근거: evidence/2026-10-04-issue-taxonomy-v4, 2026-10-03 의료비 적용 프로파일.</p>
+  <p>ID 형식: 단계.결과유형.세부유형.번호 (예: E.WRG.ASSIGN.2)</p>
+</footer>
+</div>
+
+<script>
+const DATA = /*DATA*/;
+const D1 = {P:"Parse — 원문 읽기·구조 복원", E:"Extract — 스키마에 값 배정", AUX:"보조 원인 — 처음 원인만 기록"};
+const D2 = {
+  MIS:["미추출","있어야 할 단위가 빠졌다"], WRG:["오추출","원문에 있는 것을 틀리게 냈다"],
+  OVR:["과추출","원문에 없거나 중복·범위 밖인 것을 더해 냈다"], STR:["구조 오류","내용은 맞는데 경계·관계·계층·순서가 틀렸다"],
+  CON:["계약 오류","출력 형식·스키마·값 제약·근거·완료·공개 규칙을 어겼다"]
+};
+const D3 = {
+ "P.MIS.AREA":"영역 누락","P.MIS.UNIT":"구조 단위 누락","P.MIS.CHAR":"문자 누락","P.MIS.MARK":"비문자 요소 누락",
+ "P.WRG.READ":"판독 오류","P.WRG.POS":"위치 배정 오류","P.WRG.ORDER":"읽기 순서 오류","P.WRG.TYPE":"요소 유형 오인식","P.WRG.STATE":"상태 인식 오류",
+ "P.OVR.FALSE":"문자 오탐","P.OVR.DUP":"중복 인식","P.OVR.GEN":"근거 없는 내용 생성",
+ "P.STR.SPLIT":"경계 복원 오류","P.STR.REL":"관계 복원 오류","P.STR.HIER":"계층 복원 오류","P.STR.LINK":"연결 오류","P.STR.DOC":"논리 문서 경계 오류",
+ "P.CON.FMT":"형식 오류","P.CON.EVID":"근거 계약 오류","P.CON.DONE":"완료 오류",
+ "E.MIS.TARGET":"추출 대상 누락","E.MIS.FIELD":"레코드·필드 누락","E.MIS.PART":"값 일부 누락","E.MIS.ABST":"과보류",
+ "E.WRG.READ":"판독 오류","E.WRG.ASSIGN":"배정 오류","E.WRG.CTX":"문맥 연결 오류","E.WRG.NORM":"해석·정규화 오류","E.WRG.ATTR":"사실 속성 해석 오류","E.WRG.PICK":"후보 선택 오류","E.WRG.HOLD":"보류 누락",
+ "E.OVR.GEN":"근거 없는 내용 생성","E.OVR.DUP":"중복 출력","E.OVR.SCOPE":"범위 밖 내용 포함",
+ "E.STR.SPLIT":"레코드 경계 오류","E.STR.GROUP":"그룹·중첩 오류","E.STR.ARRAY":"배열 대응 오류","E.STR.COMPOSE":"값 구성 오류","E.STR.ORDER":"순서 오류",
+ "E.CON.SCHEMA":"스키마 위반","E.CON.RANGE":"값 제약 위반","E.CON.EVID":"근거 오류","E.CON.DONE":"직렬화·완료 오류","E.CON.PRIV":"공개 규칙 위반"
+};
+const STATUS = {observed:"관측",synthetic:"합성",assumed:"추정"};
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const cellObj = c => (c !== null && typeof c === "object") ? c : {t: c};
+function inner(c){
+  const o = cellObj(c), t = o.t ?? "";
+  const body = t === "" ? (o.m ? '<span class="empty">(빈칸)</span>' : "") : esc(t);
+  return body + (o.note ? `<span class="note">${esc(o.note)}</span>` : "");
+}
+function td(c, tag="td"){
+  const o = cellObj(c);
+  const cls = o.m ? ` class="m-${esc(o.m)}"` : "";
+  const cs = o.cs ? ` colspan="${+o.cs}"` : "";
+  const rs = o.rs ? ` rowspan="${+o.rs}"` : "";
+  return `<${tag}${cls}${cs}${rs}>${inner(o)}</${tag}>`;
+}
+function seg(s){ const o = cellObj(s); return o.m ? `<span class="m m-${esc(o.m)}">${inner(o)}</span>` : inner(o); }
+function panel(p){
+  if (!p) return "";
+  if (p.kind === "table") return `<div class="scroll"><table>${p.cols ? "<tr>"+p.cols.map(c=>td(c,"th")).join("")+"</tr>" : ""}${(p.rows||[]).map(r=>"<tr>"+r.map(c=>td(c)).join("")+"</tr>").join("")}</table></div>`;
+  if (p.kind === "fields") return `<div class="scroll"><table class="fields">${(p.items||[]).map(([k,v])=>`<tr>${td(k)}${td(v)}</tr>`).join("")}</table></div>`;
+  if (p.kind === "text") return `<div class="text">${(p.lines||[]).map(l=>(Array.isArray(l)?l:[l]).map(seg).join("")).join("\n")}</div>`;
+  if (p.kind === "pages") return `<div class="pages">${(p.items||[]).map(x=>{const o=cellObj(x);return `<div class="pg${o.m?" m-"+esc(o.m):""}"><b>${esc(o.t)}</b><span>${esc(o.sub||"")}</span>${o.note?`<span class="note">${esc(o.note)}</span>`:""}</div>`}).join("")}</div>`;
+  return "";
+}
+function shots(x){
+  const g = x.img; if (!g || !g.edge) return "";
+  const fig = (src, wh, cap) => `<figure class="shot"><img src="${esc(src)}" alt="${esc(x.id)} ${esc(cap)}"${wh ? ` width="${wh[0]}" height="${wh[1]}"` : ""}><figcaption>${esc(cap)}</figcaption></figure>`;
+  return `<div class="shots${g.base ? " two" : ""}">${g.base ? fig(g.base, g.base_wh, "합성 이미지 · 이슈 없음") : ""}${fig(g.edge, g.edge_wh, "합성 이미지 · 이슈 있음")}</div>${g.note ? `<p class="imgnote">${esc(g.note)}</p>` : ""}`;
+}
+function card(x){
+  const res = x.result ? ` <span class="res">→ ${esc(x.result)}</span>` : "";
+  const hay = [x.id,x.name,x.doc,x.caption,x.source].join(" ").toLowerCase();
+  return `<article class="card${x.defer?" defer":""}" id="${esc(x.id)}" data-d="${x.defer?1:0}" data-s="${esc(x.status)}" data-h="${esc(hay)}">
+    <div class="ch"><span class="id">${esc(x.id)}</span><span class="nm">${esc(x.name)}</span><span class="badge b-${esc(x.status)}">${STATUS[x.status]||esc(x.status)}</span>${x.defer?'<span class="badge b-defer">당장 대상 아님</span>':""}<span class="doc">${esc(x.doc||"")}</span></div>
+    <p class="cap">${esc(x.caption)}${res}</p>
+    ${shots(x)}
+    <div class="cmp"><div class="pane"><span class="lb">원문 · 정답</span>${panel(x.truth)}</div><div class="pane"><span class="lb">출력</span>${panel(x.output)}</div></div>
+    ${x.source ? `<p class="src">근거: ${esc(x.source)}</p>` : ""}
+  </article>`;
+}
+function build(){
+  const main = document.getElementById("main"), jump = document.getElementById("jump");
+  const order = ["P","E","AUX"];
+  order.forEach(d1 => {
+    const items = DATA.filter(x => x.id.split(".")[0] === d1);
+    if (!items.length) return;
+    jump.insertAdjacentHTML("beforeend", `<a class="chip" href="#sec-${d1}">${d1 === "AUX" ? "보조 원인" : d1 === "P" ? "Parse" : "Extract"}</a>`);
+    let html = `<section class="d1" id="sec-${d1}"><h2>${esc(D1[d1])}</h2>`;
+    if (d1 === "AUX") {
+      html += `<div class="d2">${items.map(card).join("")}</div>`;
+    } else {
+      const d2s = [...new Set(items.map(x => x.id.split(".")[1]))];
+      d2s.forEach(d2 => {
+        const g = items.filter(x => x.id.split(".")[1] === d2);
+        const d3s = [...new Set(g.map(x => x.id.split(".").slice(0,3).join(".")))];
+        html += `<div class="d2"><div class="d2head"><h2>${esc(D2[d2]?.[0]||d2)} <span class="doc">${d1}.${d2}</span></h2><p class="def">${esc(D2[d2]?.[1]||"")}</p>
+          <nav class="toc">${d3s.map(k=>`<a href="#d3-${k.replace(/\./g,"-")}">${esc(D3[k]||k)}</a>`).join("")}</nav></div>`;
+        d3s.forEach(k => {
+          html += `<div class="d3" id="d3-${k.replace(/\./g,"-")}"><h3>${esc(D3[k]||k)}<span class="id">${esc(k)}</span></h3>${g.filter(x=>x.id.startsWith(k+".")).map(card).join("")}</div>`;
+        });
+        html += `</div>`;
+      });
+    }
+    main.insertAdjacentHTML("beforeend", html + `</section>`);
+  });
+}
+let filt = "all", hideDefer = false;
+function apply(){
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  let n = 0;
+  document.querySelectorAll(".card").forEach(c => {
+    const ok = (filt === "all" || c.dataset.s === filt) && (!q || c.dataset.h.includes(q)) && !(hideDefer && c.dataset.d === "1");
+    c.hidden = !ok; if (ok) n++;
+  });
+  document.querySelectorAll(".d3,.d2").forEach(g => { g.hidden = !g.querySelector(".card:not([hidden])"); });
+  const by = s => DATA.filter(x => x.status === s).length;
+  document.getElementById("count").textContent = `${n}/${DATA.length}건 · 관측 ${by("observed")} · 합성 ${by("synthetic")} · 추정 ${by("assumed")} · 당장 대상 아님 ${DATA.filter(x=>x.defer).length}`;
+}
+build();
+document.getElementById("filters").addEventListener("click", e => {
+  const b = e.target.closest("[data-f]"); if (!b) return;
+  filt = b.dataset.f;
+  document.querySelectorAll("[data-f]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  apply();
+});
+document.getElementById("q").addEventListener("input", apply);
+document.getElementById("hideDefer").addEventListener("click", e => { hideDefer = !hideDefer; e.currentTarget.setAttribute("aria-pressed", String(hideDefer)); apply(); });
+apply();
+</script>

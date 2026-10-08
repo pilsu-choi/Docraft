@@ -1,0 +1,512 @@
+{
+ "P.MIS.CHAR.1": {
+  "edge": "img/P.MIS.CHAR.1.jpg",
+  "base": "img/P.MIS.CHAR.1-base.jpg",
+  "run": "20261006-eye-review-v6",
+  "sample": "20261006-eye-review-v6/edges/detail/20261006-eye2-detail-resolution-loss-39c92f80-d00b38f7-054913695510/진료비세부내역서",
+  "mechanism": "resolution_loss",
+  "verdict": "눈검수 통과",
+  "crop": "표 일부를 원래 크기로 확대",
+  "note": "글자가 뭉개져 작은 글씨가 알아보기 어렵다(해상도 저하).."
+ },
+ "P.MIS.CHAR.2": {
+  "edge": "img/P.MIS.CHAR.2.jpg",
+  "base": "img/P.MIS.CHAR.2-base.jpg",
+  "run": "20261006-eye-review-v6",
+  "sample": "20261006-eye-review-v6/edges/detail/20261006-eye2-detail-resolution-loss-39c92f80-d00b38f7-054913695510/진료비세부내역서",
+  "mechanism": "resolution_loss",
+  "verdict": "눈검수 통과",
+  "crop": "표 일부를 원래 크기로 확대",
+  "note": "해상도가 낮아져 글자 획이 흐려지고 뭉개진다."
+ },
+ "P.WRG.READ.2": {
+  "edge": "img/P.WRG.READ.2.jpg",
+  "base": "img/P.WRG.READ.2-base.jpg",
+  "run": "20261006-eye-review-v4",
+  "sample": "20261006-eye-review-v4/edges/detail/20261006-eye2-detail-motion-blur-5fca84fc-e8f1df64-004813714517/진료비세부내역서",
+  "mechanism": "motion_blur",
+  "verdict": "눈검수 통과",
+  "crop": "표 일부를 원래 크기로 확대",
+  "note": "움직임 번짐으로 글자가 한쪽으로 번져 숫자가 헷갈린다."
+ },
+ "P.WRG.READ.1": {
+  "edge": "img/P.WRG.READ.1.jpg",
+  "base": "img/P.WRG.READ.1-base.jpg",
+  "run": "20261006-eye-review-v4",
+  "sample": "20261006-eye-review-v4/edges/detail/20261006-eye2-detail-stamp-5fca84fc-98ec29e5-004827125442/진료비세부내역서",
+  "mechanism": "stamp",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "도장이 금액 숫자 위에 겹쳐 찍혀 숫자가 가려진다."
+ },
+ "P.STR.DOC.1": {
+  "edge": "img/P.STR.DOC.1.jpg",
+  "base": null,
+  "run": "20261006-eye-review-v4",
+  "sample": "20261006-eye-review-v4/edges/receipt/20261006-eye2-receipt-document-boundary-5fca84fc-e87c6be5-005019657693/진료비영수증",
+  "mechanism": "document_boundary",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "한 장의 스캔에 서류가 두 장 위아래로 이어 붙어 있다."
+ },
+ "P.STR.DOC.2": {
+  "edge": "img/P.STR.DOC.2.jpg",
+  "base": null,
+  "run": "20261006-eye-review-v4",
+  "sample": "20261006-eye-review-v4/edges/detail/20261006-eye2-detail-document-boundary-5fca84fc-1f257ff3-004803094215/진료비세부내역서",
+  "mechanism": "document_boundary",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "한 장의 이미지에 서로 다른 서류 두 장이 어긋나게 겹쳐 담겨 있다."
+ },
+ "P.MIS.AREA.2": {
+  "edge": "img/P.MIS.AREA.2.jpg",
+  "base": "img/P.MIS.AREA.2-base.jpg",
+  "run": "20261006-eye-review-v5",
+  "sample": "20261006-eye-review-v5/edges/receipt/20261006-eye2-receipt-region-loss-cc05cedb-e2a53dd2-020005810712/진료비영수증",
+  "mechanism": "region_loss",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "스캔 가장자리가 잘려 왼쪽 열이 통째로 사라졌다."
+ },
+ "P.WRG.ORDER.3": {
+  "edge": "img/P.WRG.ORDER.3.jpg",
+  "base": "img/P.WRG.ORDER.3-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/surgery/20261005-eye2-surgery-orientation-36ceca68-4f6f713a-092604057615/수술확인서",
+  "mechanism": "orientation",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "서류가 90도 돌아가 있어 읽는 순서가 뒤바뀐다."
+ },
+ "P.WRG.POS.2": {
+  "edge": "img/P.WRG.POS.2.jpg",
+  "base": "img/P.WRG.POS.2-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-tilt-36ceca68-19d36ebb-091906352614/진료비세부내역서",
+  "mechanism": "tilt",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "서류가 기울고 한쪽이 잘려 칸과 값의 위치가 어긋난다."
+ },
+ "P.MIS.MARK.2": {
+  "edge": "img/P.MIS.MARK.2.jpg",
+  "base": "img/P.MIS.MARK.2-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/receipt/20261005-eye2-receipt-handwriting-36ceca68-0f743577-092400672336/진료비영수증",
+  "mechanism": "handwriting",
+  "verdict": "눈검수 통과",
+  "crop": "가림 영역 주변",
+  "note": "손글씨 \"재발급\"(동그라미)과 \"사본\"이 서류 위에 덧쓰여 있다."
+ },
+ "P.STR.REL.4": {
+  "edge": "img/P.STR.REL.4.jpg",
+  "base": "img/P.STR.REL.4-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/receipt/20261005-eye2-receipt-correction-relation-36ceca68-4842c647-092458515423/진료비영수증",
+  "mechanism": "correction_relation",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "아래쪽에 취소선이 그어진 날짜와 새 날짜가 함께 있어 정정 관계를 따져야 한다."
+ },
+ "E.WRG.CTX.5": {
+  "edge": "img/E.WRG.CTX.5.jpg",
+  "base": "img/E.WRG.CTX.5-base.jpg",
+  "run": "20261006-eye-review-v4",
+  "sample": "20261006-eye-review-v4/edges/receipt/20261006-eye2-receipt-revision-candidates-5fca84fc-b020efbe-005028277556/진료비영수증",
+  "mechanism": "revision_candidates",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "진료기간 칸 옆에 취소선 그어진 날짜가 겹쳐 있어 어느 값이 맞는지 헷갈린다."
+ },
+ "E.OVR.SCOPE.3": {
+  "edge": "img/E.OVR.SCOPE.3.jpg",
+  "base": "img/E.OVR.SCOPE.3-base.jpg",
+  "run": "20261006-eye-review-v4",
+  "sample": "20261006-eye-review-v4/edges/receipt/20261006-eye2-receipt-revision-candidates-5fca84fc-b020efbe-005028277556/진료비영수증",
+  "mechanism": "revision_candidates",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "취소선 그어진 날짜처럼 추출 대상이 아닌 정정 흔적이 칸 안에 섞여 있다."
+ },
+ "E.WRG.PICK.1": {
+  "edge": "img/E.WRG.PICK.1.jpg",
+  "base": "img/E.WRG.PICK.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-distractor-values-36ceca68-b82bfd20-091820137090/진료비세부내역서",
+  "mechanism": "distractor_values",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "진료기간 아래에 \"예약일\"이라는 비슷한 날짜가 끼어 있어 엉뚱한 날짜를 고르기 쉽다."
+ },
+ "P.WRG.TYPE.1": {
+  "edge": "img/P.WRG.TYPE.1.jpg",
+  "base": "img/P.WRG.TYPE.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-distractor-values-36ceca68-b82bfd20-091820137090/진료비세부내역서",
+  "mechanism": "distractor_values",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "진료기간 아래에 \"예약일\" 같은 다른 종류의 날짜가 끼어 있어 날짜 종류를 구분해야 한다."
+ },
+ "E.MIS.ABST.1": {
+  "edge": "img/E.MIS.ABST.1.jpg",
+  "base": "img/E.MIS.ABST.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/receipt/20261005-eye2-receipt-occlusion-36ceca68-644507dc-092400335639/진료비영수증",
+  "mechanism": "occlusion",
+  "verdict": "눈검수 통과",
+  "crop": "가림 영역 주변",
+  "note": "손가락이 서류 일부를 가려 그 부분은 읽을 수 없다."
+ },
+ "P.WRG.READ.3": {
+  "edge": "img/P.WRG.READ.3.jpg",
+  "base": "img/P.WRG.READ.3-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-handwriting-36ceca68-86de7920-091832207871/진료비세부내역서",
+  "mechanism": "handwriting",
+  "verdict": "눈검수 통과",
+  "crop": "가림 영역 주변",
+  "note": "손글씨 \"확인\"이 서류 위에 쓰여 있어 인쇄 글자와 구분해야 한다."
+ },
+ "E.WRG.HOLD.1": {
+  "edge": "img/E.WRG.HOLD.1.jpg",
+  "base": "img/E.WRG.HOLD.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/receipt/20261005-eye2-receipt-source-redaction-36ceca68-8c680699-092444916628/진료비영수증",
+  "mechanism": "source_redaction",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "제목 앞부분이 검은 칠로 지워져 있어 원래 값을 알 수 없다."
+ },
+ "E.STR.COMPOSE.1": {
+  "edge": "img/E.STR.COMPOSE.1.jpg",
+  "base": "img/E.STR.COMPOSE.1-base.jpg",
+  "run": "20261006-eye-review-v5",
+  "sample": "20261006-eye-review-v5/edges/opinion/20261006-eye2-opinion-field-fusion-cc05cedb-d5b3f78a-015944873840/소견서",
+  "mechanism": "field_fusion",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "성명·성별·주민번호가 한 줄에 붙어 있어 칸이 합쳐졌다(왼쪽 이슈, 오른쪽은 칸이 나뉜 기준)."
+ },
+ "P.WRG.READ.4": {
+  "edge": "img/P.WRG.READ.4.jpg",
+  "base": "img/P.WRG.READ.4-base.jpg",
+  "run": "20261006-eye-review-v6",
+  "sample": "20261006-eye-review-v6/edges/opinion/20261006-eye2-opinion-word-boundary-39c92f80-aa8e9a3e-054929820652/소견서",
+  "mechanism": "word_boundary",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "진단명 줄이 단어 중간에서 끊겨 글자가 갈라져 읽힌다."
+ },
+ "P.WRG.READ.5": {
+  "edge": "img/P.WRG.READ.5.jpg",
+  "base": "img/P.WRG.READ.5-base.jpg",
+  "run": "20261006-eye-review-v4",
+  "sample": "20261006-eye-review-v4/edges/diagnosis/20261006-eye2-diagnosis-unicode-surface-5fca84fc-928bf2c2-004844800473/진단서",
+  "mechanism": "unicode_surface",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "병록번호 숫자 사이에 공백이 들어가 \"0 2 2 1 3 3 7 0\"처럼 떨어져 보인다."
+ },
+ "P.STR.SPLIT.2": {
+  "edge": "img/P.STR.SPLIT.2.jpg",
+  "base": "img/P.STR.SPLIT.2-base.jpg",
+  "run": "20261006-eye-review-v4",
+  "sample": "20261006-eye-review-v4/edges/diagnosis/20261006-eye2-diagnosis-multiline-record-5fca84fc-c5ed9ae7-004841862724/진단서",
+  "mechanism": "multiline_record",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "진단명이 한 칸 안에서 여러 줄로 쪼개져 있다."
+ },
+ "E.STR.SPLIT.2": {
+  "edge": "img/E.STR.SPLIT.2.jpg",
+  "base": "img/E.STR.SPLIT.2-base.jpg",
+  "run": "20261006-eye-review-v4",
+  "sample": "20261006-eye-review-v4/edges/diagnosis/20261006-eye2-diagnosis-multiline-record-5fca84fc-c5ed9ae7-004841862724/진단서",
+  "mechanism": "multiline_record",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "하나의 진단명이 칸 안에서 여러 줄로 나뉘어 한 건인지 여러 건인지 헷갈린다."
+ },
+ "E.STR.COMPOSE.2": {
+  "edge": "img/E.STR.COMPOSE.2.jpg",
+  "base": "img/E.STR.COMPOSE.2-base.jpg",
+  "run": "20261006-eye-review-v4",
+  "sample": "20261006-eye-review-v4/edges/diagnosis/20261006-eye2-diagnosis-multiline-record-5fca84fc-c5ed9ae7-004841862724/진단서",
+  "mechanism": "multiline_record",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "진단명 한 개가 여러 줄에 걸쳐 쪼개져 하나로 이어 붙여야 한다."
+ },
+ "E.STR.SPLIT.1": {
+  "edge": "img/E.STR.SPLIT.1.jpg",
+  "base": "img/E.STR.SPLIT.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/opinion/20261005-eye2-opinion-multi-value-cell-36ceca68-b0a4d812-091942980827/소견서",
+  "mechanism": "multi_value_cell",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "전화번호 칸에 번호 두 개가 \"/\"로 붙어 있어 나눠 읽어야 한다."
+ },
+ "E.MIS.PART.3": {
+  "edge": "img/E.MIS.PART.3.jpg",
+  "base": "img/E.MIS.PART.3-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/diagnosis/20261005-eye2-diagnosis-multi-value-cell-36ceca68-0875bde1-091131275554/진단서",
+  "mechanism": "multi_value_cell",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "전화번호 칸에 번호 두 개가 함께 있어 하나만 뽑으면 일부가 빠진다."
+ },
+ "E.OVR.DUP.3": {
+  "edge": "img/E.OVR.DUP.3.jpg",
+  "base": "img/E.OVR.DUP.3-base.jpg",
+  "run": "20261006-eye-review-v3",
+  "sample": "20261006-eye-review-v3/edges/admission/20261005-eye2-admission-document-copy-d7a59ac2-ea061198-215812335175/입퇴원확인서",
+  "mechanism": "document_copy",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "아래쪽에 원본대조 표가 한 번 더 붙어 같은 이름·번호가 두 번 나온다."
+ },
+ "E.WRG.HOLD.2": {
+  "edge": "img/E.WRG.HOLD.2.jpg",
+  "base": "img/E.WRG.HOLD.2-base.jpg",
+  "run": "20261006-eye-review-v3",
+  "sample": "20261006-eye-review-v3/edges/detail/20261005-eye2-detail-missing-page-packet-d7a59ac2-90ba048a-215914552234/진료비세부내역서",
+  "mechanism": "missing_page_packet",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "여러 쪽 중 마지막 \"3/3\" 쪽만 있어 앞 쪽 정보가 없다."
+ },
+ "E.WRG.CTX.4": {
+  "edge": "img/E.WRG.CTX.4.jpg",
+  "base": "img/E.WRG.CTX.4-base.jpg",
+  "run": "20261006-eye-review-v3",
+  "sample": "20261006-eye-review-v3/edges/diagnosis/20261005-eye2-diagnosis-entity-context-d7a59ac2-2acf4069-220007101289/진단서",
+  "mechanism": "entity_context",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "아래에 보호자·의뢰기관 정보 표가 붙어 있어 환자 정보와 헷갈린다."
+ },
+ "E.STR.SPLIT.3": {
+  "edge": "img/E.STR.SPLIT.3.jpg",
+  "base": "img/E.STR.SPLIT.3-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-entity-context-36ceca68-3e6f6255-090943087374/진료비세부내역서",
+  "mechanism": "entity_context",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "맨 아래에 환자 정보 표가 두 개 나란히 다시 적혀 있다."
+ },
+ "E.OVR.DUP.2": {
+  "edge": "img/E.OVR.DUP.2.jpg",
+  "base": "img/E.OVR.DUP.2-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-semantic-duplicate-36ceca68-6f9e8f65-090851157885/진료비세부내역서",
+  "mechanism": "semantic_duplicate",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "오른쪽 위에 \"시작일자\"가 따로 적혀 있어 같은 날짜가 두 곳에 나온다."
+ },
+ "P.OVR.DUP.2": {
+  "edge": "img/P.OVR.DUP.2.jpg",
+  "base": "img/P.OVR.DUP.2-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-semantic-duplicate-36ceca68-6f9e8f65-090851157885/진료비세부내역서",
+  "mechanism": "semantic_duplicate",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "표 밖 오른쪽 위에도 같은 날짜가 한 번 더 적혀 중복된다."
+ },
+ "E.STR.ARRAY.1": {
+  "edge": "img/E.STR.ARRAY.1.jpg",
+  "base": "img/E.STR.ARRAY.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/surgery/20261005-eye2-surgery-semantic-duplicate-36ceca68-6c2baea6-092720112950/수술확인서",
+  "mechanism": "semantic_duplicate",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "오른쪽 위에 \"동원일\"이 따로 적혀 있어 같은 값이 여러 곳에 반복된다."
+ },
+ "E.MIS.TARGET.2": {
+  "edge": "img/E.MIS.TARGET.2.jpg",
+  "base": "img/E.MIS.TARGET.2-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-summary-relocation-36ceca68-97802ee2-091838406056/진료비세부내역서",
+  "mechanism": "summary_relocation",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "표 아래에 \"합계: 63,945\"가 표 밖에 따로 적혀 있다."
+ },
+ "E.WRG.NORM.2": {
+  "edge": "img/E.WRG.NORM.2.jpg",
+  "base": "img/E.WRG.NORM.2-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/receipt/20261005-eye2-receipt-numeric-format-36ceca68-0578ee2b-092336374937/진료비영수증",
+  "mechanism": "numeric_format",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "금액이 괄호 \"(8,300)\"와 \"영수액: 8,300\" 등 서로 다른 모양으로 적혀 있다."
+ },
+ "P.STR.LINK.2": {
+  "edge": "img/P.STR.LINK.2.jpg",
+  "base": null,
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-page-boundary-split-36ceca68-821a1dd1-090836271133/진료비세부내역서",
+  "mechanism": "page_boundary_split",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "여러 쪽 중 2/2쪽만 있고 머리글이 잘려 앞 쪽과 이어 붙일 단서가 약하다."
+ },
+ "E.WRG.CTX.3": {
+  "edge": "img/E.WRG.CTX.3.jpg",
+  "base": null,
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-page-boundary-split-36ceca68-821a1dd1-090836271133/진료비세부내역서",
+  "mechanism": "page_boundary_split",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "한 서류의 뒷부분(2/2쪽)만 따로 있어 환자 정보가 일부만 남아 있다."
+ },
+ "E.OVR.SCOPE.2": {
+  "edge": "img/E.OVR.SCOPE.2.jpg",
+  "base": "img/E.OVR.SCOPE.2-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/diagnosis/20261005-eye2-diagnosis-distractor-values-36ceca68-91cc24a8-091118307377/진단서",
+  "mechanism": "distractor_values",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "발병일 옆에 \"전화 신청일\"이 끼어 있어 추출 대상이 아닌 날짜가 섞여 있다."
+ },
+ "P.MIS.AREA.1": {
+  "edge": "img/P.MIS.AREA.1.jpg",
+  "base": "img/P.MIS.AREA.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-length-scale-36ceca68-a84c2650-091813393128/진료비세부내역서",
+  "mechanism": "length_scale",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "2쪽짜리 문서에서 1/2쪽만 있고 나머지 쪽이 빠져 있다."
+ },
+ "P.OVR.GEN.2": {
+  "edge": "img/P.OVR.GEN.2.jpg",
+  "base": "img/P.OVR.GEN.2-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-blank-grid-36ceca68-2b073428-091838008192/진료비세부내역서",
+  "mechanism": "blank_grid",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "표 중간에 비어 있는 줄이 끼어 있어 빈 칸을 값으로 오해하기 쉽다."
+ },
+ "E.OVR.SCOPE.1": {
+  "edge": "img/E.OVR.SCOPE.1.jpg",
+  "base": "img/E.OVR.SCOPE.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-non-data-rows-36ceca68-16040214-091813526853/진료비세부내역서",
+  "mechanism": "non_data_rows",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "표 안에 \"〈진찰료〉\" 같은 구분 줄이 끼어 있어 항목 행이 아닌 줄을 걸러야 한다."
+ },
+ "P.WRG.TYPE.2": {
+  "edge": "img/P.WRG.TYPE.2.jpg",
+  "base": "img/P.WRG.TYPE.2-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-non-data-rows-36ceca68-16040214-091813526853/진료비세부내역서",
+  "mechanism": "non_data_rows",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "표 안에 \"〈진찰료〉\" 구분 줄이 섞여 있어 항목 행과 종류가 다른 줄이다."
+ },
+ "P.WRG.ORDER.1": {
+  "edge": "img/P.WRG.ORDER.1.jpg",
+  "base": "img/P.WRG.ORDER.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/diagnosis/20261005-eye2-diagnosis-reading-layout-36ceca68-eb5fc243-091148899109/진단서",
+  "mechanism": "reading_layout",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "환자 정보 칸 이름이 세로로 놓이고 칸 배치가 달라 읽는 순서가 뒤바뀐다."
+ },
+ "P.STR.LINK.1": {
+  "edge": "img/P.STR.LINK.1.jpg",
+  "base": "img/P.STR.LINK.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/receipt/20261005-eye2-receipt-adjacent-tables-36ceca68-cc62b8e9-092418037511/진료비영수증",
+  "mechanism": "adjacent_tables",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "아래에 머리글이 반복되는 두 번째 표가 이어 붙어 어느 표에 속하는 값인지 따져야 한다."
+ },
+ "P.OVR.FALSE.2": {
+  "edge": "img/P.OVR.FALSE.2.jpg",
+  "base": "img/P.OVR.FALSE.2-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/receipt/20261005-eye2-receipt-backside-showthrough-36ceca68-e050cccc-092442289990/진료비영수증",
+  "mechanism": "backside_showthrough",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "뒷면 글자가 비쳐 보여 없는 글자·숫자가 있는 것처럼 보인다."
+ },
+ "P.MIS.MARK.3": {
+  "edge": "img/P.MIS.MARK.3.jpg",
+  "base": "img/P.MIS.MARK.3-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/surgery/20261005-eye2-surgery-nontext-element-36ceca68-389f37cf-092838157524/수술확인서",
+  "mechanism": "nontext_element",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "오른쪽 아래에 바코드가 있어 글자가 아닌 요소가 포함되어 있다."
+ },
+ "E.WRG.ATTR.1": {
+  "edge": "img/E.WRG.ATTR.1.jpg",
+  "base": "img/E.WRG.ATTR.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/diagnosis/20261005-eye2-diagnosis-fact-attributes-36ceca68-c4e3016f-091133479555/진단서",
+  "mechanism": "fact_attributes",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "치료소견에 \"과거 진단: 타 의료기관 …\"처럼 지금이 아닌 과거 사실이 적혀 있다."
+ },
+ "E.WRG.ATTR.2": {
+  "edge": "img/E.WRG.ATTR.2.jpg",
+  "base": "img/E.WRG.ATTR.2-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/opinion/20261005-eye2-opinion-fact-attributes-36ceca68-d3862ede-091947535633/소견서",
+  "mechanism": "fact_attributes",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "치료소견에 \"현재 추정: 다른 질환의 가능성은 낮음\"처럼 확정이 아닌 추정 표현이 있다."
+ },
+ "P.OVR.DUP.1": {
+  "edge": "img/P.OVR.DUP.1.jpg",
+  "base": "img/P.OVR.DUP.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-repeated-region-36ceca68-57940675-090922416300/진료비세부내역서",
+  "mechanism": "repeated_region",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "표 머리글(환자등록번호·성명…)이 세 줄 반복되어 값이 중복된다."
+ },
+ "P.STR.REL.1": {
+  "edge": "img/P.STR.REL.1.jpg",
+  "base": "img/P.STR.REL.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-blank-inheritance-36ceca68-12330c60-091902309859/진료비세부내역서",
+  "mechanism": "blank_inheritance",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "네 번째 줄은 일자·코드 칸이 비어 위 줄의 값을 이어받아야 한다."
+ },
+ "P.STR.HIER.1": {
+  "edge": "img/P.STR.HIER.1.jpg",
+  "base": "img/P.STR.HIER.1-base.jpg",
+  "run": "20261005-eye-review-v2",
+  "sample": "20261005-eye-review-v2/edges/detail/20261005-eye2-detail-blank-inheritance-36ceca68-12330c60-091902309859/진료비세부내역서",
+  "mechanism": "blank_inheritance",
+  "verdict": "눈검수 통과",
+  "crop": "전체",
+  "note": "일자 칸이 빈 줄이 있어 위 줄에 딸린 항목인지 위계를 따져야 한다."
+ }
+}
