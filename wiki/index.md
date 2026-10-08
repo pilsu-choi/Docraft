@@ -2,6 +2,7 @@
 okf_version: "0.2"
 ---
 
+- [영수증 항목 별칭 고객 스키마 근거 보강](2026-10-08-receipt-schema-aliases.md) — 전체 일치 별칭, 정액수가 삼킴 수정, 충돌 4건 결정 대기
 - [영수증 항목표 OCR 행 골격 커버리지](2026-10-08-receipt-row-skeleton-coverage.md) — 인쇄만 78.0%·보충 93.4% vs A 90.3%, 행 후보 목록으로 호출 실험 예정
 - [영수증 Docraft 항목표 오류 원인 분석](2026-10-08-receipt-docraft-error-cause.md) — 0원 행 미출력 60%, 제외 시 94.26%, 표 구조 인식이 주원인, 상세는 상위 wiki
 - [/api/read groundings 자료형·재처리 key 불일치 수정](2026-10-07-read-groundings-reprocess-keys.md) — unit_flags list 502, 재처리 KeyError
