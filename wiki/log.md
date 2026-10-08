@@ -1,5 +1,10 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-08 영수증 정답지 30건 오류 원인
+
+- **Creation**: [정답지 30건 Docraft 오류 원인](2026-10-08-receipt-g30-error-cause.md) — 상위 wiki 동기화.
+- **Update**: index.md에 연결.
+
 ## 2026-10-08 영수증 항목 별칭 보강
 
 - **Update**: [영수증 항목 별칭 고객 스키마 근거 보강](2026-10-08-receipt-schema-aliases.md) — 충돌 4건 처리.
