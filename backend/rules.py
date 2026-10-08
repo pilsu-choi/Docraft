@@ -876,7 +876,13 @@ def _moves(base, mine):
     """
     if not base or sum(1 for column in ITEM_COLUMNS if column in base) < 2:
         return {}
-    return {column: target for column in ITEM_COLUMNS if (target := _shift_target(base, mine, column))}
+    moves = {column: target for column in ITEM_COLUMNS if (target := _shift_target(base, mine, column))}
+    # 모델이 값을 읽은 칸은 그 값도 다른 칸으로 옮겨 갈 때(통째로 밀린 경우)만 덮는다. 아니면 파서 열 배정만으로는
+    # 모델 값을 버릴 근거가 없다(한방 서식의 소계 열을 본인부담금 자리로 잡은 파서 표 등). _fix_column_shift와 같은 원칙이다.
+    while blocked := [column for column, target in moves.items() if _money(mine.get(target)) and target not in moves]:
+        for column in blocked:
+            del moves[column]
+    return moves
 
 
 def _realign(base, mine, moves):
@@ -1115,19 +1121,27 @@ def _headers(blocks):
     두면 '코드' 열을 둘로 센다)."""
     for found in (lambda row: any(_key(cell).endswith("항목") for cell in row),
                   lambda row: len(_words(" ".join(map(str, row)))) >= 3):
-        cells = set()
-        for block in blocks or []:
-            rows = block.get("rows") or []
-            start = next((index for index, row in enumerate(rows) if found(row)), len(rows))
-            for cell in [cell for row in rows[start:start + 3] for cell in row if str(cell or "").strip()]:
-                merged = len(_words(cell, _MERGED_WORDS)) >= 2
-                cells.update(_key(token) for token in (str(cell).split() if merged else [cell]))
-        if cells:
+        if cells := _header_cells(blocks, found):
             return cells
-    return _inferred(blocks)
+    # 그래도 없으면 묶음 제목 칸('급여'·'비급여')이 통째로 있는 행부터 본다 — 영수증 항목 칸에 다른 글자가 흘러들어
+    # '항목'이 안 보여도 묶음 제목과 하위 열(본인부담금 등)로 금액 열 구성을 알 수 있다.
+    return _inferred(blocks) or _header_cells(blocks, lambda row: any(_key(cell) in _GROUP_TITLES for cell in row))
+
+
+def _header_cells(blocks, found):
+    """found가 참인 첫 행부터 세 행의 머리글 셀(블록마다)."""
+    cells = set()
+    for block in blocks or []:
+        rows = block.get("rows") or []
+        start = next((index for index, row in enumerate(rows) if found(row)), len(rows))
+        for cell in [cell for row in rows[start:start + 3] for cell in row if str(cell or "").strip()]:
+            merged = len(_words(cell, _MERGED_WORDS)) >= 2
+            cells.update(_key(token) for token in (str(cell).split() if merged else [cell]))
+    return cells
 
 
 _MERGED_WORDS = HEADER_WORDS + tuple(word for titles, subs in GROUPED.values() for word in titles + subs)
+_GROUP_TITLES = frozenset(title for titles, _ in GROUPED.values() for title in titles)
 
 
 def _words(text, vocab=HEADER_WORDS):
