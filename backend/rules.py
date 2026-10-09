@@ -609,6 +609,27 @@ def _master_names(out):
                 row[name_column] = fixed
 
 
+def _misplaced_total(out):
+    """영수증 합계 행 금액이 바로 위 항목 행에 붙어 읽힌 것(양식 칸선과 어긋나게 찍힌 인쇄)을 합계 행으로 옮긴다.
+
+    그 행의 금액이 위 항목 행들의 같은 열 합과 같은 열이 둘 이상이고, 합계 행 칸이 비었거나 같은 값일 때만
+    옮긴다. 인쇄된 값을 제자리로 옮길 뿐 계산해 채우지 않는다. 가운데 행의 밀림은 열 합이 그대로라 손대지 않는다.
+    """
+    rows = out.get(ITEM_TABLE) or []
+    end = next((i for i in range(len(rows) - 1, -1, -1) if total_label(rows[i]) in ("계", "합계")), 0)
+    if end < 1 or is_total(rows[end - 1]):
+        return
+    total, above = rows[end], rows[end - 1]
+    body = [row for row in rows[:end - 1] if not is_total(row)]
+    moved = [column for column in ITEM_COLUMNS if (value := _money(above.get(column)))
+             and value == sum(_money(row.get(column)) or 0 for row in body) and (_money(total.get(column)) or 0) in (0, value)]
+    if len(moved) < 2:
+        return
+    logger.info("합계 행 금액 되돌림: %r → 합계 (%s)", above.get("항목"), ", ".join(moved))
+    for column in moved:
+        total[column], above[column] = above[column], "0"
+
+
 def _totals(doc_type, out):
     """합계 행의 금액으로 빈 합계 필드를 채운다.
 
@@ -1993,6 +2014,8 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     _receipt_table(doc_type, out, blocks or [])
     for key in set(_ungrounded(doc_type, out, blocks or [])) & set(UNPRINTED_TOTALS):
         out[key] = None  # 베꼈거나 설명되지 않는 합계(계산으로 설명되는 값은 둔다, 2026-10-05). 합계 행이 있으면 _totals가 다시 채운다
+    if doc_type == "진료비영수증":  # 합계 행 값을 먼저 제자리로 — _totals 가 공단부담총액을 거기서 옮긴다
+        _misplaced_total(out)
     _totals(doc_type, out)
     for key in set(FIELD_SUMS) & set(UNPRINTED_TOTALS):  # 구성 필드 합과 다른 급여총액은 비급여까지 더한 총액을 옮긴 것이다
         if _fits(out, key, out.get(key)) is False:

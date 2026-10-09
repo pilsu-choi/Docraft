@@ -516,3 +516,4 @@
 - **Creation** (2026-10-08): [Parse·Extract 이슈 도감](2026-10-08-issue-taxonomy-gallery.md) — 상위 wiki에서 동기화, 노드별 시각 예시 121건.
 - **Update** (2026-10-08): [Parse·Extract 이슈 도감](2026-10-08-issue-taxonomy-gallery.md) — 상위 wiki에서 동기화: 121건 표시 검수, 합성 이미지 51개 노드, 개인정보 명시, 당장 대상 아님 19건.
 - **Update** (2026-10-08): [Parse·Extract 이슈 도감](2026-10-08-issue-taxonomy-gallery.md) — 상위 wiki에서 동기화: 이슈 위치 박스·확대 이미지 51개 노드.
+- **Creation** (2026-10-09): [영수증 합계 행 금액 되돌림](2026-10-09-receipt-total-row-shift.md) — rules._misplaced_total 추가, 197건 재생 고침 8·깨짐 0.
