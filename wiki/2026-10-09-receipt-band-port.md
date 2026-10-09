@@ -1,7 +1,7 @@
 ---
 type: change
 title: 영수증 항목표 band 읽기(TABLE_EXTRACT=band) 이식
-description: 실험으로 검증한 위치 찾기 → 3개 가로 띠 짧은 키 읽기 → 이름 순서 겹침 합치기 → 금액산정 블록 따로 읽기를 BAND_DOC_TYPES 유형에만 켜는 모드로 이식했다. 저장 응답 196건 재생에서 실험 최종 결과와 전부 일치
+description: 실험으로 검증한 위치 찾기 → 3개 가로 띠 짧은 키 읽기 → 이름 순서 겹침 합치기 → 금액산정 블록 따로 읽기를 BAND_DOC_TYPES 유형에만 켜는 모드로 이식했다. 저장 응답 195건 재생에서 실험 최종 결과와 전부 일치
 tags: [docraft, 진료비영수증, band, table_extract, vlm]
 status: active
 ---
@@ -27,4 +27,4 @@ status: active
 ## 검증
 
 - 변경 영향 테스트 847건 통과(`tests/test_band.py` 신규, test_rowmajor·test_latency·test_rules 보강).
-- 저장 응답 재생(API 호출 없음): t200 고정·원근 보정 없음 196건을 실험 설정 1-3-4-6-8-9-10-15-16의 저장 응답으로 `engine.extract`에 흘려 `rules.apply`까지 거친 최종 필드·행이 실험 결과와 전부 일치.
+- 저장 응답 재생(API 호출 없음): t200 고정·원근 보정 없음 195건을 실험 설정 1-3-4-6-8-9-10-15-16의 저장 응답으로 `engine.extract`에 흘려 `rules.apply`까지 거친 최종 필드·행이 실험 결과와 전부 일치.
