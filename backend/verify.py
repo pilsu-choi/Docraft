@@ -19,7 +19,7 @@ from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 
-from . import doctypes, engine, latency, reprocess, rules
+from . import doctypes, engine, latency, print_register, reprocess, rules
 from .parsers import parse
 
 logger = logging.getLogger(__name__)
@@ -573,11 +573,20 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
         initial_calls += 1
     options = {} if deadline is None else {"deadline": deadline, "cancel": cancel, "on_call": count_initial}
     settings = engine.ai_settings()
+    located = {} if settings.get("print_register") and doc_type == "진료비영수증" else None
     with latency.timed("extract_ms"):
-        result, groundings = engine.extract(extract_schema, blocks, source=image, table_extract=settings["table_extract"], **options)
+        result, groundings = engine.extract(extract_schema, blocks, source=image, table_extract=settings["table_extract"], **options,
+                                            **({"located": located} if located is not None else {}))
     _check(cancel)
     if deadline is not None and time.monotonic() >= deadline:
         raise TimeoutError("read deadline exceeded")
+    if located and isinstance(rows := result.get(rules.ITEM_TABLE), list) and all(isinstance(r, dict) for r in rows) and engine._pages(blocks) == [1] and not engine._turns(blocks).get(1):
+        # 좌표가 필요해 rules.apply(재처리·Judge 정규화에서도 불린다) 밖, 위치 상자와 OCR 줄이 같은 쪽 좌표계인 바로 선 1쪽 문서에만 둔다
+        rows, info = print_register.register(rows, blocks, located)
+        latency.note("print_register", info, add=False)
+        if info["reason"] == "적용":
+            result = {**result, rules.ITEM_TABLE: rows}
+            groundings = engine.ground(result, extract_schema, blocks)
     fields = rules.apply(doc_type, result, blocks)
     rowmajor = settings["table_extract"] in ("rowmajor", "band") and rules.ITEM_TABLE in extract_schema.get("properties", {})
     if rowmajor:

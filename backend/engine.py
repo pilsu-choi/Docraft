@@ -734,13 +734,14 @@ def _read_chunks(schema, chunks, source, budget, deadline=None, cancel=None, on_
                                  for index, chunk in enumerate(chunks)], schema)
 
 
-def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=None, table_extract="asis", completeness=None):
+def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=None, table_extract="asis", completeness=None, located=None):
     """`source` is the original document file path; its page images are attached to each chunk call when available.
 
     `table_extract="rowmajor"` reads each table field (array of objects) in its own call as positional rows (`_read_rows`),
     in parallel with one call for the other fields. It needs a single chunk with page images; otherwise, and for a table
     whose rowmajor reply fails, the table is read as part of the JSON object (`asis`).
     `completeness`, when provided, receives page/table success and failure ranges; partial rows remain usable for review.
+    `located`, when provided, receives the band locate boxes (`bandkit.boxes`, page 1000-normalized) the table was read by.
 
     A table whose pages do not fit one reply (`_table_pages` gives several page groups) is read page group by page group in
     parallel (`TABLE_PAGE_CONCURRENCY`, default 4) and its rows are concatenated in page order: one call has to hold the
@@ -782,6 +783,8 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     found = None  # band: the one table of a one-page document of a BAND_DOC_TYPES type is located first, then read in strips beside the 금액산정 block
     if table_extract == "band" and schema.get("title") in ai_settings()["band_doc_types"] and tables[:1] == whole and len(tables) == 1 and len(images) == 1:
         found = _locate(images, deadline, cancel, on_call)
+        if found and located is not None:
+            located.update(found)
     page = _pages(blocks)[0] if found else None
     turn = _turns(blocks).get(page, 0)
     strips = _located_bands(found, page, turn) if found else []
