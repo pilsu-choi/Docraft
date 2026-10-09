@@ -630,9 +630,10 @@ def _totals(doc_type, out):
                 for column, field in mapping.items():
                     value, added = _money(row.get(column)), sum(_money(line.get(column)) or 0 for line in body)
                     # 채워 둔 합계 필드도 항목 행 합이 합계 행을 뒷받침하고 합계식(진료비총액=환자+공단)이 어긋나지
-                    # 않을 때 합계 행과 다르면 합계 행 값으로 바꾼다.
-                    if field in out and value and (not out[field] or _near(value, added) and _fits(out, field, value) is not False
-                                                   and not _near(_money(out[field]) or 0, value)):
+                    # 않을 때 합계 행과 다르면 합계 행 값으로 바꾼다. 영수증은 최종 합계 행에 인쇄된 값(0 포함)이 합계 필드의 정의라 옮긴다.
+                    if field in out and (doc_type == "진료비영수증" and value is not None or value and (
+                            not out[field] or _near(value, added) and _fits(out, field, value) is not False
+                            and not _near(_money(out[field]) or 0, value))):
                         out[field] = row[column]
                 if doc_type == "진료비영수증":  # 영수증 최종 계·합계 행의 항목명은 '합계'(AO 관례)
                     row = {**row, "항목": "합계"}

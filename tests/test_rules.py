@@ -1134,9 +1134,9 @@ def test_an_ambiguous_column_swap_is_left_alone():
     assert rules._swaps(rows) == []
 
 
-@pytest.mark.parametrize("field, expected", [("13846", "17983"), ("17990", "17990")])
-def test_total_field_follows_a_confirmed_total_row(field, expected):
-    """항목 행 합이 합계 행을 뒷받침하고 진료비총액=환자+공단이 맞을 때만 공단부담총액을 합계 행 값으로 바꾼다."""
+@pytest.mark.parametrize("field, expected", [("13846", "17983"), ("17990", "17983"), (None, "17983")])
+def test_receipt_insurer_total_is_the_printed_value_of_the_final_total_row(field, expected):
+    """영수증 공단부담총액은 최종 합계 행에 인쇄된 공단부담금을 옮긴 값이다(합계식에 맞는 다른 값·빈 값도 그 값으로)."""
     rows = receipt(("진찰료", {"공단부담금": "17983"}), ("합계", {"공단부담금": "17983"}))
     read = {"항목내역": rows, "공단부담총액": field, "진료비총액": "25690", "환자부담총액": "7700"}
     assert rules.apply("진료비영수증", read, [])["공단부담총액"] == expected
@@ -1857,3 +1857,8 @@ def test_detail_uncovered_amounts_under_a_mark_column_are_not_printed(mark, prin
     out = rules.apply("세부내역서", {"항목내역": [row]}, [{"rows": [head]}])["항목내역"][0]
 
     assert (out["비급여"], out["급여구분"], out["총액"]) == ("6500" if printed else None, "비급여", "6500")
+
+
+def test_receipt_insurer_total_copies_a_printed_zero_and_ignores_subtotal_rows():
+    rows = receipt(("진찰료", {"공단부담금": "500"}), ("소계", {"공단부담금": "9"}), ("합계", {"공단부담금": "0"}))
+    assert rules.apply("진료비영수증", {"항목내역": rows, "공단부담총액": "500"}, [])["공단부담총액"] == "0"
