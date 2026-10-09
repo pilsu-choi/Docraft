@@ -64,8 +64,8 @@ backend:
   # VLM 호출 한 번의 최대 대기(초). 느린 GPU 에서는 늘린다(L40S: 300 — 스키마 생성이 90초를 넘었다).
   aiTimeout: 90
   tableRefine: false
-  # 표 첫 추출 방식(rowmajor | asis)과 rowmajor 세부내역서 asis 재추출 기준 — README 설정 표 참고.
-  tableExtract: rowmajor
+  # 표 첫 추출 방식(band | rowmajor | asis)과 rowmajor 세부내역서 asis 재추출 기준 — README 설정 표 참고.
+  tableExtract: band
   tableRecheckRatio: 0.6
   # tableExtract: band 일 때 위치부터 찾아 띠로 읽는 문서 유형(쉼표 목록). 나머지 유형은 rowmajor.
   bandDocTypes: 진료비영수증
