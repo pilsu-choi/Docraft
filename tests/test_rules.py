@@ -1859,6 +1859,25 @@ def test_detail_uncovered_amounts_under_a_mark_column_are_not_printed(mark, prin
     assert (out["비급여"], out["급여구분"], out["총액"]) == ("6500" if printed else None, "비급여", "6500")
 
 
+@pytest.mark.parametrize("above, total, moved", [
+    ({"본인부담금": "5000", "공단부담금": "20000"}, {}, True),  # 합계 금액이 위 행에 찍혀 읽힘 → 합계로
+    ({"본인부담금": "5000", "공단부담금": "20000"}, {"본인부담금": "5000"}, True),  # 합계 칸에 같은 값이 있어도 옮긴다
+    ({"본인부담금": "5000", "공단부담금": "777"}, {}, False),  # 한 열만 맞음 → 우연일 수 있어 그대로
+    ({"본인부담금": "5000", "공단부담금": "20000"}, {"본인부담금": "4000"}, False),  # 합계 칸에 다른 값 → 그대로
+    ({"본인부담금": "1000", "공단부담금": "4000"}, {}, False),  # 열 합과 다름(정상 항목 행) → 그대로
+])
+def test_receipt_total_printed_onto_the_row_above_moves_to_the_total_row(above, total, moved):
+    rows = receipt(("진찰료", {"본인부담금": "2000", "공단부담금": "8000"}), ("검사료", {"본인부담금": "3000", "공단부담금": "12000"}),
+                   ("포괄수가진료비", above), ("합계", total))
+    out = rules.apply("진료비영수증", {"항목내역": rows}, [])
+    last, final = out["항목내역"][2], out["항목내역"][3]
+    if moved:
+        assert (final["본인부담금"], final["공단부담금"], last["본인부담금"], last["공단부담금"]) == ("5000", "20000", "0", "0")
+        assert out["공단부담총액"] == "20000"  # 되돌린 합계 행에서 공단부담총액을 옮긴다
+    else:
+        assert (last["본인부담금"], last["공단부담금"]) == (above["본인부담금"], above["공단부담금"])
+
+
 def test_receipt_insurer_total_copies_a_printed_zero_and_ignores_subtotal_rows():
     rows = receipt(("진찰료", {"공단부담금": "500"}), ("소계", {"공단부담금": "9"}), ("합계", {"공단부담금": "0"}))
     assert rules.apply("진료비영수증", {"항목내역": rows, "공단부담총액": "500"}, [])["공단부담총액"] == "0"
