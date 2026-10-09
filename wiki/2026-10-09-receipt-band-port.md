@@ -33,3 +33,7 @@ status: active
 - 방향 판정 보강(`feat/receipt-orient` 0218018): `parsers._vote` 가 정하지 못한 쪽만 줄 상자 모양으로 후보(0/180 또는 90/270)를 정하고 후보 각도로 다시 읽어 인식 점수(`rec_scores`, 줄마다 `line["score"]`) 평균이 높은 쪽을 고른다. 한쪽 읽기에 점수 줄이 없으면 돌리지 않는다. `ORIENTATION_SCORE_CHECK`(기본 켬). 197건 원본: 마침표 투표가 확신한 133쪽은 틀림 0, 미정 64쪽만 추가 읽기 - 저장 각도별 OCR 재생 197/197 일치.
 - 공단부담총액 규칙은 모든 모드에 적용(기존 rowmajor 경로 포함): 기존 하네스 결과(`measure_v2_v10`, 194칸)에 적용하면 143→168칸(고침 31·깨짐 6), band 결과에서도 블록 값 우선(162)보다 합계 행 복사(173)가 낫다. 그래서 기존 테스트 기대값(합계식 맞는 필드 값 유지)을 새 정책으로 바꿨다.
 - dev 병합: c700851(방향)·67e082c(band), 영향 테스트 808 passed·3 xfailed. 워크트리·브랜치 정리. 미push.
+
+## 추가: 기본값 band 전환(2026-10-09, 사용자 결정)
+- `TABLE_EXTRACT` 코드 기본값·`.env.example`·`deploy/aws/.env.aws.example`·helm `backend.tableExtract`(값·템플릿 기본)·README 를 `band` 로 바꿨다. `BAND_DOC_TYPES`(진료비영수증) 밖 유형·여러 쪽·이미지 없음·위치 실패는 rowmajor 로 읽으므로 다른 문서 유형 동작은 같다.
+- 서버 `.env.aws` 에는 `TABLE_EXTRACT` 키가 없어 재배포하면 코드 기본값(band)으로 동작한다. 영향 테스트 895 passed·3 xfailed.
