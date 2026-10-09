@@ -150,12 +150,13 @@ def _attach_lines(blocks, encoded, file_type, settings, page_map, deadline=None)
         page_no = page_map[index - 1] if page_map else index
         targets = [b for b in blocks if b["page"] == page_no and b["bbox"]]
         pruned = page.get("prunedResult") or {}
-        for text, box in zip(pruned.get("rec_texts") or [], pruned.get("rec_boxes") or []):
+        texts, boxes = pruned.get("rec_texts") or [], pruned.get("rec_boxes") or []
+        for text, box, score in zip(texts, boxes, [*(pruned.get("rec_scores") or []), *[None] * len(texts)]):
             x, y = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
             inside = [b for b in targets if b["bbox"][0] <= x <= b["bbox"][2] and b["bbox"][1] <= y <= b["bbox"][3]]
             if inside and str(text).strip():
                 smallest = min(inside, key=lambda b: (b["bbox"][2] - b["bbox"][0]) * (b["bbox"][3] - b["bbox"][1]))
-                smallest.setdefault("lines", []).append({"text": str(text), "bbox": [float(v) for v in box]})
+                smallest.setdefault("lines", []).append({"text": str(text), "bbox": [float(v) for v in box], **({"score": float(score)} if score is not None else {})})
     logger.debug("paddleocr line OCR: elapsed=%.2fs pages=%d lines=%d", time.monotonic() - started, len(pages), sum(len(b.get("lines") or []) for b in blocks))
 
 
@@ -235,7 +236,13 @@ def orientation(image, lines):
 
     Periods and commas sit on the baseline in Korean and Latin print alike, so each such mark near one long
     edge of an OCR line box votes for that edge being the bottom; a tall box is text lying on its side. The
-    page turns only on a clear majority — anything else keeps it as scanned."""
+    page turns only on a clear majority — anything else keeps it as scanned (0). `_vote` tells "upright" from
+    "undecided" apart for `_upright`."""
+    return _vote(image, lines) or 0
+
+
+def _vote(image, lines):
+    """The `orientation` turn when the baseline marks give a clear majority (0 = clearly upright), else None."""
     pixels = np.asarray(image.convert("L"))
     votes = dict.fromkeys(TURNS, 0)
     for box in lines:
@@ -255,7 +262,42 @@ def orientation(image, lines):
             votes[(270 if down else 90) if tall else (0 if down else 180)] += 1
     turn = max(votes, key=votes.get)
     others = sum(votes.values()) - votes[turn]
-    return turn if votes[turn] >= 4 and votes[turn] >= 3 * others else 0
+    return turn if votes[turn] >= 4 and votes[turn] >= 3 * others else None
+
+
+def _mean_score(blocks):
+    """Mean recognition score of the OCR lines with at least two visible characters; None without such lines."""
+    scores = [line["score"] for b in blocks for line in b.get("lines") or []
+              if "score" in line and len("".join(line["text"].split())) >= 2]
+    return sum(scores) / len(scores) if scores else None
+
+
+def _read_turned(image, turn, deadline):
+    """OCR blocks of `image` turned `turn` degrees counter-clockwise (in the turned frame, before `unturn`)."""
+    with tempfile.NamedTemporaryFile(suffix=".png") as turned:
+        image.rotate(turn, expand=True).save(turned, format="PNG")
+        turned.flush()
+        remaining = deadline - time.monotonic() if deadline is not None else None
+        if remaining is not None and remaining <= 0:
+            raise TimeoutError("parse deadline exceeded")
+        return _remote_paddle(turned.name, 1, expected_pages=1, timeout=remaining, deadline=deadline)
+
+
+def _turn_by_score(image, current, boxes, deadline):
+    """(turn, blocks read at that turn or None) for a page whose baseline vote was undecided.
+
+    Line box shape picks the family: mostly tall boxes mean text lying on its side ({90, 270}), otherwise {0, 180}.
+    The page is read at each candidate turn and the one the OCR recognizes with the higher mean score wins; if any
+    compared reading has no scored lines the page is left as scanned."""
+    tall = sum(b[3] - b[1] > 1.5 * (b[2] - b[0]) for b in boxes)
+    wide = sum(b[2] - b[0] > 1.5 * (b[3] - b[1]) for b in boxes)
+    candidates = (90, 270) if tall > wide else (0, 180)
+    readings = {turn: current if turn == 0 else _read_turned(image, turn, deadline) for turn in candidates}
+    means = {turn: _mean_score(blocks) for turn, blocks in readings.items()}
+    if None in means.values():
+        return 0, None
+    best = max(means, key=means.get)
+    return best, readings[best] if best else None
 
 
 def unturn(blocks, turn):
@@ -300,17 +342,14 @@ def _upright(blocks, path, file_type, deadline=None):
         size = next(b["page_size"] for b in current if b.get("page_size"))
         try:
             image = _page_image(path, file_type, page_no - 1, size, "RGB")
-            turn = orientation(image, [line["bbox"] for b in current for line in b.get("lines") or []])
+            boxes = [line["bbox"] for b in current for line in b.get("lines") or []]
+            turn, fresh = _vote(image, boxes), None
+            if turn is None and ocr_settings().get("orientation_score") and boxes:
+                turn, fresh = _turn_by_score(image, current, boxes, deadline)
             if not turn:
                 continue
             logger.info("page %d is turned, re-reading it rotated %d degrees counter-clockwise", page_no, turn)
-            with tempfile.NamedTemporaryFile(suffix=".png") as turned:
-                image.rotate(turn, expand=True).save(turned, format="PNG")
-                turned.flush()
-                remaining = deadline - time.monotonic() if deadline is not None else None
-                if remaining is not None and remaining <= 0:
-                    raise TimeoutError("parse deadline exceeded")
-                fresh = _remote_paddle(turned.name, 1, expected_pages=1, timeout=remaining, deadline=deadline)
+            fresh = fresh or _read_turned(image, turn, deadline)
         except (ParseError, TimeoutError, OSError, ValueError) as exc:
             logger.warning("upright re-read of page %d failed, keeping the scanned orientation: %s", page_no, exc)
             continue
