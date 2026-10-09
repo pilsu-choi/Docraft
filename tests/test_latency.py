@@ -3,6 +3,7 @@
 import json
 import threading
 import time
+from contextlib import contextmanager
 
 import httpx
 import pytest
@@ -75,7 +76,7 @@ def test_failed_leader_is_not_shared_the_waiter_computes_again(cache):
 
 def test_ocr_slot_wait_past_deadline_is_a_timeout(monkeypatch, tmp_path):
     monkeypatch.setenv("OCR_CONCURRENCY", "1")
-    monkeypatch.setattr(latency, "_ocr_gate", None)
+    monkeypatch.setattr(latency, "_gates", {})
     monkeypatch.setenv("PADDLEOCR_BASE_URL", "https://ocr.invalid")
     monkeypatch.setattr(parsers.httpx, "post", lambda *a, **k: pytest.fail("OCR must not be called without a slot"))
     source = tmp_path / "scan.png"
@@ -86,6 +87,63 @@ def test_ocr_slot_wait_past_deadline_is_a_timeout(monkeypatch, tmp_path):
             parsers._remote_paddle(source, 1, expected_pages=1, deadline=time.monotonic() + 0.1)
     assert time.monotonic() - started < 1
     assert stats["ocr_wait_ms"] >= 90
+
+
+@pytest.mark.parametrize("size, peak", [("2", 2), ("0", 6)])
+def test_provider_calls_run_at_most_vlm_concurrency_at_once(monkeypatch, size, peak):
+    monkeypatch.setenv("VLM_CONCURRENCY", size)
+    monkeypatch.setattr(latency, "_gates", {})
+    running, seen, lock = [0], [0], threading.Lock()
+
+    def call():
+        with latency.provider_slot():
+            with lock:
+                running[0] += 1
+                seen[0] = max(seen[0], running[0])
+            time.sleep(0.05)
+            with lock:
+                running[0] -= 1
+    threads = [threading.Thread(target=call) for _ in range(6)]
+    [thread.start() for thread in threads]
+    [thread.join() for thread in threads]
+    assert seen[0] == peak
+
+
+def test_the_provider_http_call_holds_a_slot(monkeypatch):
+    for name, value in {"AI_MODE": "provider", "AI_BASE_URL": "https://provider.invalid/v1", "AI_API_KEY": "key", "AI_MODEL": "m", "VLM_CONCURRENCY": "1"}.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(latency, "_gates", {})
+    running, seen = [0], [0]
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        @contextmanager
+        def stream(self, method, url, json=None, **kwargs):
+            running[0] += 1
+            seen[0] = max(seen[0], running[0])
+            time.sleep(0.03)
+            running[0] -= 1
+            yield httpx.Response(200, json={"choices": [{"message": {"content": "{}"}, "finish_reason": "stop"}]}, request=httpx.Request("POST", url))
+    monkeypatch.setattr(engine.httpx, "Client", Client)
+    latency.parallel(lambda _: engine._provider([]), range(4), 4)
+    assert seen[0] == 1
+
+
+def test_provider_slot_wait_past_deadline_is_a_timeout(monkeypatch):
+    monkeypatch.setenv("VLM_CONCURRENCY", "1")
+    monkeypatch.setattr(latency, "_gates", {})
+    with latency.provider_slot(), latency.track() as stats, pytest.raises(TimeoutError):
+        with latency.provider_slot(time.monotonic() + 0.1):
+            pytest.fail("no slot is free")
+    assert stats["vlm_wait_ms"] >= 90
 
 
 def _table(rows):

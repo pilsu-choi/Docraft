@@ -17,8 +17,8 @@ from PIL import Image
 from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit
-from . import doctypes, table_layout
-from .latency import note, parallel, remaining
+from . import band as bandkit, doctypes, table_layout
+from .latency import note, parallel, provider_slot, remaining
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,14 @@ TABLE_NOTE = (  # Only for schemas with a table field: rows must be evidence, no
     " Table rows are evidence, not recall: return exactly the rows the document prints, in printed order, "
     "and never add a row the document does not print. Keep the item name the document prints even when it is "
     "not one of the standard names you know."
+)
+
+
+EXTRACT_SYSTEM = (
+    "Extract values using document context and layout. Never invent values. Use null when allowed and absent. "
+    "A total or sum field takes the value printed in the document's total row or labelled total cell, never a single line item's value. "
+    "Return only a single JSON object that itself follows the given schema, with no wrapper key "
+    "and with the schema's field order kept."
 )
 
 
@@ -113,11 +121,14 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_to
         body["reasoning"] = {"enabled": False}
     if max_tokens:
         body["max_tokens"] = max_tokens
+    if settings["repetition_penalty"] is not None:
+        body["repetition_penalty"] = settings["repetition_penalty"]
     prompt_chars = sum(len(_message_text(m.get("content"))) for m in messages)
     images = sum(1 for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url")
     logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", settings["model"], len(messages), images, prompt_chars)
     started = time.monotonic()
-    with httpx.Client(timeout=timeout, transport=httpx.HTTPTransport(retries=0 if timeout_cap is not None else 2)) as client, \
+    with provider_slot(None if timeout_cap is None else started + timeout_cap), \
+            httpx.Client(timeout=timeout, transport=httpx.HTTPTransport(retries=0 if timeout_cap is not None else 2)) as client, \
             client.stream("POST", f"{settings['base_url']}/chat/completions", headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body) as response:
         try:
             response.raise_for_status()
@@ -476,6 +487,7 @@ ROWS_USER = (
 )
 
 
+SUMMARY = object()  # `extract` part key of the 금액산정 block read beside the tables
 TABLE_REPLY_TOKENS = 16000  # Reply cap a page group of one table aims under: half the provider output limit (32k).
 PAGES_NOTE = (" These are page(s) {pages} of a table printed over page(s) {span}: read only the rows printed on these pages. "
               "A continuation page may have no header row; the fields above still give its columns in printed order.")
@@ -491,6 +503,14 @@ def _reply_cap(evidence, columns):
     return (len(ROW_AMOUNT.findall(evidence)) + 20) * (10 * columns + 20)
 
 
+def _begin_call(cancel, on_call):
+    """Before a model call: stop when the extraction was cancelled, else count the call."""
+    if cancel is not None and cancel.is_set():
+        raise RuntimeError("extraction cancelled")
+    if on_call is not None:
+        on_call()
+
+
 def _read_rows(table, spec, plan, evidence, images, part="", deadline=None, cancel=None, on_call=None):
     """One table as positional rows (`TABLE_EXTRACT=rowmajor`): the model writes each row as a value array in the column
     order of `plan` (`table_layout.plan`: printed columns read from the document; the schema's column order when it is None),
@@ -502,10 +522,7 @@ def _read_rows(table, spec, plan, evidence, images, part="", deadline=None, canc
     union = {key: prop.get("description", "") for key, prop in spec["items"]["properties"].items()}
     description, columns, fill = plan or (spec.get("description", ""), union, None)
     names = list(columns)
-    if cancel is not None and cancel.is_set():
-        raise RuntimeError("extraction cancelled")
-    if on_call is not None:
-        on_call()
+    _begin_call(cancel, on_call)
     prompt = ROWS_USER.format(evidence=evidence, table=table, description=description + part,
                               fields="\n".join(f"{index}. {key}: {text}" for index, (key, text) in enumerate(columns.items(), 1)),
                               order=", ".join(f"{index}={key}" for index, key in enumerate(names, 1)))
@@ -573,6 +590,16 @@ def _line_rows(lines):
             for top, _, bottom, parts in rows], tall
 
 
+def _clip(box, size, turn):
+    """`box` on the upright page of `size` (any unit) as fractions of the original page that was turned by `turn`: the clip
+    `_page_images` cuts from the file."""
+    from .parsers import unturn  # parsers → engine 순환을 피한다
+    if turn:
+        box = unturn([{"bbox": box, "page_size": size}], turn)[0]["bbox"]
+        size = size[::-1] if turn % 180 else size
+    return [box[0] / size[0], box[1] / size[1], box[2] / size[0], box[3] / size[1]]
+
+
 def _bands(page_blocks, columns):
     """Row bands of one page whose table reply broke (`extract` reads them again band by band). Each table block's OCR text rows (`_line_rows`) from its first row
     carrying an amount (the rows above are its header) are cut into the fewest bands of about equal amount count whose
@@ -604,12 +631,6 @@ def _bands(page_blocks, columns):
         def cut(i):
             return y0 if i == 0 else y1 if i == len(rows) else (rows[i - 1][1] + rows[i][0]) / 2
 
-        def clip(top, bottom):
-            box = [x0, top, x1, bottom]
-            box = unturn([{"bbox": box, "page_size": upright["page_size"]}], turn)[0]["bbox"] if turn else box
-            width, height = block["page_size"]
-            return [box[0] / width, box[1] / height, box[2] / width, box[3] / height]
-
         start = fresh = head
         while fresh < len(rows):
             end = len(rows) if sum(amounts[fresh:]) <= most else fresh + 1  # 남은 행이 한 띠에 들면 다 넣는다
@@ -621,19 +642,63 @@ def _bands(page_blocks, columns):
             text = [row[2] for row in rows[:head] + rows[start:end]] + [line["text"] for line in tall if line["bbox"][1] < bottom and line["bbox"][3] > top]
             bands.append({"page": block.get("page"), "type": "table", "page_size": block["page_size"], **({"orientation": turn} if turn else {}),
                           **({"repeats": True} if start < fresh else {}),
-                          "text": "\n".join(text), "clips": [clip(y0, cut(head)), clip(top, bottom)] if start > head and head else [clip(top, bottom)]})
+                          "text": "\n".join(text), "clips": [_clip(box, upright["page_size"], turn) for box in ([[x0, y0, x1, cut(head)], [x0, top, x1, bottom]] if start > head and head else [[x0, top, x1, bottom]])]})
             start, fresh = next((i for i in range(end - 1, fresh - 1, -1) if amounts[i]), end - 1), end
     return bands if len(bands) > len(tables) else []
 
 
+def _locate(images, deadline=None, cancel=None, on_call=None):
+    """`bandkit.boxes` of the item table and the 금액산정 block from one call on the whole page image; None (with a
+    `band_fallback` note) when the call or its boxes are unusable and the table is read as rowmajor."""
+    _begin_call(cancel, on_call)
+    try:
+        found = bandkit.boxes(_provider([_user(bandkit.LOCATE_PROMPT, images)], timeout_cap=remaining(deadline), max_tokens=500))
+    except (RuntimeError, ValueError) as exc:
+        if cancel is not None and cancel.is_set():
+            raise
+        found = None
+        logger.warning("extract: band locate failed: %s", exc)
+    if found is None:
+        note("band_fallback", "locate", add=False)
+    return found
+
+
+def _located_bands(found, page, turn):
+    """The strips of a located table as blocks `read_group` reads (`keyed`: short-key rows) and `read_bands` joins by the
+    names of the rows two strips share (`repeats`)."""
+    return [{"page": page, "type": "table", "text": "", "keyed": True, "repeats": True, **({"orientation": turn} if turn else {}),
+             "clips": [_clip(box, [1, 1], turn) for box in strips]} for strips in bandkit.clips(found)]
+
+
+def _read_keyed(spec, images, strip, deadline=None, cancel=None, on_call=None):
+    """One strip of a located table as keyed rows (`bandkit.prompt`): short keys per amount column, all present in every row,
+    expanded back to the schema's columns. Raises RuntimeError when the reply has no row list."""
+    _begin_call(cancel, on_call)
+    reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE}, _user(bandkit.prompt(spec, strip), images)],
+                      timeout_cap=remaining(deadline), max_tokens=3000)
+    if not isinstance(reply, dict) or not isinstance(reply.get("rows"), list):
+        raise RuntimeError("band 응답에 행 목록이 없습니다.")
+    rows, unknown, missing = bandkit.expand(reply["rows"], spec)
+    note("band_unknown_keys", unknown)
+    note("band_missing_keys", missing)
+    return rows
+
+
+def _read_summary(schema, images, deadline=None, cancel=None, on_call=None):
+    """The 금액산정 block fields (`schema` narrowed to them) read from the block's own crop. The answer for these keys: a blank
+    cell is null and is not filled from the whole-page read. Raises RuntimeError when the reply is no JSON object."""
+    _begin_call(cancel, on_call)
+    reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + VISION_NOTE},
+                       _user(bandkit.SUMMARY_PROMPT.format(schema=json.dumps(schema, ensure_ascii=False)), images)],
+                      timeout_cap=remaining(deadline), max_tokens=1500)
+    if not isinstance(reply, dict):
+        raise RuntimeError("금액산정 블록 응답이 JSON object가 아닙니다.")
+    return {key: None if reply.get(key) == "" else reply.get(key) for key in schema["properties"]}
+
+
 def _read_chunk(schema, chunk, index, count, source, budget, deadline=None, cancel=None, on_call=None):
     """The schema read as one JSON object from chunk `index` of `count`."""
-    system = (
-        "Extract values using document context and layout. Never invent values. Use null when allowed and absent. "
-        "A total or sum field takes the value printed in the document's total row or labelled total cell, never a single line item's value. "
-        "Return only a single JSON object that itself follows the given schema, with no wrapper key "
-        "and with the schema's field order kept."
-    )
+    system = EXTRACT_SYSTEM
     if any(prop.get("type") == "array" for prop in schema.get("properties", {}).values()):
         system += TABLE_NOTE
     if cancel is not None and cancel.is_set():
@@ -697,8 +762,8 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         report()
         logger.debug("extract: local mode blocks=%d", len(blocks))
         return _local_extract(schema, blocks)
-    if table_extract not in ("asis", "rowmajor"):
-        raise ValueError("TABLE_EXTRACT는 asis 또는 rowmajor여야 합니다.")
+    if table_extract not in ("asis", "rowmajor", "band"):
+        raise ValueError("TABLE_EXTRACT는 asis, rowmajor, band 중 하나여야 합니다.")
     budget = ai_settings()["chunk_chars"]
     if budget <= 0:
         raise ValueError("EXTRACT_CHUNK_CHARS는 양수여야 합니다.")
@@ -706,7 +771,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     logger.info("extract: provider mode blocks=%d chunks=%d budget=%d pages=%s", len(blocks), len(chunks), budget, [_page_range(chunk) for chunk in chunks])
     properties = schema.get("properties", {})
     tables = _table_fields(schema)
-    rowmajor = table_extract == "rowmajor"
+    rowmajor = table_extract in ("rowmajor", "band")
     plans = {table: _table_plan(schema.get("title"), table, properties[table], blocks) if rowmajor else None for table in tables}
     groups = {table: _table_pages(blocks, budget, len(properties[table]["items"]["properties"])) for table in tables}
     paged = [table for table in tables if len(groups[table]) > 1]
@@ -714,6 +779,13 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     whole = [table for table in tables if table not in paged] if images else []
     if rowmajor and len(whole) + len(paged) < len(tables):
         logger.info("extract: rowmajor needs one chunk with page images (chunks=%d), reading tables asis", len(chunks))
+    found = None  # band: the one table of a one-page document of a BAND_DOC_TYPES type is located first, then read in strips beside the 금액산정 block
+    if table_extract == "band" and schema.get("title") in ai_settings()["band_doc_types"] and tables[:1] == whole and len(tables) == 1 and len(images) == 1:
+        found = _locate(images, deadline, cancel, on_call)
+    page = _pages(blocks)[0] if found else None
+    turn = _turns(blocks).get(page, 0)
+    strips = _located_bands(found, page, turn) if found else []
+    summary = [key for key in bandkit.SUMMARY_KEYS if key in properties] if found and "summary" in found else []
 
     def narrowed(keys):
         return {**schema, "properties": {key: prop for key, prop in properties.items() if key in keys},
@@ -723,6 +795,8 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         pages = _page_range(group)
         if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group), group[0].get("clips"))):
             try:
+                if group[0].get("keyed"):
+                    return _read_keyed(properties[table], group_images, BAND_NOTE[len(group_images) > 1], deadline, cancel, on_call)
                 return _read_rows(table, properties[table], plans[table], _chunk_text(group, budget), group_images,
                                   PAGES_NOTE.format(pages=pages, span=_page_range(blocks))
                                   + (BAND_NOTE[len(group_images) > 1] if "clips" in group[0] else ""), deadline, cancel, on_call)
@@ -746,19 +820,26 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
             return exc
 
     def read_bands(table, bands):
-        """The rows of one page read band by band (`_bands`), in band order; a band that repeats the row before it
-        (`repeats`) keeps one of the two reads (`_same_row`). The last band's error when no band could be read."""
+        """The rows of one page read band by band (`_bands`, `_located_bands`), in band order; a band that repeats rows before it
+        (`repeats`) keeps one read of them: the richer of two reads of the last row (`_same_row`), or, in located bands (`keyed`),
+        the earlier read of the rows whose names match the end of the rows so far (`bandkit.overlap`), with one 합계 row.
+        The last band's error when no band could be read."""
         parts = parallel(lambda item: read_group(table, [item[1]], item[0], len(bands)), enumerate(bands), limit("TABLE_PAGE_CONCURRENCY", 4, 32))
         rows, before = [], None
         for band, part in zip(bands, parts):
             if isinstance(part, Exception):
                 before = part
                 continue
-            if band.get("repeats") and rows and part and not isinstance(before, Exception) and _same_row(rows[-1], part[0]):
-                rows[-1] = max(rows[-1], part[0], key=lambda row: sum(value not in (None, "") for value in row.values()))
-                part = part[1:]
+            if band.get("repeats") and rows and part and not isinstance(before, Exception):
+                if band.get("keyed"):
+                    part = part[bandkit.overlap(rows, part):]
+                elif _same_row(rows[-1], part[0]):
+                    rows[-1] = max(rows[-1], part[0], key=lambda row: sum(value not in (None, "") for value in row.values()))
+                    part = part[1:]
             rows, before = rows + part, part
-        return rows if any(not isinstance(part, Exception) for part in parts) else parts[-1]
+        if all(isinstance(part, Exception) for part in parts):
+            return parts[-1]
+        return bandkit.last_total(rows) if bands[0].get("keyed") else rows
 
     def read_pages(table):
         count = len(groups[table])
@@ -772,11 +853,28 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
             raise parts[-1]
         return _merge_chunk_results([part for part in parts if not isinstance(part, Exception)], properties[table])
 
+    def read_summary():
+        try:
+            clip = _clip(bandkit.summary_clip(found), [1, 1], turn)
+            return _read_summary(narrowed(set(summary)), _page_images(source, [page], _turns(blocks), [clip]), deadline, cancel, on_call)
+        except (RuntimeError, ValueError) as exc:  # these keys are then read with the other fields
+            if cancel is not None and cancel.is_set():
+                raise
+            logger.warning("extract: 금액산정 block could not be read, reading its fields with the page: %s", exc)
+            note("band_fallback", "summary", add=False)
+            return None
+
     def read(table):
         if table is None:
-            return _read_chunks(narrowed(set(properties) - set(separate)) if separate else schema, chunks, source, budget, deadline, cancel, on_call)
+            return _read_chunks(narrowed(set(properties) - taken) if separate else schema, chunks, source, budget, deadline, cancel, on_call)
+        if table is SUMMARY:
+            return read_summary()
         if table in paged:
             return read_pages(table)
+        if strips and not isinstance(rows := read_bands(table, strips), Exception):
+            return rows
+        if strips:
+            note("band_fallback", "read", add=False)
         try:
             return _read_rows(table, properties[table], plans[table],
                               _chunk_text(blocks, budget), images, "", deadline, cancel, on_call)
@@ -790,13 +888,15 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
             return None
 
     separate = whole + paged
-    parts = ([None] if len(separate) < len(properties) or not properties else []) + separate
+    taken = set(separate) | set(summary)  # keys read apart from the other fields
+    parts = ([None] if len(taken) < len(properties) or not properties else []) + separate + ([SUMMARY] if summary else [])
     read_parts = dict(zip(parts, parallel(read, parts, len(parts))))
     merged = read_parts.pop(None, None) or {}
-    failed = [table for table, rows in read_parts.items() if rows is None]
+    block = read_parts.pop(SUMMARY, None) or {}
+    failed = [table for table, rows in read_parts.items() if rows is None] + ([] if block else summary)
     if failed:
         merged.update(_read_chunks(narrowed(set(failed)), chunks, source, budget, deadline, cancel, on_call))
-    merged = {**merged, **{table: rows for table, rows in read_parts.items() if rows is not None}}
+    merged = {**merged, **block, **{table: rows for table, rows in read_parts.items() if rows is not None}}
     if separate:
         merged = {key: merged.get(key) for key in properties}
     for table in tables:

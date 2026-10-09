@@ -1,5 +1,10 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-09 영수증 band 읽기 이식
+
+- **Creation**: [band 읽기 이식](2026-10-09-receipt-band-port.md) — 상위 wiki 동기화 예정.
+- **Update**: index.md에 연결.
+
 ## 2026-10-08 영수증 항목명·열 규칙 개선
 
 - **Creation**: [별칭 재선별·위치 제약 이름·열 되돌림](2026-10-08-receipt-name-column-rules.md) — 상위 wiki 동기화.

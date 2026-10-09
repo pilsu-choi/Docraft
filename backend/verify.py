@@ -579,7 +579,7 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
     if deadline is not None and time.monotonic() >= deadline:
         raise TimeoutError("read deadline exceeded")
     fields = rules.apply(doc_type, result, blocks)
-    rowmajor = settings["table_extract"] == "rowmajor" and rules.ITEM_TABLE in extract_schema.get("properties", {})
+    rowmajor = settings["table_extract"] in ("rowmajor", "band") and rules.ITEM_TABLE in extract_schema.get("properties", {})
     if rowmajor:
         _note_table(blocks, misses := rules.table_misses(doc_type, result.get(rules.ITEM_TABLE), fields), misses >= settings["table_recheck_ratio"])
     if rowmajor and misses >= settings["table_recheck_ratio"]:

@@ -134,9 +134,14 @@ def ai_settings() -> dict:
     # Input-integrity and page/row repeat evidence only lands in issue_codes; true also sends the affected confirmed values to RECHECK.
     integrity_review = _flag("INTEGRITY_REVIEW", "false")
     table_extract = os.getenv("TABLE_EXTRACT", "rowmajor").strip().lower()
+    # band: 영수증처럼 한 쪽에 긴 항목 표가 있는 유형만(BAND_DOC_TYPES) 표 위치를 먼저 찾아 가로 띠로 잘라 읽는다. 목록 밖 유형은 rowmajor.
+    band_doc_types = tuple(name.strip() for name in os.getenv("BAND_DOC_TYPES", "진료비영수증").split(",") if name.strip())
+    # 비우면 보내지 않는다. 표를 띠로 읽을 때 같은 행이 반복되는 것을 줄이려 1.05 정도를 쓴다.
+    penalty = os.getenv("REPETITION_PENALTY", "").strip()
     table_recheck_ratio = float(os.getenv("TABLE_RECHECK_RATIO", "0.6"))
     return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
-            "integrity_review": integrity_review, "table_extract": table_extract, "table_recheck_ratio": table_recheck_ratio}
+            "integrity_review": integrity_review, "table_extract": table_extract, "band_doc_types": band_doc_types,
+            "repetition_penalty": float(penalty) if penalty else None, "table_recheck_ratio": table_recheck_ratio}
 
 
 def ocr_settings() -> dict:
