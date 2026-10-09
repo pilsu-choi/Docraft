@@ -1,7 +1,7 @@
-"""요청 지연을 줄이는 프로세스 공용 장치: 같은 페이지 결과 공유, GPU OCR 동시성 제한, 병렬 호출, 단계별 시간 집계.
+"""요청 지연을 줄이는 프로세스 공용 장치: 같은 페이지 결과 공유, GPU OCR·VLM 동시성 제한, 병렬 호출, 단계별 시간 집계.
 
 하네스는 같은 페이지의 필드 요청과 표 요청을 동시에 보낸다. ``shared``는 그 둘이 OCR·표 교정을 한 번만 하게 하고,
-``ocr_slot``은 포화된 GPU OCR에 요청이 몰려 모두 느려지는 대신 줄을 세운다. ``track``으로 묶은 요청은 ``timed``·
+``ocr_slot``·``provider_slot``은 포화된 GPU에 요청이 몰려 모두 느려지는 대신 줄을 세운다. ``track``으로 묶은 요청은 ``timed``·
 ``ocr_slot``·``shared``가 남긴 단계별 시간을 한 dict로 모은다(``read finished`` 로그 줄).
 """
 
@@ -19,7 +19,7 @@ _stats: contextvars.ContextVar[dict | None] = contextvars.ContextVar("docraft_st
 _lock = threading.Lock()
 _cache: OrderedDict = OrderedDict()  # key -> (만료 시각, 값)
 _flights: dict = {}  # 계산 중인 key -> 끝나면 세워지는 Event
-_ocr_gate: threading.Semaphore | None = None
+_gates: dict[str, threading.BoundedSemaphore] = {}  # 환경변수 이름 -> 자리(첫 호출 때 크기 고정)
 
 
 def remaining(deadline):
@@ -80,27 +80,35 @@ def parallel(fn, items, workers):
 
 
 @contextmanager
-def ocr_slot(deadline=None):
-    """GPU OCR 호출 자리(``OCR_CONCURRENCY``, 기본 2, 0이면 제한 없음). 시한까지 자리가 안 나면 TimeoutError."""
-    global _ocr_gate
-    size = limit("OCR_CONCURRENCY", 2, 64)
+def _slot(name, default, deadline, stage):
+    """``name``(환경변수)이 정한 크기의 프로세스 공용 자리. 0이면 제한 없음, 시한까지 자리가 안 나면 TimeoutError.
+    기다린 시간은 ``{stage}_wait_ms``, 자리를 쥔 시간은 ``{stage}_ms``로 남긴다."""
+    size = limit(name, default, 256)
     if not size:
         yield
         return
     with _lock:
-        if _ocr_gate is None:
-            _ocr_gate = threading.BoundedSemaphore(size)
-        gate = _ocr_gate
+        gate = _gates.setdefault(name, threading.BoundedSemaphore(size))
     started = time.monotonic()
     acquired = gate.acquire(timeout=remaining(deadline))
-    note("ocr_wait_ms", round((time.monotonic() - started) * 1000))
+    note(f"{stage}_wait_ms", round((time.monotonic() - started) * 1000))
     if not acquired:
-        raise TimeoutError("OCR queue deadline exceeded")
+        raise TimeoutError(f"{stage} queue deadline exceeded")
     try:
-        with timed("ocr_ms"):
+        with timed(f"{stage}_ms"):
             yield
     finally:
         gate.release()
+
+
+def ocr_slot(deadline=None):
+    """GPU OCR 호출 자리(``OCR_CONCURRENCY``, 기본 2)."""
+    return _slot("OCR_CONCURRENCY", 2, deadline, "ocr")
+
+
+def provider_slot(deadline=None):
+    """VLM provider 호출 자리(``VLM_CONCURRENCY``, 기본 8): 띠·블록 호출이 한꺼번에 몰려 모두 느려지는 대신 줄을 세운다."""
+    return _slot("VLM_CONCURRENCY", 8, deadline, "vlm")
 
 
 def shared(key, compute, deadline=None):

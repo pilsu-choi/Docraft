@@ -239,8 +239,11 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `PARSE_PROVIDER`, `PADDLEOCR_BASE_URL` | `library`, 빈 URL | 기본 라이브러리 파싱 또는 원격 PaddleOCR |
 | `PADDLEOCR_LINES_URL` | 빈 값 | 선택적인 줄 단위 근거 좌표 |
 | `TABLE_REFINE` | `false` | OCR 표 셀 텍스트를 LLM으로 추가 교정 |
-| `TABLE_EXTRACT` | `rowmajor` | `/api/read`·`/api/verify` 첫 추출에서 표를 읽는 방식. `rowmajor`는 표마다 행을 값 배열로 받는 호출(서버 JSON 스키마 강제)을 따로 하고, 열은 문서에 인쇄된 순서로 준다(진료비영수증은 양식 1~5 판별, 세부내역서는 머리글 순서, 머리글이 없으면 값 꼴로 배치하고 근거가 약한 열은 만들지 않는다). `asis`는 표를 다른 필드와 함께 JSON 객체로 읽는 기존 방식 |
+| `TABLE_EXTRACT` | `rowmajor` | `/api/read`·`/api/verify` 첫 추출에서 표를 읽는 방식. `rowmajor`는 표마다 행을 값 배열로 받는 호출(서버 JSON 스키마 강제)을 따로 하고, 열은 문서에 인쇄된 순서로 준다(진료비영수증은 양식 1~5 판별, 세부내역서는 머리글 순서, 머리글이 없으면 값 꼴로 배치하고 근거가 약한 열은 만들지 않는다). `asis`는 표를 다른 필드와 함께 JSON 객체로 읽는 기존 방식, `band`는 아래 `BAND_DOC_TYPES` 참고 |
 | `TABLE_RECHECK_RATIO` | `0.6` | `rowmajor`에서 세부내역서 표가 망가진 비율(행 산술 단가×횟수×일수=총액 등이 어긋난 행, 금액 칸이 모두 빈 행, 열 종류에 맞지 않는 값이 두 칸 이상인 행 중 큰 값)이 이 값 이상이면 그 표를 `asis`로 다시 읽음(1보다 크면 끔). rowmajor 응답은 OCR 근거의 금액 수로 정한 출력 토큰 상한을 넘으면 그 표를 `asis`로 읽음 |
+| `BAND_DOC_TYPES` | `진료비영수증` | `TABLE_EXTRACT=band`로 읽는 문서 유형(쉼표 목록). `band`는 쪽 전체 그림 한 번으로 항목 표·머리글·첫 행·합계 행·금액산정 블록 위치를 찾고, 표를 머리글 아래 3개 가로 띠(10% 겹침, 띠마다 머리글 띠)로 잘라 짧은 키 형식으로 읽어 항목 이름 순서 겹침으로 합치며, 금액산정 블록은 따로 잘라 읽어 그 키의 최종 값으로 쓴다. 위치를 못 찾거나 목록 밖 유형이면 `rowmajor`. `공단부담총액`은 표 마지막 합계 행에 인쇄된 공단부담금 값 |
+| `VLM_CONCURRENCY` | `8` | provider(VLM) 동시 호출 수, 시한까지 자리가 안 나면 408(0이면 제한 없음) |
+| `REPETITION_PENALTY` | 빈 값 | 요청 본문의 `repetition_penalty`. 비우면 보내지 않음(띠 읽기 실험은 1.05) |
 | `TABLE_PAGE_CONCURRENCY` | `4` | 한 번의 응답에 다 담기지 않는 여러 쪽 표(응답 상한 추정이 16k 토큰을 넘거나 4쪽·`EXTRACT_CHUNK_CHARS`를 넘는 표)는 쪽 묶음마다 따로 읽어 쪽 순서로 이어 붙인다. 그 동시 호출 수. rowmajor는 쪽마다 그 쪽 머리글(없으면 앞쪽 머리글)의 열 배치로 읽고, 실패한 쪽만 asis로 다시 읽는다 |
 | `INTEGRITY_REVIEW` | `false` | `true`이면 입력·쪽 무결성 탐지(`issue_codes`)에 걸린 확정 값을 재검토 대상으로 돌림. 기본은 기록만 하고 PASS 유지 |
 | `HARNESS_DATABASE_URL`, `MASTER_SOURCE_DIR` | 빈 값 | KCD·EDI 마스터 조회 소스(harness DB 재사용 → docraft DB → 원본 신규 적재); 셋 다 없으면 명칭 교정 비활성 |

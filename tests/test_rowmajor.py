@@ -503,6 +503,39 @@ def test_max_tokens_is_sent_only_when_given(monkeypatch):
     assert bodies[0]["max_tokens"] == 500 and "max_tokens" not in bodies[1]
 
 
+@pytest.mark.parametrize("value, sent", [("1.05", 1.05), ("", None), (None, None)])
+def test_repetition_penalty_is_sent_only_when_configured(monkeypatch, value, sent):
+    monkeypatch.setenv("AI_MODE", "provider")
+    monkeypatch.setenv("AI_BASE_URL", "https://provider.invalid/v1")
+    monkeypatch.setenv("AI_API_KEY", "key")
+    monkeypatch.setenv("AI_MODEL", "test/model")
+    monkeypatch.delenv("REPETITION_PENALTY", raising=False)
+    if value is not None:
+        monkeypatch.setenv("REPETITION_PENALTY", value)
+    bodies = []
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        @contextmanager
+        def stream(self, method, url, json=None, **kwargs):
+            bodies.append(json)
+            yield httpx.Response(200, json={"choices": [{"message": {"content": "{}"}, "finish_reason": "stop"}]},
+                                 request=httpx.Request("POST", url))
+    monkeypatch.setattr(engine.httpx, "Client", Client)
+
+    engine._provider([])
+
+    assert bodies[0].get("repetition_penalty") == sent and ("repetition_penalty" in bodies[0]) == (sent is not None)
+
+
 def test_json_schema_calls_require_the_parameter_and_leave_out_reasoning(monkeypatch):
     monkeypatch.setenv("AI_MODE", "provider")
     monkeypatch.setenv("AI_BASE_URL", "https://provider.invalid/v1")
@@ -557,15 +590,16 @@ def read_calls(monkeypatch):
     return state
 
 
+@pytest.mark.parametrize("mode", ["rowmajor", "band"])
 @pytest.mark.parametrize("bad,good,rechecked", [(3, 7, True), (1, 4, False), (0, 0, False)])
-def test_rowmajor_table_is_reread_asis_when_row_arithmetic_breaks(monkeypatch, read_calls, bad, good, rechecked):
-    monkeypatch.setenv("TABLE_EXTRACT", "rowmajor")
+def test_rowmajor_table_is_reread_asis_when_row_arithmetic_breaks(monkeypatch, read_calls, bad, good, rechecked, mode):
+    monkeypatch.setenv("TABLE_EXTRACT", mode)
     monkeypatch.setenv("TABLE_RECHECK_RATIO", "0.3")
     read_calls.first = shifted_rows(bad, good)
 
     _, fields, _ = verify.read("scan.png", "세부내역서", only={"항목내역"}, auto_reprocess=False)
 
-    assert read_calls.calls == [("rowmajor", ["항목내역"])] + ([("asis", ["항목내역"])] if rechecked else [])
+    assert read_calls.calls == [(mode, ["항목내역"])] + ([("asis", ["항목내역"])] if rechecked else [])
     assert all(row["총액"] == "100" for row in fields["항목내역"]) == (rechecked or not bad)
 
 
