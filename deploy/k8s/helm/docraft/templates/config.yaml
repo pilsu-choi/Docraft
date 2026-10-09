@@ -27,6 +27,7 @@ data:
   TABLE_REFINE: {{ .Values.backend.tableRefine | quote }}
   TABLE_EXTRACT: {{ .Values.backend.tableExtract | default "band" | quote }}
   BAND_DOC_TYPES: {{ .Values.backend.bandDocTypes | default "진료비영수증" | quote }}
+  PRINT_REGISTER: {{ .Values.backend.printRegister | default false | quote }}
   VLM_CONCURRENCY: {{ .Values.backend.vlmConcurrency | default 8 | quote }}
   REPETITION_PENALTY: {{ .Values.backend.repetitionPenalty | default "" | quote }}
   TABLE_RECHECK_RATIO: {{ .Values.backend.tableRecheckRatio | default 0.6 | quote }}

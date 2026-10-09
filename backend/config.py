@@ -139,9 +139,11 @@ def ai_settings() -> dict:
     # 비우면 보내지 않는다. 표를 띠로 읽을 때 같은 행이 반복되는 것을 줄이려 1.05 정도를 쓴다.
     penalty = os.getenv("REPETITION_PENALTY", "").strip()
     table_recheck_ratio = float(os.getenv("TABLE_RECHECK_RATIO", "0.6"))
+    # 진료비영수증 band 읽기 뒤 금액 층이 양식 칸선에서 통째로 밀려 찍힌 인쇄를 OCR 줄 좌표로 문서 단위에서 되돌린다(print_register).
+    print_register = _flag("PRINT_REGISTER", "false")
     return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
             "integrity_review": integrity_review, "table_extract": table_extract, "band_doc_types": band_doc_types,
-            "repetition_penalty": float(penalty) if penalty else None, "table_recheck_ratio": table_recheck_ratio}
+            "repetition_penalty": float(penalty) if penalty else None, "table_recheck_ratio": table_recheck_ratio, "print_register": print_register}
 
 
 def ocr_settings() -> dict:

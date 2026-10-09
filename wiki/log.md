@@ -1,5 +1,10 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-09 영수증 인쇄 정합 이식
+
+- **Creation**: [인쇄 정합 이식](2026-10-09-receipt-print-register-port.md) — 상위 wiki 동기화는 오케스트레이터.
+- **Update**: index.md에 연결.
+
 ## 2026-10-09 영수증 band 읽기 이식
 
 - **Creation**: [band 읽기 이식](2026-10-09-receipt-band-port.md) — 상위 wiki 동기화 예정.
