@@ -223,3 +223,75 @@ def test_table_refine_crop_of_a_turned_page_is_sent_upright(tmp_path, monkeypatc
     url = sent[0][0]["content"][0]["image_url"]["url"]
     with Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))) as image:
         assert image.height > image.width  # 반시계 90도로 바로 세운 크롭
+
+
+def _scored(scores, size=(900, 640), boxes=None):
+    """줄마다 인식 점수가 붙은 OCR 블록 대역."""
+    boxes = boxes or [[10, 10 + 40 * i, 300, 40 + 40 * i] for i in range(len(scores))]
+    return [parsers.block("t", "text", page=1, bbox=[0, 0, *size], page_size=list(size), source="paddleocr_remote",
+                          lines=[{"text": "가나다", "bbox": box, "score": score} for box, score in zip(boxes, scores)])]
+
+
+@pytest.fixture
+def reader(monkeypatch):
+    """`_read_turned` 대역: 각도별 점수 목록을 읽은 것으로 돌려주고 읽은 각도를 기록한다."""
+    asked = []
+
+    def install(by_turn):
+        monkeypatch.setattr(parsers, "_read_turned", lambda image, turn, deadline: asked.append(turn) or _scored(by_turn[turn]))
+        return asked
+    return install
+
+
+TALL = [[10, 10 + 100 * i, 40, 90 + 100 * i] for i in range(4)]
+
+
+def test_mean_score_ignores_lines_shorter_than_two_characters():
+    blocks = _scored([.9, .3])
+    blocks[0]["lines"][1]["text"] = " 1 "
+    assert parsers._mean_score(blocks) == .9 and parsers._mean_score([]) is None
+    assert parsers._mean_score([parsers.block("x")]) is None
+
+
+@pytest.mark.parametrize("by_turn, expected", [({180: [.95, .9]}, 180), ({180: [.5, .6]}, 0)])
+def test_upside_down_candidates_are_compared_by_mean_score(reader, by_turn, expected):
+    asked = reader(by_turn)
+    turn, fresh = parsers._turn_by_score(None, _scored([.7, .7]), [[0, 0, 300, 30]] * 2, None)
+    assert turn == expected and asked == [180] and (fresh is not None) == bool(expected)
+
+
+@pytest.mark.parametrize("by_turn, expected", [({90: [.95], 270: [.4]}, 90), ({90: [.4], 270: [.95]}, 270)])
+def test_sideways_page_picks_the_quarter_turn_by_score(reader, by_turn, expected):
+    asked = reader(by_turn)
+    turn, _ = parsers._turn_by_score(None, _scored([.5] * 4, boxes=TALL), TALL, None)
+    assert turn == expected and asked == [90, 270]
+
+
+def test_empty_reading_leaves_the_page_as_scanned(reader):
+    reader({90: [], 270: [.9]})
+    assert parsers._turn_by_score(None, _scored([.5] * 4, boxes=TALL), TALL, None) == (0, None)
+
+
+def test_extra_reads_are_skipped_when_the_vote_is_confident(tmp_path, monkeypatch):
+    image, boxes = _page()
+    path = tmp_path / "scan.png"
+    image.save(path)
+    calls = []
+    monkeypatch.setattr(parsers, "ocr_settings", lambda: {"provider": "paddle", "orientation_score": True})
+    monkeypatch.setattr(parsers, "_remote_paddle", lambda *args, **kwargs: calls.append(1) or _ocr(boxes, image.size))
+    parsers.parse_image(str(path), "paddle")
+    assert len(calls) == 1
+
+
+def test_undecided_page_is_reread_once_at_the_winning_turn(tmp_path, monkeypatch):
+    image, boxes = _page()
+    path = tmp_path / "scan.png"
+    image.save(path)
+    monkeypatch.setattr(parsers, "ocr_settings", lambda: {"provider": "paddle", "orientation_score": True})
+    monkeypatch.setattr(parsers, "_vote", lambda *args: None)
+    calls = []
+    first = _scored([.5, .5], image.size)
+    first[0]["lines"][0]["bbox"] = first[0]["lines"][1]["bbox"] = [0, 0, 300, 30]
+    monkeypatch.setattr(parsers, "_remote_paddle", lambda *a, **k: calls.append(1) or (first if len(calls) == 1 else _scored([.97, .96], image.size)))
+    [block] = parsers.parse_image(str(path), "paddle")
+    assert len(calls) == 2 and block["orientation"] == 180

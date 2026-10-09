@@ -151,6 +151,8 @@ def ocr_settings() -> dict:
         "token": token,
         "model": os.getenv("PADDLEOCR_MODEL", "PaddleOCR-VL-1.6-0.9B"),
         "timeout": float(os.getenv("PADDLEOCR_TIMEOUT", "600")),
+        # Undecided page orientation is settled by re-reading the page at the candidate turns and comparing OCR scores.
+        "orientation_score": _flag("ORIENTATION_SCORE_CHECK", "1"),
         "configured": provider == "paddle" and bool(base_url),
     }
 

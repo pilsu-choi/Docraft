@@ -238,6 +238,7 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `AI_VISION` | `true` | PDF·이미지의 페이지 이미지를 provider에 첨부 |
 | `PARSE_PROVIDER`, `PADDLEOCR_BASE_URL` | `library`, 빈 URL | 기본 라이브러리 파싱 또는 원격 PaddleOCR |
 | `PADDLEOCR_LINES_URL` | 빈 값 | 선택적인 줄 단위 근거 좌표 |
+| `ORIENTATION_SCORE_CHECK` | `1` | 마침표 투표로 방향이 정해지지 않은 페이지를 후보 각도로 다시 읽어 OCR 평균 인식 점수가 높은 쪽으로 세움(0이면 끔) |
 | `TABLE_REFINE` | `false` | OCR 표 셀 텍스트를 LLM으로 추가 교정 |
 | `TABLE_EXTRACT` | `rowmajor` | `/api/read`·`/api/verify` 첫 추출에서 표를 읽는 방식. `rowmajor`는 표마다 행을 값 배열로 받는 호출(서버 JSON 스키마 강제)을 따로 하고, 열은 문서에 인쇄된 순서로 준다(진료비영수증은 양식 1~5 판별, 세부내역서는 머리글 순서, 머리글이 없으면 값 꼴로 배치하고 근거가 약한 열은 만들지 않는다). `asis`는 표를 다른 필드와 함께 JSON 객체로 읽는 기존 방식 |
 | `TABLE_RECHECK_RATIO` | `0.6` | `rowmajor`에서 세부내역서 표가 망가진 비율(행 산술 단가×횟수×일수=총액 등이 어긋난 행, 금액 칸이 모두 빈 행, 열 종류에 맞지 않는 값이 두 칸 이상인 행 중 큰 값)이 이 값 이상이면 그 표를 `asis`로 다시 읽음(1보다 크면 끔). rowmajor 응답은 OCR 근거의 금액 수로 정한 출력 토큰 상한을 넘으면 그 표를 `asis`로 읽음 |
