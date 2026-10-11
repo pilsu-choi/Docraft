@@ -522,3 +522,6 @@
 - **Update** (2026-10-08): [Parse·Extract 이슈 도감](2026-10-08-issue-taxonomy-gallery.md) — 상위 wiki에서 동기화: 121건 표시 검수, 합성 이미지 51개 노드, 개인정보 명시, 당장 대상 아님 19건.
 - **Update** (2026-10-08): [Parse·Extract 이슈 도감](2026-10-08-issue-taxonomy-gallery.md) — 상위 wiki에서 동기화: 이슈 위치 박스·확대 이미지 51개 노드.
 - **Creation** (2026-10-09): [영수증 합계 행 금액 되돌림](2026-10-09-receipt-total-row-shift.md) — rules._misplaced_total 추가, 197건 재생 고침 8·깨짐 0.
+- **Creation** (2026-10-12): [이슈 분류에 입력 매체·화질 조건 기록 축 추가](2026-10-12-issue-taxonomy-media-quality-axes.md) — 상위 wiki에서 동기화: 매체·화질 포괄 점검과 축 추가.
+- **Update** (2026-10-12): [Parse와 Extract 이슈 유형 계층 분류](2026-10-03-parse-extract-issue-taxonomy.md) — 상위 wiki에서 동기화: 입력 매체·화질 조건 축, 경계 규칙 3개, 회귀 후보 1행. 노드·ID 변경 없음.
+- **Update** (2026-10-12): [Parse·Extract 이슈 분류 의료비 문서 적용 프로파일](2026-10-03-parse-extract-taxonomy-medical-profile.md) — 상위 wiki에서 동기화: 입력 매체·화질 조건 값.
