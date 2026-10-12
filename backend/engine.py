@@ -1,6 +1,7 @@
 import base64
 import difflib
 import html
+import io
 import json
 import logging
 import os
@@ -54,25 +55,53 @@ def _message_text(content):
     return "".join(part.get("text", "") for part in content) if isinstance(content, list) else content or ""
 
 
+def _covering(box, angle, src, dst):
+    """The smallest box of a page of size `dst` holding `box` of a page of size `src` once that page turns `angle` degrees."""
+    from .parsers import spin  # parsers → engine 순환을 피한다
+    corners = [spin(corner, angle, src, dst) for corner in ((box[0], box[1]), (box[2], box[1]), (box[0], box[3]), (box[2], box[3]))]
+    return fitz.Rect(min(x for x, _ in corners), min(y for _, y in corners), max(x for x, _ in corners), max(y for _, y in corners))
+
+
 def _data_url(page, clip=None, max_zoom=2.0, turn=0):
     """One rendered page (or its `clip` region) as a base64 JPEG data URL, scaled so its longest side stays within
-    VISION_MAX_EDGE and turned `turn` degrees counter-clockwise (the parser's `orientation`) so the text is upright."""
-    area = clip or page.rect
+    VISION_MAX_EDGE. The page is turned `turn` degrees counter-clockwise first (`_angle`: the parser's `orientation` plus a
+    small `skew`) so the text is upright and straight; `clip` is a region of the turned page, in points. A quarter turn
+    is rendered by the page matrix; any other angle rotates the rendered region (bicubic, white corners)."""
+    from .parsers import expanded, spin  # parsers → engine 순환을 피한다
+    size = [page.rect.width, page.rect.height]
+    canvas = expanded(size, turn)
+    area = clip or fitz.Rect(0, 0, *canvas)
     zoom = min(VISION_MAX_EDGE / max(area.width, area.height), max_zoom)
-    pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom).prerotate(-turn), clip=clip, alpha=False)
-    return "data:image/jpeg;base64," + base64.b64encode(pixmap.tobytes("jpeg", jpg_quality=90)).decode()
+    source = _covering(area, -turn, canvas, size) & page.rect  # the part of the file page the region shows
+    if turn % 90 == 0:
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom).prerotate(-turn), clip=source if clip else None, alpha=False)
+        return "data:image/jpeg;base64," + base64.b64encode(pixmap.tobytes("jpeg", jpg_quality=90)).decode()
+    pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=source, alpha=False)
+    image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples).rotate(turn, Image.BICUBIC, expand=True, fillcolor=(255, 255, 255))
+    x, y = spin(((source.x0 + source.x1) / 2, (source.y0 + source.y1) / 2), turn, size, canvas)  # the region's centre pixel is where the rotated piece's centre lands
+    cx, cy = image.width / 2 + ((area.x0 + area.x1) / 2 - x) * zoom, image.height / 2 + ((area.y0 + area.y1) / 2 - y) * zoom
+    image = image.crop((max(0, round(cx - area.width * zoom / 2)), max(0, round(cy - area.height * zoom / 2)),
+                        min(image.width, round(cx + area.width * zoom / 2)), min(image.height, round(cy + area.height * zoom / 2))))
+    buffer = io.BytesIO()
+    image.save(buffer, "JPEG", quality=90)
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
+
+
+def _angle(block):
+    """Degrees counter-clockwise a parsed page is turned for the model's image: the quarter turns it was read at plus its small tilt."""
+    return block.get("orientation", 0) + block.get("skew", 0)
 
 
 def _turns(blocks):
-    """page → `orientation` of the blocks the parser read from a turned page."""
-    return {b["page"]: b["orientation"] for b in blocks if b.get("orientation")}
+    """page → `_angle` of the blocks the parser read from a turned or tilted page."""
+    return {b["page"]: _angle(b) for b in blocks if _angle(b)}
 
 
 def _page_images(source, pages, turns=None, clips=None):
     """Page images of the document file `source` for the given 1-based page numbers (the same numbering the
-    parser puts on blocks), each turned upright by `turns` (page → `orientation`). Empty when vision is off, the
+    parser puts on blocks), each turned upright by `turns` (page → `_angle`). Empty when vision is off, the
     format has no page image (docx/xlsx/csv/txt/html), or rendering fails — the call then falls back to the OCR text alone.
-    `clips` (boxes as page fractions [x0, y0, x1, y1] of the first page, e.g. a row band of `_bands`) attach those regions
+    `clips` (boxes as fractions [x0, y0, x1, y1] of the turned first page, e.g. a row band of `_bands`) attach those regions
     of that page instead, at up to twice the whole-page zoom: a strip is smaller than the page."""
     if not source or not ai_settings()["vision"] or Path(source).suffix.lower() not in VISION_SUFFIXES:
         return []
@@ -83,9 +112,10 @@ def _page_images(source, pages, turns=None, clips=None):
     try:
         with fitz.open(source) as document:
             if clips:
+                from .parsers import expanded  # parsers → engine 순환을 피한다
                 page, turn = document[pages[0] - 1], (turns or {}).get(pages[0], 0)
-                width, height = page.rect.width, page.rect.height
-                return [_data_url(page, fitz.Rect(x0 * width, y0 * height, x1 * width, y1 * height) & page.rect, 4.0, turn)
+                width, height = expanded([page.rect.width, page.rect.height], turn)
+                return [_data_url(page, fitz.Rect(x0 * width, y0 * height, x1 * width, y1 * height) & fitz.Rect(0, 0, width, height), 4.0, turn)
                         for x0, y0, x1, y1 in clips]
             return [_data_url(document[number - 1], turn=(turns or {}).get(number, 0)) for number in pages if 1 <= number <= len(document)]
     except Exception as exc:
@@ -214,8 +244,10 @@ def refine_tables(blocks, source, deadline=None):
                 texts[number] = {index: html.unescape(cell) for index, (_, cell, _) in enumerate(TABLE_CELL.findall(block["text"])) if "<" not in cell}
                 page = document[(block["page"] or 1) - 1]
                 scale = page.rect.width / block["page_size"][0]  # OCR image pixels -> page points
-                clip = fitz.Rect([value * scale for value in block["bbox"]]) & page.rect
-                image = _data_url(page, clip, max_zoom=1 / scale, turn=block.get("orientation", 0))  # no upscaling beyond the OCR resolution; upright like the re-read page
+                from .parsers import expanded  # parsers → engine 순환을 피한다
+                turn, size = block.get("orientation", 0), [page.rect.width, page.rect.height]
+                clip = _covering(fitz.Rect([value * scale for value in block["bbox"]]) & page.rect, turn, size, expanded(size, turn))
+                image = _data_url(page, clip, max_zoom=1 / scale, turn=turn)  # no upscaling beyond the OCR resolution; upright like the re-read page
                 parts = _row_parts(block["text"], texts[number], max_cells)
                 calls += [(number, image, part, len(parts) > 1) for part in parts]
     except Exception as exc:
@@ -590,13 +622,8 @@ def _line_rows(lines):
             for top, _, bottom, parts in rows], tall
 
 
-def _clip(box, size, turn):
-    """`box` on the upright page of `size` (any unit) as fractions of the original page that was turned by `turn`: the clip
-    `_page_images` cuts from the file."""
-    from .parsers import unturn  # parsers → engine 순환을 피한다
-    if turn:
-        box = unturn([{"bbox": box, "page_size": size}], turn)[0]["bbox"]
-        size = size[::-1] if turn % 180 else size
+def _clip(box, size):
+    """`box` on the turned page of `size` (any unit) as fractions of that page: the clip `_page_images` cuts from the file."""
     return [box[0] / size[0], box[1] / size[1], box[2] / size[0], box[3] / size[1]]
 
 
@@ -617,7 +644,7 @@ def _bands(page_blocks, columns):
     most = max(1, TABLE_REPLY_TOKENS // (10 * columns + 20) - 20)  # amounts a band's reply cap allows
     bands = []
     for block in tables:
-        turn = block.get("orientation", 0)
+        turn = _angle(block)
         upright = unturn([block], 360 - turn)[0] if turn else block
         lines = [line for line in upright["lines"] if line.get("bbox") and str(line["text"]).strip()]
         if sum(line["bbox"][3] - line["bbox"][1] > line["bbox"][2] - line["bbox"][0] for line in lines) * 2 > len(lines):
@@ -642,7 +669,7 @@ def _bands(page_blocks, columns):
             text = [row[2] for row in rows[:head] + rows[start:end]] + [line["text"] for line in tall if line["bbox"][1] < bottom and line["bbox"][3] > top]
             bands.append({"page": block.get("page"), "type": "table", "page_size": block["page_size"], **({"orientation": turn} if turn else {}),
                           **({"repeats": True} if start < fresh else {}),
-                          "text": "\n".join(text), "clips": [_clip(box, upright["page_size"], turn) for box in ([[x0, y0, x1, cut(head)], [x0, top, x1, bottom]] if start > head and head else [[x0, top, x1, bottom]])]})
+                          "text": "\n".join(text), "clips": [_clip(box, upright["page_size"]) for box in ([[x0, y0, x1, cut(head)], [x0, top, x1, bottom]] if start > head and head else [[x0, top, x1, bottom]])]})
             start, fresh = next((i for i in range(end - 1, fresh - 1, -1) if amounts[i]), end - 1), end
     return bands if len(bands) > len(tables) else []
 
@@ -667,7 +694,7 @@ def _located_bands(found, page, turn):
     """The strips of a located table as blocks `read_group` reads (`keyed`: short-key rows) and `read_bands` joins by the
     names of the rows two strips share (`repeats`)."""
     return [{"page": page, "type": "table", "text": "", "keyed": True, "repeats": True, **({"orientation": turn} if turn else {}),
-             "clips": [_clip(box, [1, 1], turn) for box in strips]} for strips in bandkit.clips(found)]
+             "clips": [_clip(box, [1, 1]) for box in strips]} for strips in bandkit.clips(found)]
 
 
 def _read_keyed(spec, images, strip, deadline=None, cancel=None, on_call=None):
@@ -855,7 +882,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
 
     def read_summary():
         try:
-            clip = _clip(bandkit.summary_clip(found), [1, 1], turn)
+            clip = _clip(bandkit.summary_clip(found), [1, 1])
             return _read_summary(narrowed(set(summary)), _page_images(source, [page], _turns(blocks), [clip]), deadline, cancel, on_call)
         except (RuntimeError, ValueError) as exc:  # these keys are then read with the other fields
             if cancel is not None and cancel.is_set():

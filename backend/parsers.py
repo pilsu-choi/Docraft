@@ -5,6 +5,7 @@ import hashlib
 import html
 import json
 import logging
+import math
 import tempfile
 import time
 import uuid
@@ -22,7 +23,7 @@ from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 from . import latency
 from .config import ai_settings, ocr_settings
 from .engine import refine_tables
-from .table_grid import ruled_table
+from .table_grid import _dark, _skew, ruled_table
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +203,7 @@ def _page_image(path, file_type, index, size, mode):
 
 
 TURNS = (0, 90, 180, 270)
+SKEW_LIMIT, SKEW_MIN = 8.0, 0.3  # degrees of page tilt searched, and the smallest one worth resampling the page for
 
 
 def _otsu(pixels):
@@ -300,23 +302,38 @@ def _turn_by_score(image, current, boxes, deadline):
     return best, readings[best] if best else None
 
 
+def expanded(size, angle):
+    """Size of a page of `size` turned `angle` degrees with room for every corner (PIL ``rotate(expand=True)``)."""
+    cos, sin = (abs(round(f(math.radians(angle)), 12)) for f in (math.cos, math.sin))
+    return [size[0] * cos + size[1] * sin, size[0] * sin + size[1] * cos]
+
+
+def spin(point, angle, src, dst):
+    """Where `point` of a page of size `src` lands once the page turns `angle` degrees counter-clockwise (PIL ``rotate``) onto
+    a page of size `dst`: both pages turn about their centres, so one rule maps every turn, quarter or not."""
+    cos, sin = (round(f(math.radians(angle)), 12) for f in (math.cos, math.sin))
+    x, y = point[0] - src[0] / 2, point[1] - src[1] / 2
+    return dst[0] / 2 + x * cos + y * sin, dst[1] / 2 - x * sin + y * cos
+
+
 def unturn(blocks, turn):
-    """Map blocks read from a page turned by `turn` (counter-clockwise degrees) back to the unturned page.
+    """Map blocks read from a page turned by `turn` (counter-clockwise degrees, any angle) back to the unturned page.
 
     Each block's `page_size` is the turned page it was read from; boxes, lines, cells and polygons come back in
-    the original frame with the original `page_size`, and `orientation` adds up the turns. A quarter turn keeps a
+    the original frame with the original `page_size`, and `orientation` adds up the turns. A box keeps its size
+    (swapped past a quarter turn): a text line is as wide and tall after a small turn as before. A quarter turn keeps a
     deskew `rotation_degrees` valid, because plane rotations commute."""
     mapped = deepcopy(blocks)
     for block in mapped:
         if not turn or not block.get("page_size"):
             continue
-        width, height = block["page_size"]
-        point = {90: lambda x, y: (height - y, x), 180: lambda x, y: (width - x, height - y),
-                 270: lambda x, y: (y, width - x)}[turn]
-        size = [height, width] if turn % 180 else [width, height]
+        turned, size = block["page_size"], expanded(block["page_size"], turn)
+        point = lambda x, y: spin((x, y), -turn, turned, size)
+        swap = 45 < turn % 180 < 135
         def box(values):
-            corners = [point(x, y) for x in (values[0], values[2]) for y in (values[1], values[3])]
-            return [min(x for x, _ in corners), min(y for _, y in corners), max(x for x, _ in corners), max(y for _, y in corners)]
+            cx, cy = point((values[0] + values[2]) / 2, (values[1] + values[3]) / 2)
+            half_w, half_h = ((values[3] - values[1]) / 2, (values[2] - values[0]) / 2) if swap else ((values[2] - values[0]) / 2, (values[3] - values[1]) / 2)
+            return [cx - half_w, cy - half_h, cx + half_w, cy + half_h]
         for item in (block, *(block.get("lines") or []), *(block.get("cells") or [])):
             if item.get("polygon"):
                 item["polygon"] = [list(point(x, y)) for x, y in item["polygon"]]
@@ -330,11 +347,20 @@ def unturn(blocks, turn):
     return mapped
 
 
+def _tilt(image):
+    """Degrees to turn the upright `image` counter-clockwise to straighten it, 0 under SKEW_MIN or on the search limit (a bound, not a measure)."""
+    gray = ImageOps.grayscale(image)
+    gray.thumbnail((2000, 2000))
+    angle = _skew(_dark(np.asarray(gray)), tilt=SKEW_LIMIT)
+    return angle if SKEW_MIN <= abs(angle) < SKEW_LIMIT - 0.2 else 0.0
+
+
 def _upright(blocks, path, file_type, deadline=None):
     """Re-read every page whose text is not upright (`orientation`) from an upright copy.
 
     The re-read blocks keep the coordinate frame of the file as given (`bbox`, `page_size`) and carry the
-    `orientation` turn, so clients and image crops need no change. Without OCR lines nothing is judged; a
+    `orientation` turn, so clients and image crops need no change. A page's small tilt (`_tilt`, PAGE_DESKEW) is measured on the
+    upright copy and put on its blocks as `skew`; only the page image the model sees is straightened by it. Without OCR lines nothing is judged; a
     failed re-read keeps the first reading."""
     pages = sorted({b["page"] for b in blocks if b.get("lines") and b.get("page_size")})
     for page_no in pages:
@@ -346,18 +372,22 @@ def _upright(blocks, path, file_type, deadline=None):
             turn, fresh = _vote(image, boxes), None
             if turn is None and ocr_settings().get("orientation_score") and boxes:
                 turn, fresh = _turn_by_score(image, current, boxes, deadline)
-            if not turn:
-                continue
-            logger.info("page %d is turned, re-reading it rotated %d degrees counter-clockwise", page_no, turn)
-            fresh = fresh or _read_turned(image, turn, deadline)
+            if turn:
+                logger.info("page %d is turned, re-reading it rotated %d degrees counter-clockwise", page_no, turn)
+                fresh = fresh or _read_turned(image, turn, deadline)
+            skew = _tilt(image.rotate(turn, expand=True) if turn else image) if ocr_settings().get("page_deskew") else 0
         except (ParseError, TimeoutError, OSError, ValueError) as exc:
             logger.warning("upright re-read of page %d failed, keeping the scanned orientation: %s", page_no, exc)
             continue
-        fresh = [{**b, "page": page_no} for b in unturn(fresh, turn)]
-        for cell in (cell for b in fresh for cell in b.get("cells") or []):
-            cell["page"] = page_no
-        at = blocks.index(current[0])
-        blocks = [*blocks[:at], *fresh, *(b for b in blocks[at:] if b["page"] != page_no)]
+        if turn:
+            fresh = [{**b, "page": page_no} for b in unturn(fresh, turn)]
+            for cell in (cell for b in fresh for cell in b.get("cells") or []):
+                cell["page"] = page_no
+            at = blocks.index(current[0])
+            blocks = [*blocks[:at], *fresh, *(b for b in blocks[at:] if b["page"] != page_no)]
+        for b in blocks:
+            if skew and b["page"] == page_no:
+                b["skew"] = skew
     return blocks
 
 

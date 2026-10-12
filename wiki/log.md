@@ -516,3 +516,4 @@
 - **Creation** (2026-10-08): [Parse·Extract 이슈 도감](2026-10-08-issue-taxonomy-gallery.md) — 상위 wiki에서 동기화, 노드별 시각 예시 121건.
 - **Update** (2026-10-08): [Parse·Extract 이슈 도감](2026-10-08-issue-taxonomy-gallery.md) — 상위 wiki에서 동기화: 121건 표시 검수, 합성 이미지 51개 노드, 개인정보 명시, 당장 대상 아님 19건.
 - **Update** (2026-10-08): [Parse·Extract 이슈 도감](2026-10-08-issue-taxonomy-gallery.md) — 상위 wiki에서 동기화: 이슈 위치 박스·확대 이미지 51개 노드.
+- **Creation** (2026-10-12): [페이지 기울기 보정(PAGE_DESKEW)](2026-10-12-page-skew-correction.md) — 방향과 작은 기울기를 한 각도로 합쳐 모델 이미지를 돌리고 띠 상자를 맞춤. 설정 PAGE_DESKEW(기본 켬).

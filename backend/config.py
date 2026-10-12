@@ -158,6 +158,8 @@ def ocr_settings() -> dict:
         "timeout": float(os.getenv("PADDLEOCR_TIMEOUT", "600")),
         # Undecided page orientation is settled by re-reading the page at the candidate turns and comparing OCR scores.
         "orientation_score": _flag("ORIENTATION_SCORE_CHECK", "1"),
+        # A page tilted by a degree or more is rotated straight in the image the model sees (parsers.SKEW_LIMIT bounds the search).
+        "page_deskew": _flag("PAGE_DESKEW", "1"),
         "configured": provider == "paddle" and bool(base_url),
     }
 
