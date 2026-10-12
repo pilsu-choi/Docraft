@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-13 세부내역서 묶음 제목 행 제거
+
+- **Update**: [세부내역서 band 읽기](2026-10-12-detail-band-ocr-rows.md) — 결정 A(제목 행 제거) 반영, 재채점 92.3→93.2%.
+
 ## 2026-10-12 세부내역서 band 읽기
 
 - **Creation**: [세부내역서 band 읽기 v1~v4](2026-10-12-detail-band-ocr-rows.md) — OCR 행 경계 띠, 30건 92.3%, rowmajor 행 누락 원인 3가지(상위 wiki와 동기화).
