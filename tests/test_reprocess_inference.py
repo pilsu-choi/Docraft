@@ -2,6 +2,9 @@
 
 from backend import doctypes
 from backend import inference, reprocess, rules
+import pytest
+
+pytestmark = pytest.mark.usefixtures("reprocess_on")  # 재처리 기본 끔 — 이 모듈은 재처리를 거치는 흐름을 본다
 
 
 TOTAL = "진료비내역-총액"

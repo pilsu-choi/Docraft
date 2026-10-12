@@ -108,7 +108,7 @@ flowchart TD
 - `keys`: 선택 JSON 배열 문자열(예: `["병원명", "항목내역"]`). 그 유형의 필드·표 key만 추출합니다(추출 스키마도 그만큼 좁혀 비용을 줄입니다). 정의에 없는 key는 무시하고 한 번 경고 로그를 남기며, 유효한 key가 하나도 없으면 읽지 않고 빈 `fields`(200)를 돌려줍니다 — 하네스 검토 칸이 모두 Docraft 정의 밖일 때(사고발생일자 등)입니다. 생략하면 유형의 전체 필드를 돌려줍니다.
 - `row_filter`: 선택 JSON 객체 문자열(예: `{"항목내역": ["진찰료", "CT진단료"]}`). 표 key → 행 식별 값(그 표의 첫 열: 영수증·세부내역서 "항목") 목록입니다. `keys` 안의(생략 시 유형 전체의) 표에만 적용되며, 추출 스키마에 "이 값인 행만 적고 나머지는 생략" 지시와 `maxItems`를 넣어 모델이 그 행만 생성하게 하고(생성 토큰·시간 절감), 응답에서도 목록 밖 행을 거릅니다. 필터된 표는 행 단위 자동 재처리를 건너뜁니다. 생략하면 기존과 같고, JSON 형식이 틀리면 422, 정의에 없는 표 key는 무시하고 한 번 경고합니다.
 - `remaining_ms`: 선택 정수. 최초 Parse·Extract와 추가 재처리의 전체 시한입니다. 0이면 초기 OCR·모델 호출 없이 408입니다. 서버 `READ_MAX_MS`가 상한입니다.
-- `auto_reprocess`: 선택 불리언, 기본 `true`. `false`면 최초 읽기만 수행합니다. 서버 `REPROCESS_ENABLED=false`가 우선합니다.
+- `auto_reprocess`: 선택 불리언, 기본 `true`. `false`면 최초 읽기만 수행합니다. 서버 `REPROCESS_ENABLED`(기본 `false`, 2026-10-12부터)가 꺼져 있으면 `true`여도 재처리하지 않습니다.
 
 응답은 `{"doc_type": "<정규화된 유형>", "fields": {...}, "groundings": {...}, "field_quality": {...}, "reprocess": {...}, "elapsed_ms": <정수>, "diagnostics": {...}}`입니다. `diagnostics`는 운영 지표(단계별 시간 `ocr_ms`·`extract_ms` 등, 표 열 배치 출처 `table_plan`(layout·header·value·union)과 머리글을 못 읽은 사유 `table_plan_reason`, 근거가 약해 추측하지 않은 열 `table_plan_flags`(column_unplaced·code_order·column_shape, [기록](wiki/2026-10-05-column-evidence.md)), 게이트 `table_gate`·`table_reread`, rowmajor가 asis로 넘어간 사유 `rowmajor_fallback`, 맞바꾼·의심한 열 `column_swaps`, 바로 세운 쪽 `turned`, 실패 표 페이지 묶음 수 `table_pages_failed`와 페이지별 추출 완전성 `extraction_completeness`)이며 하네스는 읽지 않습니다. `fields`는 파싱→추출→`rules.apply`와 안전하게 재검증된 leaf 교정을 거친 Docraft 값입니다. 재처리는 [OCR 줄 위치와 규칙 위반이 확인된 필드](wiki/2026-09-27-reprocess-priority.md)를 먼저 선택합니다. 스칼라 텍스트의 전체 이미지 재판독에는 앞선 OCR 문장을 전달하지 않아 같은 오독을 복사하는 위험을 줄입니다. `reprocess`는 `status`, `attempts`, `extra_model_calls`, `stop_reason`, `trace`를 포함합니다. trace에는 이전·제안·채택 값과 근거가 있어 개인정보로 취급해야 합니다. 연결이 끊기면 다음 단계에서 중단하고 499, 운영자 취소는 409, 예산 만료는 408입니다. `/api/health`의 `verify_inflight`는 두 읽기 경로를 합산합니다. 자세한 상한과 채택 규칙은 [자동 재처리 기록](wiki/2026-09-27-auto-reprocess.md)을 보세요.
 
@@ -237,16 +237,23 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `AI_REASONING` | `off` | `on`이면 모델의 기본 사고 모드를 끄지 않음(일부 모델은 켜지면 10배 이상 느려짐) |
 | `AI_VISION` | `true` | PDF·이미지의 페이지 이미지를 provider에 첨부 |
 | `PARSE_PROVIDER`, `PADDLEOCR_BASE_URL` | `library`, 빈 URL | 기본 라이브러리 파싱 또는 원격 PaddleOCR |
-| `PADDLEOCR_LINES_URL` | 빈 값 | 선택적인 줄 단위 근거 좌표 |
+| `PADDLEOCR_LINES_URL` | 빈 값 | 선택적인 줄 단위 근거 좌표. 레이아웃 요청과 동시에 보낸다(서로의 응답이 필요 없다) |
+| `PADDLEOCR_LINES_DEVICE` | `cpu` | compose `paddleocr-lines-api` 추론 장치. `gpu:0`이면 요청당 3~4.5초 → 0.3~0.9초(약 6GB) |
+| `VISION_MAX_EDGE` | `2000` | 모델에 붙이는 쪽·띠 이미지의 긴 변(px). 줄이면 VLM 입력(prefill) 토큰이 제곱으로 준다 — 정확도 A/B 후에만 바꾼다 |
 | `ORIENTATION_SCORE_CHECK` | `1` | 마침표 투표로 방향이 정해지지 않은 페이지를 후보 각도로 다시 읽어 OCR 평균 인식 점수가 높은 쪽으로 세움(0이면 끔) |
 | `PAGE_DESKEW` | `1` | 페이지가 0.3~45도 기울어 있으면(그 너머는 90도 단위 방향 몫) 모델에 보내는 이미지만 그만큼 돌려 바로 세움. OCR 좌표는 그대로(0이면 90도 단위 회전만) |
 | `TABLE_REFINE` | `false` | OCR 표 셀 텍스트를 LLM으로 추가 교정 |
 | `TABLE_EXTRACT` | `band` | `/api/read`·`/api/verify` 첫 추출에서 표를 읽는 방식. `rowmajor`는 표마다 행을 값 배열로 받는 호출(서버 JSON 스키마 강제)을 따로 하고, 열은 문서에 인쇄된 순서로 준다(진료비영수증은 양식 1~5 판별, 세부내역서는 머리글 순서, 머리글이 없으면 값 꼴로 배치하고 근거가 약한 열은 만들지 않는다). `asis`는 표를 다른 필드와 함께 JSON 객체로 읽는 기존 방식, `band`는 아래 `BAND_DOC_TYPES` 참고 |
-| `TABLE_RECHECK_RATIO` | `0.6` | `rowmajor`에서 세부내역서 표가 망가진 비율(행 산술 단가×횟수×일수=총액 등이 어긋난 행, 금액 칸이 모두 빈 행, 열 종류에 맞지 않는 값이 두 칸 이상인 행 중 큰 값)이 이 값 이상이면 그 표를 `asis`로 다시 읽음(1보다 크면 끔). rowmajor 응답은 OCR 근거의 금액 수로 정한 출력 토큰 상한을 넘으면 그 표를 `asis`로 읽음 |
-| `BAND_DOC_TYPES` | `진료비영수증` | `TABLE_EXTRACT=band`로 읽는 문서 유형(쉼표 목록). `band`는 쪽 전체 그림 한 번으로 항목 표·머리글·첫 행·합계 행·금액산정 블록 위치를 찾고, 표를 머리글 아래 3개 가로 띠(10% 겹침, 띠마다 머리글 띠)로 잘라 짧은 키 형식으로 읽어 항목 이름 순서 겹침으로 합치며, 금액산정 블록은 따로 잘라 읽어 그 키의 최종 값으로 쓴다. 위치를 못 찾거나 목록 밖 유형이면 `rowmajor`. `공단부담총액`은 표 마지막 합계 행에 인쇄된 공단부담금 값 |
+| `TABLE_RECHECK_RATIO` | `2`(끔) | `rowmajor`에서 세부내역서 표가 망가진 비율(행 산술 단가×횟수×일수=총액 등이 어긋난 행, 금액 칸이 모두 빈 행, 열 종류에 맞지 않는 값이 두 칸 이상인 행 중 큰 값)이 이 값 이상이면 그 표를 `asis`로 다시 읽음(1보다 크면 끔 — 기본, 켤 때는 `0.6`). rowmajor 응답은 OCR 근거의 금액 수로 정한 출력 토큰 상한을 넘으면 그 표를 `asis`로 읽음 |
+| `BAND_DOC_TYPES` | `진료비영수증` | `TABLE_EXTRACT=band`로 읽는 문서 유형(쉼표 목록). `band`는 쪽 전체 그림 한 번으로 항목 표·머리글·첫 행·합계 행·금액산정 블록 위치를 찾고, 표를 머리글 아래 `BAND_STRIPS`개(기본 3) 가로 띠(10% 겹침, 띠마다 머리글 띠)로 잘라 짧은 키 형식으로 읽어 항목 이름 순서 겹침으로 합치며, 금액산정 블록은 따로 잘라 읽어 그 키의 최종 값으로 쓴다. 위치를 못 찾거나 목록 밖 유형이면 `rowmajor`. `공단부담총액`은 표 마지막 합계 행에 인쇄된 공단부담금 값 |
+| `BAND_PRELOCATE` | `false` | `band` 1쪽 문서의 위치 찾기 호출을 OCR과 동시에 바로 선 쪽 이미지로 보냄. OCR이 쪽을 돌리거나 기울기를 바로잡았으면 그 답을 버리고 돌린 이미지로 다시 찾음(보내는 이미지가 같을 때만 쓰므로 결과 동일). 진단 값 `band_prelocate`(`used`/`turned`) |
+| `BAND_SPECULATE` | `false` | 위치 응답을 기다리는 동안 금액산정 키를 뺀 나머지 필드를 먼저 읽음. 금액산정 상자를 찾으면 그 읽기를 그대로 쓰고(위치 뒤에 보냈을 호출과 같음), 못 찾으면 버리고 지금처럼 다시 읽음(결과 동일, 호출 1회 추가). 진단 값 `band_speculate=reread` |
+| `BAND_STRIPS` | `3` | `band` 항목 표를 자르는 띠 수(1~8). 늘리면 띠 하나의 응답이 짧아져 문서 하나는 빨라지지만 호출·머리글 이미지가 늘어 VLM이 포화되면 오히려 느려짐 |
+| `COMPACT_REPLY` | `false` | 띠·금액산정·나머지 필드 응답을 한 줄 JSON으로 요청하고, 나머지 필드 호출은 서버 JSON 스키마로 묶고 필드 수로 정한 출력 상한(필드당 60+100 토큰)을 둠. 응답이 달라질 수 있어 기본 끔 |
 | `PRINT_REGISTER` | `false` | `true`이면 `band`로 읽은 바로 선 1쪽 진료비영수증에서, 금액 층이 양식 칸선과 반 행가량 통째로 밀려 찍혀 이웃 행에 붙어 읽힌 값을 OCR 줄 좌표로 되돌림(`backend/print_register.py`). 문서마다 이동량 하나를 합계 줄 기준점으로 정하고 인쇄 줄 단위로 옮기며, 모호하거나 도착 칸이 차 있으면 손대지 않음. 결과는 진단 값 `print_register`([인쇄 정합 이식](wiki/2026-10-09-receipt-print-register-port.md)) |
 | `BAND_HEADER_NOTE` | `false` | `true`이면 `band` 띠 읽기 프롬프트에 머리글 글자가 줄·칸으로 쪼개 인쇄된 서식('선택진료료 / 이외')을 같은 칸끼리 이어 읽고, 외·이외(⑤)는 선택진료료외, 하위 칸을 묶는 비급여 제목은 0으로 두라는 안내(`band.HEADER_NOTE`)를 붙임. 꺼짐이면 프롬프트는 이전과 같음 |
-| `VLM_CONCURRENCY` | `8` | provider(VLM) 동시 호출 수, 시한까지 자리가 안 나면 408(0이면 제한 없음) |
+| `VLM_CONCURRENCY` | `8` | provider(VLM) 동시 호출 수(서버 전체), 시한까지 자리가 안 나면 408(0이면 제한 없음). vLLM `--max-num-seqs`에서 같은 vLLM을 쓰는 다른 서비스(harness) 몫을 뺀 값에 맞춘다 |
+| `WEB_CONCURRENCY` | `1` | uvicorn 프로세스 수(uvicorn이 직접 읽음, `--workers` 대신 이 변수로 준다). CPU 후처리가 한 GIL을 나눠 쓰지 않게 한다. `OCR_CONCURRENCY`·`VLM_CONCURRENCY`는 서버 전체 상한이라 프로세스마다 나눈 몫(최소 1)을 쥔다. 프로세스마다 따로인 것: 같은 페이지 결과 공유(`READ_CACHE_*`, 다른 프로세스로 간 같은 페이지 요청은 OCR을 다시 함), `cancel-all`의 진행 중 요청 취소·`/api/health`의 `verify_inflight`, inline 작업 풀(`QUEUE_CONCURRENCY`가 프로세스마다), 마스터 캐시 메모리 |
 | `REPETITION_PENALTY` | 빈 값 | 요청 본문의 `repetition_penalty`. 비우면 보내지 않음(띠 읽기 실험은 1.05) |
 | `TABLE_PAGE_CONCURRENCY` | `4` | 한 번의 응답에 다 담기지 않는 여러 쪽 표(응답 상한 추정이 16k 토큰을 넘거나 4쪽·`EXTRACT_CHUNK_CHARS`를 넘는 표)는 쪽 묶음마다 따로 읽어 쪽 순서로 이어 붙인다. 그 동시 호출 수. rowmajor는 쪽마다 그 쪽 머리글(없으면 앞쪽 머리글)의 열 배치로 읽고, 실패한 쪽만 asis로 다시 읽는다 |
 | `INTEGRITY_REVIEW` | `false` | `true`이면 입력·쪽 무결성 탐지(`issue_codes`)에 걸린 확정 값을 재검토 대상으로 돌림. 기본은 기록만 하고 PASS 유지 |

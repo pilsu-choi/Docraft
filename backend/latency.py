@@ -9,7 +9,7 @@ import contextvars
 import threading
 import time
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from copy import deepcopy
 
@@ -20,6 +20,7 @@ _lock = threading.Lock()
 _cache: OrderedDict = OrderedDict()  # key -> (만료 시각, 값)
 _flights: dict = {}  # 계산 중인 key -> 끝나면 세워지는 Event
 _gates: dict[str, threading.BoundedSemaphore] = {}  # 환경변수 이름 -> 자리(첫 호출 때 크기 고정)
+_background = ThreadPoolExecutor(32, thread_name_prefix="docraft-early")  # ``spawn``: 기다리는 동안 먼저 보내 두는 원격 호출
 
 
 def remaining(deadline):
@@ -79,11 +80,23 @@ def parallel(fn, items, workers):
         return [future.result() for future in futures]
 
 
+def spawn(fn, *args) -> Future:
+    """``fn(*args)``을 지금 시작해 결과를 Future로 돌려준다(로그 rid·시간 집계를 넘긴다). 결과를 쓸지는 호출자가 나중에 정한다."""
+    return _background.submit(contextvars.copy_context().run, fn, *args)
+
+
+def workers():
+    """이 서버의 uvicorn 프로세스 수(``WEB_CONCURRENCY``, 기본 1). uvicorn이 같은 변수로 프로세스를 띄운다."""
+    return max(1, limit("WEB_CONCURRENCY", 1, 64))
+
+
 @contextmanager
 def _slot(name, default, deadline, stage):
-    """``name``(환경변수)이 정한 크기의 프로세스 공용 자리. 0이면 제한 없음, 시한까지 자리가 안 나면 TimeoutError.
+    """``name``(환경변수)이 정한 크기의 서버 공용 자리. 0이면 제한 없음, 시한까지 자리가 안 나면 TimeoutError.
+    값은 서버 전체 상한이라 프로세스마다 ``workers()``로 나눈 몫(최소 1)을 쥔다 — 프로세스 수가 상한보다 많으면 넘친다.
     기다린 시간은 ``{stage}_wait_ms``, 자리를 쥔 시간은 ``{stage}_ms``로 남긴다."""
     size = limit(name, default, 256)
+    size = size and max(1, size // workers())
     if not size:
         yield
         return

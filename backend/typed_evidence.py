@@ -199,8 +199,11 @@ def valid(source, value):
     return False
 
 
+_SPACES = re.compile(r"\s+")
+
+
 def _compact(text):
-    return re.sub(r"\s+", "", str(text or ""))
+    return _SPACES.sub("", str(text or ""))
 
 
 def _segments(blocks):
@@ -451,15 +454,20 @@ def _physical(cell):
             and len(cell["bbox"]) == 4 and isinstance(cell.get("page"), int))
 
 
-def _table_row(row, source_rows):
+def _row_names(source_rows):
+    """Each OCR row's (has a total label, normalized item names), read once per table rather than per extracted cell."""
+    return [(any(rules.is_total({"항목": cell}) for cell in source), {rules.item(cell) for cell in source if cell})
+            for source in source_rows]
+
+
+def _table_row(row, names):
     """A unique printed item/total row; never assume extraction and OCR row indexes coincide."""
     name = row.get("항목") if isinstance(row, dict) else None
     if not name:
         return None
     total = rules.is_total({"항목": name})
-    matches = [index for index, source in enumerate(source_rows)
-               if (total and any(rules.is_total({"항목": cell}) for cell in source)
-                   or not total and any(rules.item(cell) == rules.item(name) for cell in source if cell))]
+    matches = [index for index, (has_total, items) in enumerate(names)
+               if (has_total if total else rules.item(name) in items)]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -488,13 +496,11 @@ def _column(block, row, key, group=None):
     return (next(iter(columns)), max(candidates, key=lambda cell: cell["row"])["text"]) if len(columns) == 1 else None
 
 
-def _table_proofs(table, index, key, value, kind, blocks, rows):
+def _table_proofs(table, index, key, value, kind, tables, rows):
+    """``tables``: (block, ``_row_names``) for each OCR table with cells."""
     found = []
-    for block in blocks:
-        source_rows = block.get("rows") or []
-        if not _cells(block) or not source_rows:
-            continue
-        source_row = _table_row(rows[index], source_rows)
+    for block, names in tables:
+        source_row = _table_row(rows[index], names)
         if source_row is None:
             continue
         selected = _column(block, source_row, key)
@@ -661,6 +667,7 @@ def augment(result, schema, blocks, groundings):
     spec = doctypes.spec(doc_type)
     definitions = spec["fields"]
     bool_labels = tuple(key for key, meta in definitions.items() if meta["kind"] == "bool")
+    tables = None
     for key, value in result.items():
         if key in definitions and not isinstance(value, (dict, list)):
             kind = definitions[key]["kind"]
@@ -670,12 +677,14 @@ def augment(result, schema, blocks, groundings):
                 groundings[key] = proof
         elif isinstance(value, list) and key in spec["tables"]:
             columns = spec["tables"][key]
+            if tables is None:
+                tables = [(block, _row_names(block["rows"])) for block in blocks if _cells(block) and block.get("rows")]
             for index, row in enumerate(value):
                 if not isinstance(row, dict):
                     continue
                 for column, cell_value in row.items():
                     if column in columns:
-                        proof = _table_proofs(key, index, column, cell_value, columns[column]["kind"], blocks, value)
+                        proof = _table_proofs(key, index, column, cell_value, columns[column]["kind"], tables, value)
                         if proof:
                             groundings.setdefault(key, {}).setdefault(str(index), {})[column] = proof
     for key in doctypes.SCHEMA_ALIASES.get(doc_type, {}):

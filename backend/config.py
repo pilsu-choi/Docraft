@@ -138,12 +138,17 @@ def ai_settings() -> dict:
     band_doc_types = tuple(name.strip() for name in os.getenv("BAND_DOC_TYPES", "진료비영수증").split(",") if name.strip())
     # 비우면 보내지 않는다. 표를 띠로 읽을 때 같은 행이 반복되는 것을 줄이려 1.05 정도를 쓴다.
     penalty = os.getenv("REPETITION_PENALTY", "").strip()
-    table_recheck_ratio = float(os.getenv("TABLE_RECHECK_RATIO", "0.6"))
+    # 1보다 크면 다시 읽지 않는다(기본 — 2026-10-12, 다시 읽기가 VLM 호출 1회를 순차로 더해 지연을 늘린다). 켤 때는 0.6을 쓴다.
+    table_recheck_ratio = float(os.getenv("TABLE_RECHECK_RATIO", "2"))
     # 진료비영수증 band 읽기 뒤 금액 층이 양식 칸선에서 통째로 밀려 찍힌 인쇄를 OCR 줄 좌표로 문서 단위에서 되돌린다(print_register).
     print_register = _flag("PRINT_REGISTER", "false")
     # band 띠 프롬프트에 쪼개 인쇄된 머리글 이어 읽기·비급여 묶음 제목 안내를 붙인다(band.HEADER_NOTE, 실측 전이라 기본 꺼짐).
     band_header_note = _flag("BAND_HEADER_NOTE", "false")
-    return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
+    # band 읽기 지연 줄이기. prelocate: OCR과 동시에 바로 선 쪽 이미지로 표 위치를 찾고 OCR이 쪽을 돌리지 않았으면 그 답을 쓴다(결과 동일).
+    # speculate: 위치 응답을 기다리지 않고 금액산정 키를 뺀 나머지 필드를 먼저 읽고, 금액산정 상자가 없으면 버리고 지금처럼 다시 읽는다(결과 동일).
+    # strips: 항목 표를 자르는 띠 수. compact_reply: 띠·금액산정·나머지 필드 응답을 한 줄 JSON·상한 토큰으로 줄인다(응답이 달라질 수 있어 기본 끔).
+    return {"band_prelocate": _flag("BAND_PRELOCATE", "false"), "band_speculate": _flag("BAND_SPECULATE", "false"),
+            "band_strips": max(1, limit("BAND_STRIPS", 3, 8)), "compact_reply": _flag("COMPACT_REPLY", "false"), "mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
             "integrity_review": integrity_review, "table_extract": table_extract, "band_doc_types": band_doc_types,
             "repetition_penalty": float(penalty) if penalty else None, "table_recheck_ratio": table_recheck_ratio, "print_register": print_register, "band_header_note": band_header_note}
 

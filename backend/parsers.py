@@ -1,6 +1,7 @@
 import csv
 import io
 import base64
+import contextvars
 import hashlib
 import html
 import json
@@ -9,6 +10,7 @@ import math
 import tempfile
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from html.parser import HTMLParser
 from pathlib import Path
@@ -26,6 +28,7 @@ from .engine import refine_tables
 from .table_grid import _dark, _skew, ruled_table
 
 logger = logging.getLogger(__name__)
+_LINES = ThreadPoolExecutor(8, thread_name_prefix="ocr-lines")  # 줄 OCR을 레이아웃 호출과 겹쳐 보낸다(서로의 입력이 아니다)
 
 LABEL_TYPES = {
     "table": "table", "doc_title": "heading", "paragraph_title": "heading",
@@ -132,21 +135,28 @@ def _html_table(content):
     return {key: table[key] for key in ("rows", "spans") if key in table}
 
 
-def _attach_lines(blocks, encoded, file_type, settings, page_map, deadline=None):
-    """Add PP-OCRv5 text line boxes (`block["lines"]`) so grounding can point at a line instead of a whole block.
-
-    The layout pipeline only returns block coordinates; this plain OCR pipeline returns one box per
-    text line in the same image coordinates. Each line joins the smallest block containing its center;
-    lines outside every block are dropped. A failure here only costs precision, so it is not fatal."""
+def _read_lines(encoded, file_type, settings, deadline=None):
+    """PP-OCRv5 line results (one per page) of the encoded file, or None when the line service fails — that only costs precision."""
     started = time.monotonic()
     headers = {"Authorization": f"Bearer {settings['token']}"} if settings["token"] else {}
     try:
-        response = httpx.post(f"{settings['lines_url']}/ocr", json={"file": encoded, "fileType": file_type, "visualize": False}, headers=headers, timeout=latency.capped(settings["timeout"], deadline))
+        with latency.timed("lines_ms"):  # 줄 OCR 시간(진단 값) — 레이아웃 ocr_ms와 겹쳐 흐른다
+            response = httpx.post(f"{settings['lines_url']}/ocr", json={"file": encoded, "fileType": file_type, "visualize": False}, headers=headers, timeout=latency.capped(settings["timeout"], deadline))
         response.raise_for_status()
         pages = response.json()["result"]["ocrResults"]
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
         logger.warning("paddleocr line OCR failed, grounding falls back to block boxes: %s", exc, exc_info=True)
-        return
+        return None
+    logger.debug("paddleocr line OCR: elapsed=%.2fs pages=%d", time.monotonic() - started, len(pages))
+    return pages
+
+
+def _attach_lines(blocks, pages, page_map):
+    """Add PP-OCRv5 text line boxes (`block["lines"]`) so grounding can point at a line instead of a whole block.
+
+    The layout pipeline only returns block coordinates; the plain OCR pipeline (`_read_lines`) returns one box per
+    text line in the same image coordinates. Each line joins the smallest block containing its center;
+    lines outside every block are dropped."""
     for index, page in enumerate(pages[:len(page_map)] if page_map else pages, 1):
         page_no = page_map[index - 1] if page_map else index
         targets = [b for b in blocks if b["page"] == page_no and b["bbox"]]
@@ -158,22 +168,21 @@ def _attach_lines(blocks, encoded, file_type, settings, page_map, deadline=None)
             if inside and str(text).strip():
                 smallest = min(inside, key=lambda b: (b["bbox"][2] - b["bbox"][0]) * (b["bbox"][3] - b["bbox"][1]))
                 smallest.setdefault("lines", []).append({"text": str(text), "bbox": [float(v) for v in box], **({"score": float(score)} if score is not None else {})})
-    logger.debug("paddleocr line OCR: elapsed=%.2fs pages=%d lines=%d", time.monotonic() - started, len(pages), sum(len(b.get("lines") or []) for b in blocks))
 
 
-def _ruled_tables(blocks, path, file_type, page_map):
+def _ruled_tables(blocks, render):
     """Replace the VLM's generated table structure with the printed-rule grid (`table_grid`) where a table has one.
 
-    Needs the OCR lines `_attach_lines` put on each table. Tables without a usable grid, a grid with fewer than half
+    `render(page_no, size)` is the grayscale page image the blocks were read from. Needs the OCR lines `_attach_lines` put on each table. Tables without a usable grid, a grid with fewer than half
     the VLM's rows, or pages that cannot be rendered keep the VLM structure."""
-    tables = [b for b in blocks if b["type"] == "table" and b["bbox"] and b.get("lines") and b.get("page_size")]
+    tables = [b for b in blocks if b.get("type") == "table" and b.get("bbox") and b.get("lines") and b.get("page_size")]
     if not tables:
         return
     started = time.monotonic()
     try:
         for page_no in sorted({b["page"] for b in tables}):
             size = next(b["page_size"] for b in tables if b["page"] == page_no)
-            image = _page_image(path, file_type, page_map.index(page_no) if page_map else page_no - 1, size, "L")
+            image = render(page_no, size)
             for table in (b for b in tables if b["page"] == page_no):
                 grid = ruled_table(image, table["bbox"], table["lines"], with_geometry=True)
                 # Faint rules found only in part collapse many rows into a few; the VLM rows are then the better guess.
@@ -191,15 +200,20 @@ def _ruled_tables(blocks, path, file_type, page_map):
 
 def _page_image(path, file_type, index, size, mode):
     """Page `index` (0-based) of a PDF (`file_type` 0) or the image file, rendered at the OCR page `size` in `mode`."""
-    width, height = (round(v) for v in size)
     if file_type == 0:
+        width, height = (round(v) for v in size)
         with fitz.open(path) as pdf:
             page = pdf[index]
             pix = page.get_pixmap(matrix=fitz.Matrix(width / page.rect.width, height / page.rect.height),
                                   colorspace=fitz.csGRAY if mode == "L" else fitz.csRGB, alpha=False)
             return Image.frombytes(mode, (pix.width, pix.height), pix.samples)
     with Image.open(path) as source:
-        return source.convert(mode).resize((width, height))
+        return _fit(source, size, mode)
+
+
+def _fit(image, size, mode):
+    """`image` in `mode` at the OCR page `size` — the same pixels whether it comes from a file or from memory."""
+    return image.convert(mode).resize(tuple(round(v) for v in size))
 
 
 TURNS = (0, 90, 180, 270)
@@ -275,14 +289,16 @@ def _mean_score(blocks):
 
 
 def _read_turned(image, turn, deadline):
-    """OCR blocks of `image` turned `turn` degrees counter-clockwise (in the turned frame, before `unturn`)."""
+    """OCR blocks of `image` turned `turn` degrees counter-clockwise (in the turned frame, before `unturn`).
+
+    Ruled table grids are left to `_upright`, which builds them only for the turn it keeps."""
     with tempfile.NamedTemporaryFile(suffix=".png") as turned:
         image.rotate(turn, expand=True).save(turned, format="PNG")
         turned.flush()
         remaining = deadline - time.monotonic() if deadline is not None else None
         if remaining is not None and remaining <= 0:
             raise TimeoutError("parse deadline exceeded")
-        return _remote_paddle(turned.name, 1, expected_pages=1, timeout=remaining, deadline=deadline)
+        return _remote_paddle(turned.name, 1, expected_pages=1, timeout=remaining, deadline=deadline, ruled=False)
 
 
 def _turn_by_score(image, current, boxes, deadline):
@@ -294,7 +310,8 @@ def _turn_by_score(image, current, boxes, deadline):
     tall = sum(b[3] - b[1] > 1.5 * (b[2] - b[0]) for b in boxes)
     wide = sum(b[2] - b[0] > 1.5 * (b[3] - b[1]) for b in boxes)
     candidates = (90, 270) if tall > wide else (0, 180)
-    readings = {turn: current if turn == 0 else _read_turned(image, turn, deadline) for turn in candidates}
+    fresh = latency.parallel(lambda turn: _read_turned(image, turn, deadline), [turn for turn in candidates if turn], 2)
+    readings = {turn: current if turn == 0 else fresh.pop(0) for turn in candidates}
     means = {turn: _mean_score(blocks) for turn, blocks in readings.items()}
     if None in means.values():
         return 0, None
@@ -365,6 +382,19 @@ def _tilt(image):
     return angle if SKEW_MIN <= abs(angle) and sharpness >= SKEW_SURE else 0.0
 
 
+def page_tilt(path):
+    """The `skew` `_upright` puts on an image file's first page (`_tilt`, PAGE_DESKEW), measured before OCR from the same decoded
+    frame; 0 when deskew is off or the file is no image. `_upright` measures it at the OCR page size, so callers compare."""
+    if not ocr_settings().get("page_deskew"):
+        return 0
+    try:
+        with Image.open(path) as source:
+            return _tilt(ImageOps.exif_transpose(source).convert("RGB"))
+    except (OSError, ValueError):
+        return 0
+
+
+@latency.timed("upright_ms")  # read finished 로그의 parse_ms 세부
 def _upright(blocks, path, file_type, deadline=None):
     """Re-read every page whose text is not upright (`orientation`) from an upright copy.
 
@@ -388,6 +418,8 @@ def _upright(blocks, path, file_type, deadline=None):
             if turn:
                 logger.info("page %d is turned, re-reading it rotated %d degrees counter-clockwise", page_no, turn)
                 fresh = fresh or _read_turned(image, turn, deadline)
+                turned = image.rotate(turn, expand=True)
+                _ruled_tables(fresh, lambda _, size: _fit(turned, size, "L"))
         except (ParseError, TimeoutError, OSError, ValueError) as exc:
             logger.warning("upright re-read of page %d failed, keeping the scanned orientation: %s", page_no, exc)
             continue
@@ -403,7 +435,9 @@ def _upright(blocks, path, file_type, deadline=None):
     return blocks
 
 
-def _remote_paddle(path, file_type, page_map=None, expected_pages=None, timeout=None, deadline=None):
+def _remote_paddle(path, file_type, page_map=None, expected_pages=None, timeout=None, deadline=None, ruled=True):
+    """Blocks of the PaddleOCR-VL layout pipeline, with the line OCR's boxes (`_attach_lines`) and, if `ruled`, printed-rule
+    table grids (`_ruled_tables`). The line OCR request goes out alongside the layout request — neither needs the other's answer."""
     settings = ocr_settings()
     if not settings["base_url"]:
         raise ParseError("PaddleOCR 원격 서비스가 설정되지 않았습니다. PADDLEOCR_BASE_URL을 설정해 주세요.")
@@ -415,6 +449,7 @@ def _remote_paddle(path, file_type, page_map=None, expected_pages=None, timeout=
     payload = {"file": encoded, "fileType": file_type, "visualize": False, "returnMarkdownImages": False}
     logger.debug("paddleocr request: endpoint=%s file_type=%s bytes=%d", endpoint, file_type, len(payload["file"]))
     started = time.monotonic()
+    lines = _LINES.submit(contextvars.copy_context().run, _read_lines, encoded, file_type, settings, deadline) if settings["lines_url"] else None
     try:
         with latency.ocr_slot(deadline):  # GPU 레이아웃 모델은 동시 2건에서 포화된다 — 몰리면 줄을 세운다
             budget = min(settings["timeout"], timeout) if timeout is not None else settings["timeout"]
@@ -449,9 +484,11 @@ def _remote_paddle(path, file_type, page_map=None, expected_pages=None, timeout=
         logger.debug("paddleocr page %d/%d: regions=%d elapsed=%.2fs", index, len(pages), len(regions), time.monotonic() - started)
     if not blocks:
         raise ParseError("PaddleOCR 원격 응답에서 텍스트를 찾지 못했습니다.")
-    if settings["lines_url"] and (deadline is None or time.monotonic() < deadline):
-        _attach_lines(blocks, encoded, file_type, settings, page_map, deadline)
-        _ruled_tables(blocks, path, file_type, page_map)
+    if lines and (deadline is None or time.monotonic() < deadline):
+        if pages := lines.result():
+            _attach_lines(blocks, pages, page_map)
+        if ruled:
+            _ruled_tables(blocks, lambda page_no, size: _page_image(path, file_type, page_map.index(page_no) if page_map else page_no - 1, size, "L"))
     return blocks
 
 

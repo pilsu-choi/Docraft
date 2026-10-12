@@ -140,12 +140,13 @@ services:
       start_period: 120s
 
   # 줄 좌표 전용 PP-OCRv5 파이프라인. 근거 상자를 블록이 아닌 줄 단위로 그리기 위해 쓴다.
-  # CPU 추론이지만 이미지가 paddlepaddle-gpu라 libcuda 로딩에 GPU 예약이 필요하다(없으면 ImportError).
+  # 기본은 CPU 추론(요청 하나에 3~4.5초, 한 번에 하나씩)이지만 이미지가 paddlepaddle-gpu라 libcuda 로딩에 GPU 예약이 필요하다(없으면 ImportError).
+  # PADDLEOCR_LINES_DEVICE=gpu:0 이면 같은 카드에서 0.3~0.9초(약 6GB, 고객 프로파일 l40s·h200과 같은 방식).
   # 모델은 첫 기동 때 $HOME/.paddlex 아래로 자동 내려받는다(이미지 HOME=/home/paddleocr).
   paddleocr-lines-api:
     profiles: [ocr]
     image: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-vl:${PADDLEOCR_IMAGE_TAG:-latest-nvidia-gpu-offline}
-    command: ["paddlex", "--serve", "--pipeline", "/home/paddleocr/ocr_lines.yaml", "--device", "cpu"]
+    command: ["paddlex", "--serve", "--pipeline", "/home/paddleocr/ocr_lines.yaml", "--device", "${PADDLEOCR_LINES_DEVICE:-cpu}"]
     volumes:
       - ./deploy/paddleocr/ocr_lines.yaml:/home/paddleocr/ocr_lines.yaml:ro
       - docraft_paddlex_models:/home/paddleocr/.paddlex

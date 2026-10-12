@@ -10,6 +10,8 @@ from backend.db import connect
 from backend.main import heartbeat, recover, run_extract, run_parse
 from tests.test_api import project, schema, upload, wait_for
 
+pytestmark = pytest.mark.usefixtures("reprocess_on")  # 재처리 기본 끔 — 이 모듈은 재처리를 거치는 흐름을 본다
+
 
 def test_tasks_are_registered_and_inline_is_default(monkeypatch):
     monkeypatch.delenv("QUEUE_BACKEND", raising=False)

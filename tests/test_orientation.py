@@ -1,6 +1,7 @@
 """스캔 방향 정규화: 돌아간 페이지를 바로 세워 다시 읽고, 좌표는 원본 파일 기준으로 되돌린다."""
 import base64
 import io
+import threading
 
 import fitz
 import pytest
@@ -295,3 +296,43 @@ def test_undecided_page_is_reread_once_at_the_winning_turn(tmp_path, monkeypatch
     monkeypatch.setattr(parsers, "_remote_paddle", lambda *a, **k: calls.append(1) or (first if len(calls) == 1 else _scored([.97, .96], image.size)))
     [block] = parsers.parse_image(str(path), "paddle")
     assert len(calls) == 2 and block["orientation"] == 180
+
+
+def test_sideways_candidates_are_read_at_the_same_time(monkeypatch):
+    both = threading.Barrier(2, timeout=5)  # a serial reader would break the barrier
+    by_turn = {90: [.95], 270: [.4]}
+    monkeypatch.setattr(parsers, "_read_turned", lambda image, turn, deadline: both.wait() is not None and _scored(by_turn[turn]))
+    assert parsers._turn_by_score(None, _scored([.5] * 4, boxes=TALL), TALL, None)[0] == 90
+
+
+def test_ruled_grid_is_built_only_for_the_kept_turn(tmp_path, monkeypatch):
+    image, _ = _page()
+    path = tmp_path / "scan.png"
+    image.save(path)
+    first = _scored([.5] * 4, image.size, TALL)
+    scores = {90: .4, 270: .95}
+    ruled, rereads = [], []
+
+    def remote(file, *args, **kwargs):
+        with Image.open(file) as sent:
+            pixels = sent.convert("RGB").tobytes()
+        turn = next((t for t in scores if image.rotate(t, expand=True).tobytes() == pixels), 0)
+        rereads.append((turn, kwargs.get("ruled", True)))
+        return first if not turn else _scored([scores[turn]], (640, 900))
+
+    monkeypatch.setattr(parsers, "ocr_settings", lambda: {"provider": "paddle", "orientation_score": True})
+    monkeypatch.setattr(parsers, "_vote", lambda *args: None)
+    monkeypatch.setattr(parsers, "_remote_paddle", remote)
+    monkeypatch.setattr(parsers, "_ruled_tables", lambda blocks, render: ruled.append((blocks[0]["lines"][0]["score"], render(1, blocks[0]["page_size"]).tobytes())))
+    [block] = parsers.parse_image(str(path), "paddle")
+    assert block["orientation"] == 270
+    assert sorted(rereads) == [(0, True), (90, False), (270, False)]  # the first reading builds its grids; the candidates do not
+    assert ruled == [(.95, image.rotate(270, expand=True).convert("L").tobytes())]  # only the winner, on its own turned page
+
+
+def test_in_memory_turned_page_matches_the_file_sent_to_ocr(tmp_path):
+    image, _ = _page()
+    turned = image.rotate(90, expand=True)
+    path = tmp_path / "turned.png"
+    turned.save(path)
+    assert parsers._fit(turned, turned.size, "L").tobytes() == parsers._page_image(str(path), 1, 0, turned.size, "L").tobytes()

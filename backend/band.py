@@ -75,16 +75,16 @@ def summary_clip(found):
     return [min(max(value, 0), 1000) / 1000 for value in box]
 
 
-def clips(found):
-    """띠 읽기용 크롭 목록(쪽 비율). 표 머리글 위쪽부터 마지막 합계 행까지를 BANDS 등분해 OVERLAP 만큼 겹치게 자른다.
-    첫 띠는 머리글째, 나머지 띠는 머리글 띠(첫 데이터 행 제외)가 첫 이미지로 붙는다."""
+def clips(found, count=BANDS):
+    """띠 읽기용 크롭 목록(쪽 비율). 표 머리글 위쪽부터 마지막 합계 행까지를 ``count``(``BAND_STRIPS``, 기본 BANDS) 등분해
+    OVERLAP 만큼 겹치게 자른다. 첫 띠는 머리글째, 나머지 띠는 머리글 띠(첫 데이터 행 제외)가 첫 이미지로 붙는다."""
     x1, x2 = max(0, found["grid"][0] - 20), min(1000, found["grid"][2] + 20)
     head, first = max(0, found["header"][1] - 10), found["first_row"][1]
     top, bottom = first, min(1000, found["total"][3] + 15)
     height = bottom - top
     result = []
-    for i in range(BANDS):
-        strip = [x1, head if i == 0 else max(top, top + height * i / BANDS - OVERLAP * height), x2, min(bottom, top + height * (i + 1) / BANDS + OVERLAP * height)]
+    for i in range(count):
+        strip = [x1, head if i == 0 else max(top, top + height * i / count - OVERLAP * height), x2, min(bottom, top + height * (i + 1) / count + OVERLAP * height)]
         result.append([[value / 1000 for value in box] for box in ([strip] if i == 0 else [[x1, head, x2, first], strip])])
     return result
 

@@ -23,12 +23,14 @@ _MISSING = object()
 
 
 def settings():
-    return {"enabled": os.getenv("REPROCESS_ENABLED", "true").lower() not in {"0", "false", "no"},
+    return {"enabled": os.getenv("REPROCESS_ENABLED", "false").lower() not in {"0", "false", "no"},
             "max_ms": limit("REPROCESS_MAX_MS", 60000, 180000),
             "max_attempts": limit("REPROCESS_MAX_ATTEMPTS", 4, 8),
             "max_model_calls": limit("REPROCESS_MAX_MODEL_CALLS", 2, 4),
             # 남은 시간이 이보다 적으면 원격 OCR·VLM 단계를 새로 시작하지 않는다(시작해도 시한에 잘린다)
-            "min_stage_ms": limit("REPROCESS_MIN_STAGE_MS", 30000, 180000)}
+            "min_stage_ms": limit("REPROCESS_MIN_STAGE_MS", 30000, 180000),
+            # 이 요청에서 잰 같은 단계의 소요가 남은 시간보다 길면 그 단계를 시작하지 않는다(시한에 잘려 버려질 일)
+            "cost_guard": os.getenv("REPROCESS_COST_GUARD", "false").lower() in {"1", "true", "yes"}}
 
 
 def deadline_for(remaining_ms=None):
@@ -169,8 +171,9 @@ def _typed(provenance, value):
     return valid(provenance, value)
 
 
-def _blank_candidate(fields, path, schema, blocks):
-    """Only a proven physical empty cell may propose null; missing extraction is not a proposal."""
+def _blank_candidate(fields, path, schema, blocks, grounded):
+    """Only a proven physical empty cell may propose null; missing extraction is not a proposal.
+    ``grounded(values, blocks)`` is ``run``'s remembered ``engine.ground``."""
     try:
         value = _value(fields, path)
         if value is None:
@@ -179,7 +182,7 @@ def _blank_candidate(fields, path, schema, blocks):
             key = path.replace("~1", "/").replace("~0", "~")
             return typed_evidence.blank_candidate(schema.get("title"), key, value, blocks) is not None
         candidate = _patch(fields, path, None)
-        source = engine.ground(candidate, schema, blocks)
+        source = grounded(candidate, blocks)
         for part in path.split("/"):
             source = source.get(part.replace("~1", "/").replace("~0", "~"), {}) if isinstance(source, dict) else {}
         return isinstance(source, dict) and _typed(source, None)
@@ -200,9 +203,9 @@ def _patch(result, path, value):
     return patched
 
 
-def _candidate_groundings(current, candidate, schema, evidence, path):
-    """Refresh only the candidate leaf; ROI OCR must not rewrite evidence for unchanged fields."""
-    fresh = _source(candidate, schema, evidence)
+def _candidate_groundings(current, fresh, path):
+    """Refresh only the candidate leaf from ``fresh`` (the candidate's whole grounding); ROI OCR must not rewrite
+    evidence for unchanged fields."""
     parts = [part.replace("~1", "/").replace("~0", "~") for part in path.split("/")]
     for part in parts:
         fresh = fresh.get(part, {}) if isinstance(fresh, dict) else {}
@@ -250,7 +253,7 @@ def _crop(image, page, box, size, factor, target, turn=0):
         if right <= left or bottom <= top:
             return None
         # A turned page (`orientation`) is read upright; `unturn` maps the boxes back before `_remap`.
-        canvas.crop((left, top, right, bottom)).rotate(turn, expand=True).save(target, format="PNG")
+        canvas.crop((left, top, right, bottom)).rotate(turn, expand=True).save(target, format="PNG", compress_level=1)
         return left / sx, top / sy, (right - left) / sx, (bottom - top) / sy
 
 
@@ -292,9 +295,9 @@ def _vertical_ocr(blocks):
     return len(ratios) >= 15 and sum(ratio < 1 for ratio in ratios) >= .75 * len(ratios)
 
 
-def _rotated(image, angle, target):
+def _rotated(image, angle, target):  # PNG는 무손실이라 압축 수준은 픽셀을 바꾸지 않는다 — 원격 OCR에 넘길 임시 파일이라 빠른 쪽을 쓴다
     with Image.open(image) as source:
-        ImageOps.exif_transpose(source).convert("RGB").rotate(angle, expand=True).save(target, format="PNG")
+        ImageOps.exif_transpose(source).convert("RGB").rotate(angle, expand=True).save(target, format="PNG", compress_level=1)
 
 
 def run(image, schema, blocks, result, *, normalize=None, check_rules=None, cancel=None, deadline=None, enabled=None):
@@ -304,7 +307,28 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
     deadline = min(deadline or deadline_for(), started + config["max_ms"] / 1000)
     min_stage = min(config["min_stage_ms"], config["max_ms"] / 2) / 1000  # 재처리 상한이 작으면 그 절반까지는 단계를 연다
     fields = deepcopy(result or {})
-    quality, groundings = _quality(fields, schema, blocks)
+    memo = {}
+
+    def remembered(name, compute, values, evidence):
+        """normalize·ground·rule checks depend only on (values, evidence); targets repeat them on unchanged fields.
+        Only the original OCR is remembered — ROI evidence lists are rebuilt per stage."""
+        if evidence is not blocks:
+            return compute(values, evidence)
+        key = (name, repr(values))
+        if key not in memo:
+            memo[key] = compute(values, evidence)
+        return deepcopy(memo[key])
+
+    def grounded(values, evidence):
+        return remembered("ground", lambda values, evidence: _source(values, schema, evidence), values, evidence)
+
+    def checked(values, evidence):
+        return remembered("rules", check_rules, values, evidence) if check_rules else []
+
+    def normalized(values, evidence):
+        return remembered("normalize", lambda values, evidence: normalize(deepcopy(values), evidence), values, evidence)
+
+    quality, groundings = _quality(fields, schema, blocks, grounded(fields, blocks))
     trace = []
     calls = 0
     attempts = 0
@@ -337,11 +361,12 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
         quality = engine.assess(fields, schema, blocks, groundings, require_geometry=False)
         return finished("non_visual")
     seen = {repr(fields)}
-    initial_flags = check_rules(fields, blocks) if check_rules else []
+    initial_flags = checked(fields, blocks)
     direct, broad = _rule_targets(initial_flags, fields, quality)
     _mark_rules(quality, direct)
     targets = [path for path, item in quality.items() if item["status"] not in {"PASS", "CORRECTED"}]
     deterministic = {}
+    spent = {}  # 단계별 마지막 소요(초), ``cost_guard``
     for path in targets:
         if not check():
             break
@@ -412,11 +437,7 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
             record("roi_parse", "no_geometry", before["status"])
         with tempfile.TemporaryDirectory() as folder:
             roi = str(Path(folder) / "roi.png")
-            try:
-                turn = next((b["orientation"] for b in blocks if region and b.get("page") == region[0] and b.get("orientation")), 0)
-                crop = _crop(image, *region, 2, roi, turn) if region else None
-            except (OSError, ValueError, IndexError):
-                crop = None
+            turn = next((b["orientation"] for b in blocks if region and b.get("page") == region[0] and b.get("orientation")), 0)
             local = []
             mapped = []
             evidence = blocks
@@ -433,9 +454,9 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                     stop = "deadline" if time.monotonic() >= deadline else "attempt_budget"
                     break
                 if (stage == "rules" and normalize is None and path not in deterministic
-                        and not _blank_candidate(fields, path, schema, evidence)):
+                        and not _blank_candidate(fields, path, schema, evidence, grounded)):
                     continue
-                if stage == "roi_parse" and not crop:
+                if stage == "roi_parse" and not region:
                     continue
                 if stage == "roi_vlm" and not local:
                     continue
@@ -445,14 +466,25 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                 if stage != "rules" and deadline - time.monotonic() < min_stage:
                     stop = "deadline"  # 원격 OCR·VLM 단계는 시작해도 시한에 잘린다
                     break
+                if config["cost_guard"] and deadline - time.monotonic() < spent.get(stage, 0):
+                    stop = "deadline"
+                    break
+                if stage == "roi_parse":  # 쪽 전체를 열어 잘라 내는 일은 단계를 실제로 시작할 때만 한다
+                    try:
+                        crop = _crop(image, *region, 2, roi, turn)
+                    except (OSError, ValueError, IndexError):
+                        crop = None
+                    if not crop:
+                        continue
                 attempts += 1
+                begun = time.monotonic()
                 try:
                     if stage == "rules":
-                        proposal = normalize(deepcopy(fields), evidence) if normalize else deepcopy(fields)
+                        proposal = normalized(fields, evidence) if normalize else deepcopy(fields)
                         local_proof = deterministic.get(path)
                         if local_proof and isinstance(proposal, dict) and proposal.get(root) == fields.get(root):
                             proposal = _patch(proposal, path, local_proof[0])
-                        elif _blank_candidate(fields, path, schema, evidence):
+                        elif _blank_candidate(fields, path, schema, evidence, grounded):
                             proposal = _patch(fields, path, None)
                     elif stage.startswith("rotate_"):
                         angle = 90 if stage == "rotate_ccw" else -90
@@ -471,8 +503,8 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                                                                          "deadline": deadline})
                         mapped = _remap(unturn(local, turn), region[0], region[2], crop)
                         evidence = [*blocks, *mapped]
-                        proposal = normalize(deepcopy(fields), evidence) if normalize else fields
-                        if _blank_candidate(fields, path, schema, evidence):
+                        proposal = normalized(fields, evidence) if normalize else fields
+                        if _blank_candidate(fields, path, schema, evidence, grounded):
                             proposal = _patch(fields, path, None)
                     else:
                         narrowed = {**schema, "properties": {root: schema["properties"][root]},
@@ -486,6 +518,7 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                         proposal, _ = engine.extract(narrowed, local if stage == "roi_vlm" else [] if blind_wide else blocks,
                                                      source=roi if stage == "roi_vlm" else image,
                                                      deadline=deadline, cancel=cancel, on_call=count)
+                    spent[stage] = time.monotonic() - begun
                     if not check():
                         stop = "deadline"
                         break
@@ -496,9 +529,9 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                             group_groundings = deepcopy(groundings)
                             group_groundings.update(proofs)
                             group_quality, _ = _quality(group_fields, schema, blocks, group_groundings)
-                            old_flags = check_rules(fields, mapped) if check_rules else []
-                            new_flags = check_rules(group_fields, mapped) if check_rules else []
-                            original_flags = check_rules(group_fields, blocks) if check_rules else []
+                            old_flags = checked(fields, mapped)
+                            new_flags = checked(group_fields, mapped)
+                            original_flags = checked(group_fields, blocks)
                             group_direct, _ = _rule_targets(original_flags, group_fields, group_quality)
                             mapped_direct, _ = _rule_targets(new_flags, group_fields, group_quality)
                             for key in proofs:
@@ -547,7 +580,7 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                         record(stage, "no_safe_candidate", before["status"])
                         continue
                     candidate = _patch(fields, path, value)
-                    proposed_groundings = _candidate_groundings(groundings, candidate, schema, evidence, path)
+                    proposed_groundings = _candidate_groundings(groundings, grounded(candidate, evidence), path)
                     if stage == "rules" and path in deterministic and value == deterministic[path][0]:
                         proposed_groundings[root] = deterministic[path][1]
                     proposed_quality, _ = _quality(candidate, schema, blocks, proposed_groundings)
@@ -555,9 +588,9 @@ def run(image, schema, blocks, result, *, normalize=None, check_rules=None, canc
                         roi_quality, _ = _quality(candidate, schema, evidence, proposed_groundings)
                         if path in roi_quality:
                             proposed_quality[path] = roi_quality[path]
-                    old_flags = check_rules(fields, evidence) if check_rules else []
-                    new_flags = check_rules(candidate, evidence) if check_rules else []
-                    original_flags = check_rules(candidate, blocks) if check_rules and evidence is not blocks else new_flags
+                    old_flags = checked(fields, evidence)
+                    new_flags = checked(candidate, evidence)
+                    original_flags = checked(candidate, blocks) if evidence is not blocks else new_flags
                     proposed_direct, _ = _rule_targets(original_flags, candidate, proposed_quality)
                     if evidence is not blocks:
                         roi_direct, _ = _rule_targets(new_flags, candidate, proposed_quality)

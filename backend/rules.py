@@ -35,7 +35,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date as _calendar_date
-from functools import cached_property
+from functools import cached_property, lru_cache
 from itertools import groupby
 from statistics import median
 from html import unescape
@@ -397,8 +397,11 @@ FIELD_RULES = {  # 필드 → 추가 정제(정규화 뒤에 적용)
 }
 
 
+_KEY_MARKS = re.compile(r"[\s:：()\[\]._|-]+")
+
+
 def _key(text):
-    return re.sub(r"[\s:：()\[\]._|-]+", "", str(text))
+    return _KEY_MARKS.sub("", str(text))
 
 
 _LABEL_WORDS = frozenset(  # 값 자리에 들어온 서식 라벨을 가려낼 낱말 모음
@@ -582,7 +585,12 @@ def total_label(row) -> str | None:
     명칭 칸(라벨이 명칭 자리에 인쇄된 서식)에서 읽는다. 집계 행이 아니면 None."""
     row = row or {}
     names = (row.get("항목"), None if row.get("EDI코드") or row.get("원내코드") else row.get("EDI명칭"))
-    return next((standard for name in names if name for standard, pattern in _TOTAL_NAMES.items() if pattern.fullmatch(_key(name))), None)
+    return next((standard for name in names if name and (standard := _total_name(str(name)))), None)
+
+
+@lru_cache(maxsize=8192)  # 같은 칸 글자를 표·행마다 다시 본다(근거 대기 ``typed_evidence``) — 글자만으로 정해지는 값이다
+def _total_name(text):
+    return next((standard for standard, pattern in _TOTAL_NAMES.items() if pattern.fullmatch(_key(text))), None)
 
 
 def is_total(row) -> bool:
@@ -1040,8 +1048,11 @@ _OTHER_THAN = re.compile(r"선.진료[료비]?.?외")  # '선택'을 '선태'로
 _RECEIPT_ITEM_TEXT = re.compile(r"^[0-9A-Z가-힣_()/%-]{1,24}$")
 
 
+_NOT_PLAIN = re.compile(r"[^0-9A-Za-z가-힣]")
+
+
 def _plain(text):
-    return re.sub(r"[^0-9A-Za-z가-힣]", "", text)
+    return _NOT_PLAIN.sub("", text)
 
 
 _PRINTED = {_plain(name): name for name in RECEIPT_ITEM_NAMES}  # 기호를 뗀 키 → 인쇄된 표준 항목명('한약(첩약)')
@@ -1055,8 +1066,14 @@ def item(name) -> str | None:
     """진료비영수증 항목명을 AO 프롬프트 규칙대로 정규화한다(입원료 1인실 → 입원료_1인실 등).
 
     서식의 분류 칸 글자가 붙어 온 이름('필주사료_약품비'·'선택항목_CT진단료')은 떼어 낸 나머지가 표준 항목일 때만 뗀다.
+    결과는 글자만으로 정해지므로 기억해 둔다 — 근거 대기(``typed_evidence``)가 OCR 칸마다 부른다.
     """
-    text = _plain(str(name or ""))
+    return _item(str(name or ""))
+
+
+@lru_cache(maxsize=8192)
+def _item(text):
+    text = _plain(text)
     bare = _alias(_ITEM_GROUP.sub("", text, count=1))
     name = _alias(text) if bare is None or _plain(bare) not in _PRINTED else bare
     name = _PRINTED.get(_plain(name or ""), name)
@@ -1088,23 +1105,26 @@ def _misread(name, near=None):
                          and not _plain(other).startswith(name) and not name.startswith(_plain(other))), reverse=True)
         sure = scored and scored[0][0] >= _NEAR_LIKENESS and (len(scored) == 1 or scored[0][0] - scored[1][0] >= _NEAR_LEAD)
         return scored[0][1] if sure else name
-    hits = [other for other in RECEIPT_ITEM_NAMES
-            if len(_plain(other)) == len(name) and _one_off(_jamo(_plain(other)), _jamo(name))
-            or len(_plain(other)) >= 4 and _one_off(_plain(other), name)]
+    jamo = _jamo(name)
+    hits = [other for other, plain, spelled in _STANDARD
+            if len(plain) == len(name) and _one_off(spelled, jamo) or len(plain) >= 4 and _one_off(plain, name)]
     return hits[0] if len(hits) == 1 else name
 
 
 _NEAR_LENGTH, _NEAR_LIKENESS, _NEAR_LEAD = 1, 0.55, 0.1
 
 
+def _jamo(text):
+    return unicodedata.normalize("NFD", text)  # 한글 음절을 초성·중성·종성으로 푼다
+
+
+_STANDARD = tuple((name, _plain(name), _jamo(_plain(name))) for name in RECEIPT_ITEM_NAMES)  # 표준 항목명·기호 뗀 꼴·자모
+
+
 def _name_likeness(a, b):
     """두 이름의 자모 편집거리 비율 유사도(1 = 같다)."""
     a, b = _jamo(_plain(a)), _jamo(_plain(b))
     return 1 - table_layout._distance(a, b, None) / max(len(a), len(b), 1)
-
-
-def _jamo(text):
-    return unicodedata.normalize("NFD", text)  # 한글 음절을 초성·중성·종성으로 푼다
 
 
 def _one_off(a, b):

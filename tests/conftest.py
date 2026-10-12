@@ -7,6 +7,7 @@ import uuid
 from urllib.parse import quote
 
 import psycopg
+import pytest
 
 
 TEST_DATA_DIR = tempfile.mkdtemp(prefix="docraft-tests-")
@@ -46,3 +47,9 @@ os.environ["READ_CACHE_SIZE"] = "0"  # tests reuse identical synthetic images wi
 from backend.db import init_db
 
 init_db()
+
+
+@pytest.fixture
+def reprocess_on(monkeypatch):
+    """재처리는 기본 끔(REPROCESS_ENABLED=false)이다. 재처리나 재처리를 거치는 작업 흐름을 보는 테스트가 켠다."""
+    monkeypatch.setenv("REPROCESS_ENABLED", "true")
