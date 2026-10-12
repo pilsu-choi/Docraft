@@ -1917,12 +1917,13 @@ def drop_group_titles(rows):
     return kept
 
 
-def _carry(rows, column):
+def _carry(rows, column, alone=False):
     """무리 첫 행에만 인쇄된 열의 빈 칸을 위 값으로 채운다. 채워진 이웃 칸이 하나도 같지 않을 때(매 행 되풀이하는 서식이 아닐 때)만,
-    첫 값 위의 빈 칸(앞 쪽에서 이어진 행)과 합계 행은 두고 값이 둘 이상일 때만 한다."""
+    첫 값 위의 빈 칸(앞 쪽에서 이어진 행)과 합계 행은 두고 값이 둘 이상일 때만 한다. ``alone``(분류 칸)이면 값이 하나뿐이어도 표 첫
+    항목 행의 값이면 잇는다 — 무리가 하나뿐인 표의 세로 병합 칸('투약및조제료'가 첫 행에만 인쇄)."""
     items = [row for row in rows if not is_total(row)]
     values = [row[column] for row in items if row.get(column)]
-    if len(values) < 2 or any(a == b for a, b in zip(values, values[1:])):
+    if (len(values) < 2 and not (alone and values and items[0].get(column))) or any(a == b for a, b in zip(values, values[1:])):
         return
     last = None
     for row in items:
@@ -2222,7 +2223,7 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
         for index, title in list(_section_items(out[ITEM_TABLE], blocks or [])):
             out[ITEM_TABLE][index]["항목"] = title
         for column in ("항목", "시작일자", "종료일자"):
-            _carry(out[ITEM_TABLE], column)
+            _carry(out[ITEM_TABLE], column, alone=column == "항목")
         for row, name in heads:
             row["항목"] = name
         # 머리 행은 채우기에 쓴 뒤 뺀다 — 이름 있는 제목은 채운 뒤 아래 행에 분류가 있을 때(인쇄됐거나 섹션 제목을 이어 받았다).

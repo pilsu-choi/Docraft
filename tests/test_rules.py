@@ -2168,3 +2168,16 @@ def test_a_head_row_with_its_date_keeps_it_over_the_ocr_line():
     blocks = _visit_ocr(("2022-02-26", "(보험외래)", ["AA154"]))
     out = rules.apply("세부내역서", {"항목내역": [{"항목": "2022-02-25 (보험외래)"}, _data("진찰료", "AA154", "16,970")]}, blocks)["항목내역"]
     assert out[0]["시작일자"] == "20220225"
+
+
+def test_a_merged_item_cell_printed_once_in_a_one_group_table_is_carried_down():
+    """SA2020010684193_2020010610415102 꼴: 항목 칸이 세로 병합돼 무리 하나뿐인 표의 첫 행에만 인쇄. 모델이 인쇄된 대로 첫 행에만 적어도
+    아래 항목 행에 잇는다(집계 행은 그대로). 표 첫 행이 아닌 홀로 찍힌 값은 잇지 않는다."""
+    row = lambda code, item=None: {"항목": item, "시작일자": "20191024", "EDI코드": code, "EDI명칭": "명칭" + code, "단가": "100", "횟수": "1",
+                                   "일수": "1", "총액": "100", "본인부담": "5", "공단부담": "95"}
+    read = [row("J1100", "투약및조제료"), row("J2000"), row("652100970"), row("650700790"), {"항목": "투약및조제료 소계", "총액": "400"},
+            {"항목": "끝수처리조정금액", "총액": "0"}, {"항목": "합계", "총액": "400"}]
+    out = rules.apply("세부내역서", {"항목내역": read}, [])["항목내역"]
+    assert [row["항목"] for row in out[:4]] == ["투약및조제료"] * 4 and [row["항목"] for row in out[4:]] == ["소계", "끝수처리조정금액", "합계"]
+    stray = rules.apply("세부내역서", {"항목내역": [row("J1100"), row("J2000", "투약및조제료"), row("J3000")]}, [])["항목내역"]
+    assert [row["항목"] for row in stray] == [None, "투약및조제료", None]
