@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-13 세부내역서 band 띠 자르기 구조 수정
+
+- **Update**: [...](2026-10-12-detail-band-ocr-rows.md) — v8~v11, 96.1%.
+
 ## 2026-10-13 세부내역서 band 추가 실험
 
 - **Update**: [세부내역서 band 읽기](2026-10-12-detail-band-ocr-rows.md) — v5 OCR 행 목록 되돌림, 열추출 제외·기간복제 동치 채점(95.1%), 해상도·띠 6행 미채택.
