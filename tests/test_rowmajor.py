@@ -860,3 +860,13 @@ def test_asis_detail_asks_for_summary_rows_and_keeps_them(provider):
     sent = provider.calls[0]["messages"][1]["content"][-1]["text"]
     assert doctypes.DETAIL_HINT.split(".")[0] in sent and "'소계' 행과 머리글 행은 넣지 않는다" not in sent
     assert_summary_kept(rules.apply("세부내역서", result, [])["항목내역"])
+
+
+@pytest.mark.parametrize("paid", ["급여액", "급 여 액"])
+def test_a_printed_paid_amount_column_beside_sub_column_words_is_a_column(paid):
+    """'급여액'은 값 열이다: 옆에 하위 열 낱말('전액본인')이 같은 줄에 나란히 인쇄돼도 묶음 제목으로 빼지 않는다(코드 2열·수량 서식)."""
+    blocks = header(("항목", 0, 0), ("수가코드", 80, 0), ("수가명", 200, 0), ("표준코드", 450, 0), ("수량", 560, 0), ("횟수", 620, 0),
+                    ("일수", 680, 0), ("단가", 760, 0), (paid, 860, 0), ("전액본인", 960, 0), ("선택진료", 1060, 0), ("비급여", 1160, 0))
+
+    assert printed(blocks, DETAIL) == ["항목", "원내코드", "EDI명칭", "EDI코드", "투여량", "횟수", "일수", "단가", "급여", "전액본인부담",
+                                       "선택진료료", "비급여"]

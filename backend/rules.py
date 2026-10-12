@@ -753,6 +753,20 @@ def _columns(doc_type, out):
             return
         if row.get("EDI코드") and row["EDI코드"] == normalize("edi", row.get("EDI명칭")):
             row["원내코드"], row["EDI코드"] = None, row.get("원내코드")  # 명칭이 코드 열까지 밀려 들어오면 원내코드 자리의 코드가 EDI코드다
+        split_code(row)
+
+
+CODE_JOIN = re.compile(r"\s*[/|,·]\s*")  # 코드 칸 하나에 두 코드를 잇는 구분 기호('AU401 / W-IC-EVA')
+
+
+def split_code(row):
+    """세부내역서 코드 칸 하나에 구분 기호로 이어 인쇄된 두 코드를 두 열로 나눈다(인쇄된 글자를 나눌 뿐 만들지 않는다). 한 코드 열에만 값이
+    있고 둘로 나뉘며 그중 하나만 EDI 수가코드 꼴(``table_layout.EDI``)일 때만 — 그 코드는 EDI코드, 다른 코드는 원내코드다. 둘 다 EDI 꼴이거나
+    둘 다 아니면 어느 쪽인지 몰라 둔다. 행 하나만 보는 순수 함수라 저장된 결과에도 다시 적용할 수 있다: ``for row in rows: rules.split_code(row)``."""
+    filled = [column for column in ("원내코드", "EDI코드") if not _blank(row.get(column))]
+    parts = CODE_JOIN.split(str(row[filled[0]]).strip()) if len(filled) == 1 else []
+    if len(parts) == 2 and all(parts) and _is_edi(parts[0]) != _is_edi(parts[1]):
+        row["EDI코드"], row["원내코드"] = parts if _is_edi(parts[0]) else parts[::-1]
 
 
 def _header_columns(doc_type, out, blocks):
@@ -1232,7 +1246,12 @@ def _has_header(cells, words):
 
 
 def _grouped(cells, titles, subs):
-    """머리글로 보아 그 금액 열이 하위 열을 묶는 제목인지. 판단 근거가 없으면 None."""
+    """머리글로 보아 그 금액 열이 하위 열을 묶는 제목인지. 판단 근거가 없으면 None. 머리글 낱말 표(``table_layout.WORDS``·``KEYS``)가
+    제목과 다른 낱말로 이 열의 값 칸이라고 정한 머리글('급여액' → 급여)이 있으면 값 열이다(False) — 옆에 하위 열 낱말('전액본인')이 나란히
+    인쇄돼도 묶음 제목이 아니다. '급여구분'처럼 다른 열의 낱말은 근거가 아니다."""
+    if any((concept := table_layout.WORDS.get(_key(cell))) not in (None, *titles) and set(table_layout.KEYS.get(concept, ())) & set(titles)
+           for cell in cells):
+        return False
     title = any(cell.startswith(name) for cell in cells for name in titles)
     sub = any(cell.startswith(name) for cell in cells for name in subs)
     return None if not (title or sub) else sub or not title
@@ -2134,6 +2153,10 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
         rows = [row for row in (result.get(table) or []) if isinstance(row, dict)]
         rows = [{column: _value(doc_type, column, row.get(column), table) for column in columns} for row in rows]
         out[table] = [row for row in rows if not _hollow(doc_type, table, row)]
+    # 세부내역서 묶음 제목 행은 인쇄된 값으로 가린다 — 뒤 단계가 진료기간 날짜(_period)·섹션 제목·분류를 행마다 채우기 전에
+    kept = {id(row) for row in drop_group_titles(out[ITEM_TABLE])} if doc_type == "세부내역서" else None
+    titles = {index for index, row in enumerate(out.get(ITEM_TABLE) or []) if kept is not None and id(row) not in kept}
+    count = len(out.get(ITEM_TABLE) or [])
     _serials(doc_type, out, blocks or [])
     _fill(doc_type, out, blocks or [])
     _notes(doc_type, out, blocks or [])
@@ -2162,10 +2185,11 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     out = derive(doc_type, out)  # derive는 라벨 정리(verify_label.conform)도 쓰므로 마스터 교정은 그 뒤에 한다
     _master_names(out)
     if doc_type == "세부내역서":  # 무리마다 한 번만 인쇄된 값(섹션 제목·분류·날짜)을 항목 행마다 채운다
-        kept = {id(row) for row in drop_group_titles(out[ITEM_TABLE])}  # 채우기 전 인쇄된 항목으로 정하고, 제목은 채우기에 쓴 뒤 뺀다
         for index, title in list(_section_items(out[ITEM_TABLE], blocks or [])):
             out[ITEM_TABLE][index]["항목"] = title
         for column in ("항목", "시작일자", "종료일자"):
             _carry(out[ITEM_TABLE], column)
-        out[ITEM_TABLE] = [row for row in out[ITEM_TABLE] if id(row) in kept]
+        # 제목은 채우기에 쓴 뒤 뺀다. 행은 자리를 지키며 바뀐다(_swap은 새 dict) — 수가 그대로일 때 처음 가린 자리로 뺀다
+        if titles and len(out[ITEM_TABLE]) == count:
+            out[ITEM_TABLE] = [row for index, row in enumerate(out[ITEM_TABLE]) if index not in titles]
     return out

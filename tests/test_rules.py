@@ -2040,3 +2040,58 @@ def test_a_row_with_any_other_printed_cell_is_not_a_group_title(cell):
 def test_receipt_rows_are_not_touched_by_group_title_dropping():
     rows = [{"항목": "진찰료"}, {"항목": "입원료", "본인부담금": "1,000"}]
     assert [row["항목"] for row in rules.apply("진료비영수증", {"항목내역": rows}, [])["항목내역"]] == ["진찰료", "입원료"]
+
+
+# --- 세부내역서 열 배치·코드 칸(2026-10-13) ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("paid", ["급여액", "급 여 액"])
+def test_a_printed_paid_amount_column_beside_sub_column_words_keeps_its_values(paid):
+    """'급여액'은 값 열이라 같은 머리글 줄의 '전액본인'(하위 열 낱말)이 있어도 급여 칸을 비우지 않는다."""
+    blocks = [{"rows": [["항목", "수가코드", "수가명", "표준코드", "수량", "횟수", "일수", "단가", paid, "전액본인", "선택진료", "비급여"],
+                        ["AL200", "외래환자의약품관리료", "AL200", "1.00", "1", "1", "50", "50", "0", "0", "0"]]}]
+    rows = [{"항목": "투약및조제료", "원내코드": "AL200", "EDI코드": "AL200", "단가": "50", "급여": "50", "전액본인부담": "0"}]
+    assert rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"][0]["급여"] == "50"
+    assert rules._grouped({"급여액", "전액본인"}, *rules.GROUPED["급여"]) is False
+
+
+def test_a_paid_group_title_over_sub_columns_is_still_cleared():
+    grouped = [{"rows": [["항목", "코드", "명칭", "총액", "급여", "급여구분"], ["", "", "", "", "본인부담금", "공단부담금"]]}]
+    rows = [{"항목": "진찰료", "EDI코드": "AA154", "총액": "100", "급여": "100", "본인부담": "30", "공단부담": "70"}]
+    assert rules.apply("세부내역서", {"항목내역": rows}, grouped)["항목내역"][0]["급여"] is None  # '급여구분'은 값 열 근거가 아니다
+
+
+@pytest.mark.parametrize("code, edi, own", [
+    ("AU401 / W-IC-EVA", "AU401", "WICEVA"),  # 코드 한 칸에 EDI·원내 코드
+    ("W-IC-EVA/AU401", "AU401", "WICEVA"),  # 순서가 바뀌어도 EDI 꼴이 EDI코드
+    ("650100422 | DBENO", "650100422", "DBENO"),
+    ("AU401, WICMAT", "AU401", "WICMAT"),
+])
+def test_two_codes_printed_in_one_code_cell_are_split_into_the_two_code_columns(code, edi, own):
+    row = rules.apply("세부내역서", {"항목내역": [{"항목": "관리료", "EDI코드": code, "EDI명칭": "의료질평가지원금", "총액": "3220"}]}, [])["항목내역"][0]
+    assert (row["EDI코드"], row["원내코드"]) == (edi, own)
+    saved = {"EDI코드": "AU401/WICEVA", "원내코드": None}  # 저장된 결과(정규화된 값)에 다시 적용
+    rules.split_code(saved)
+    assert (saved["EDI코드"], saved["원내코드"]) == ("AU401", "WICEVA")
+
+
+@pytest.mark.parametrize("row", [{"EDI코드": "AA154/AA254"}, {"EDI코드": "DBENO/WICEVA"}, {"EDI코드": "AU401/WICEVA", "원내코드": "X1"},
+                                 {"EDI코드": "AU401/W/X"}, {"원내코드": "AU401"}])
+def test_a_code_cell_is_left_alone_unless_it_splits_into_one_edi_and_one_other_code(row):
+    before = dict(row)
+    rules.split_code(row)
+    assert row == before
+
+
+def test_receipt_codes_are_not_split():
+    rows = [{"항목": "진찰료", "본인부담금": "1,000"}]
+    assert rules.apply("진료비영수증", {"항목내역": rows}, [])["항목내역"][0]["항목"] == "진찰료"
+
+
+def test_group_title_rows_are_judged_before_the_printed_period_fills_every_row_date():
+    """날짜 열 없는 서식: 진료기간 날짜(_period)가 모든 행(제목 행 포함)에 채워져도 제목 행은 인쇄된 값으로 가려 뺀다."""
+    rows = [{"항목": "5.투약및조제료"}, _data("5.투약및조제료", "AL200", "50"), _data("5.투약및조제료", "J1234", "500"),
+            {"항목": "소계", "총액": "550"}, {"항목": "10.검사료"}, _data("10.검사료", "L6711", "870")]
+    out = rules.apply("세부내역서", {"항목내역": rows, "환자정보(진료시작일)": "20200716"}, [])["항목내역"]
+    assert [row["항목"] for row in out] == ["5.투약및조제료", "5.투약및조제료", "소계", "10.검사료"]
+    assert all(row["시작일자"] == "20200716" for row in out if row["항목"] != "소계")
