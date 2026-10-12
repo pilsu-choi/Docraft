@@ -491,8 +491,9 @@ def test_detail_bands_cut_between_printed_rows_about_twelve_rows_a_band(rows, co
     sizes = [sum(top <= (line["bbox"][1] + line["bbox"][3]) / 2 <= bottom for line in lines if "," in line["text"]) for top, bottom in map(body, bands)]
     assert sum(sizes) == rows and max(sizes) <= -(-rows // count) and (max(sizes) <= 12 or count == engine.MAX_STRIPS)
     assert [len(b["clips"]) for b in bands] == [1] + [2] * (count - 1)  # 뒤 띠에는 머리글 띠가 첫 이미지로 붙는다
-    assert all(b["clips"][0] == [0.05, 0.2, 0.95, pytest.approx((240 - 0.3 * STEP(rows)) / 1000)] for b in bands[1:])  # 머리글 줄과 첫 행 사이에서 끝나는 머리글 띠
-    assert bands[0]["clips"][0][1] == 0.2 and "항목 | 코드" in bands[-1]["text"]  # 첫 띠는 머리글째, 띠 글자에는 머리글 줄
+    top = pytest.approx((240 - 1.1 * STEP(rows)) / 1000)  # 머리글 줄 위 행 높이(0.4 STEP) 1/4 여백 — 표 블록 상자(0.2)가 아니다
+    assert all(b["clips"][0] == [0.05, top, 0.95, pytest.approx((240 - 0.3 * STEP(rows)) / 1000)] for b in bands[1:])  # 머리글 줄과 첫 행 사이에서 끝나는 머리글 띠
+    assert bands[0]["clips"][0][1] == top and "항목 | 코드" in bands[-1]["text"]  # 첫 띠는 머리글째, 띠 글자에는 머리글 줄
 
 
 def test_rowmajor_fallback_bands_keep_their_amount_budget_and_repeats():
@@ -694,3 +695,73 @@ def test_band_dump_off_writes_nothing(state, monkeypatch, tmp_path):
     monkeypatch.setattr(engine, "_band_dump", lambda *args: pytest.fail("BAND_DUMP_DIR 없이 저장했다"))
     engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")
     assert [path for path in tmp_path.iterdir() if path.name != "page.png"] == []
+
+
+# --- 세부내역서 OCR 행 띠: 표 블록을 합치고 항목 표만, 남은 기울기 보정 ------------------------------------
+
+
+def piece(text, x0, x1, y, slope=0.0, height=8):
+    """OCR 줄 하나(쪽 1000×1000): 가운데 x에서 ``slope``만큼 기운 줄."""
+    shift = slope * (x0 + x1) / 2
+    return {"text": text, "bbox": [x0, y + shift, x1, y + shift + height]}
+
+
+def statement(rows=30, slope=0.0, split=None):
+    """환자정보 표·항목 표(머리글, 행마다 가로로 넷으로 갈린 OCR 줄: 이름 둘·금액 둘, 합계 행)·서명 줄. ``slope``만큼 기울었고(행 양 끝 줄의
+    높이 차가 줄 높이보다 크다), ``split`` 번째 행 한가운데에서 레이아웃이 항목 표를 두 블록으로 나눴다(앞 두 줄은 위 블록, 뒤 두 줄은 아래 블록)."""
+    def four(texts, y):
+        return [piece(text, x0, x1, y, slope) for text, (x0, x1) in zip(texts, ((60, 200), (300, 500), (620, 780), (800, 940)))]
+    info = four(["환자등록번호", "환자성명", "진료기간", "진료과"], 100) + four(["0000068743", "서기원", "2019-07-22 00:00", "내과"], 125)
+    head = four(["항목 일자", "코드 명칭", "금액 횟수", "일수 총액"], 190)
+    body = [four(["진찰료", f"AA{154 + i} 초진진찰료", f"{10000 + i:,} 1", f"1 {10000 + i:,}"] if i < rows else ["합계", "", "", "30,000"],
+                 220 + i * 20) for i in range(rows + 1)]
+    body[-1] = [line for line in body[-1] if line["text"]]
+    sign = [piece("신청인 조동주 의 요청에 따라 발급합니다. 2020 년 01 월 02 일", 60, 940, 240 + (rows + 1) * 20, slope)]
+    cut = split if split is not None else len(body)
+    top = [line for row in body[:cut] for line in row] + (body[cut][:2] if split is not None else [])
+    bottom = (body[cut][2:] if split is not None else []) + [line for row in body[cut + 1:] for line in row]
+    block = lambda lines: {"page": 1, "type": "table", "text": "\n".join(l["text"] for l in lines), "page_size": [1000, 1000], "lines": lines,
+                           "bbox": [50, min(l["bbox"][1] for l in lines) - 2, 950, max(l["bbox"][3] for l in lines) + 2]}
+    blocks = [block(info), block(head + top)] + ([block(bottom)] if bottom else []) + [block(sign)]
+    return blocks, info, head, body, sign
+
+
+def in_band(line, band):
+    top, bottom = body(band)
+    return top <= (line["bbox"][1] + line["bbox"][3]) / 2 <= bottom
+
+
+@pytest.mark.parametrize("slope, split", [(0.0, None), (0.0, 14), (0.012, None), (0.012, 14), (-0.012, 7)])
+def test_detail_row_bands_cut_the_item_table_alone_between_rows_across_blocks_and_tilt(slope, split):
+    blocks, info, head, rows, sign = statement(30, slope, split)
+    bands = engine._bands(blocks, len(DPROPS), 12)
+    assert len(bands) == 3
+    edges = [edge for b in bands for edge in body(b)] + [b["clips"][0][3] * 1000 for b in bands[1:]]
+    everything = info + head + [line for row in rows for line in row] + sign
+    assert not any(line["bbox"][1] < edge < line["bbox"][3] for line in everything for edge in edges)  # 어느 줄도 띠 경계에 걸치지 않는다
+    for row in rows:  # 행의 줄들(블록이 갈라도·기울어도)은 같은 띠 하나에
+        assert all(sum(in_band(line, b) for b in bands) == 1 for line in row) and len({i for i, b in enumerate(bands) for line in row if in_band(line, b)}) == 1
+    assert not any(in_band(line, b) for line in info + sign for b in bands)  # 환자정보 표·서명 줄은 띠에 들지 않는다
+    assert not any(line["bbox"][1] < b["clips"][0][3] * 1000 and line["bbox"][3] > b["clips"][0][1] * 1000 for line in info for b in bands[1:])
+    assert all(any(b["clips"][0][1] * 1000 <= line["bbox"][1] and line["bbox"][3] <= b["clips"][0][3] * 1000 for line in head) for b in bands[1:])
+
+
+def test_detail_row_bands_need_a_header_line_else_rowmajor():
+    blocks, info, head, rows, sign = statement(30)
+    blocks[1]["lines"] = blocks[1]["lines"][4:]  # 머리글 줄을 못 읽었다
+    assert engine._bands(blocks, len(DPROPS), 12) == []
+
+
+def test_rowmajor_fallback_bands_still_cut_each_block_alone():
+    blocks = statement(60, split=30)[0]
+    bands = engine._bands(blocks, len(DPROPS))  # per 없음: 블록마다 따로(블록 상자 안에서) 자른다
+    assert len(bands) > len(blocks)
+    assert all(any(block["bbox"][1] <= b["clips"][-1][1] * 1000 and b["clips"][-1][3] * 1000 <= block["bbox"][3] for block in blocks) for b in bands)
+
+
+def test_without_the_tilt_correction_a_tilted_row_would_split(monkeypatch):
+    """기울기 보정이 하는 일: 보정을 빼면 기운 행의 양 끝 줄이 다른 행으로 갈려 띠 경계가 행을 가른다(위 테스트의 기울기 경우가 보정 덕이다)."""
+    monkeypatch.setattr(engine.print_register, "_deskew", lambda boxes: (boxes, 0))
+    blocks, info, head, rows, sign = statement(30, 0.012)
+    bands = engine._bands(blocks, len(DPROPS), 12)
+    assert any(len({i for i, b in enumerate(bands) for line in row if in_band(line, b)}) != 1 for row in rows) or len(bands) != 3

@@ -2185,10 +2185,6 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
         rows = [row for row in (result.get(table) or []) if isinstance(row, dict)]
         rows = [{column: _value(doc_type, column, row.get(column), table) for column in columns} for row in rows]
         out[table] = [row for row in rows if not _hollow(doc_type, table, row)]
-    # 세부내역서 묶음 제목 행은 인쇄된 값으로 가린다 — 뒤 단계가 진료기간 날짜(_period)·섹션 제목·분류를 행마다 채우기 전에
-    kept = {id(row) for row in drop_group_titles(out[ITEM_TABLE])} if doc_type == "세부내역서" else None
-    titles = {index for index, row in enumerate(out.get(ITEM_TABLE) or []) if kept is not None and id(row) not in kept}
-    count = len(out.get(ITEM_TABLE) or [])
     _serials(doc_type, out, blocks or [])
     _fill(doc_type, out, blocks or [])
     _notes(doc_type, out, blocks or [])
@@ -2217,14 +2213,16 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     out = derive(doc_type, out)  # derive는 라벨 정리(verify_label.conform)도 쓰므로 마스터 교정은 그 뒤에 한다
     _master_names(out)
     if doc_type == "세부내역서":  # 무리마다 한 번만 인쇄된 값(섹션 제목·분류·날짜)을 항목 행마다 채운다
-        for row in out[ITEM_TABLE]:  # 머리 행 항목 칸의 날짜 글자는 시작일자로 이었다 — 분류 이름으로 잇지 않는다
-            if _group_head(row):
-                row["항목"] = _group_name(row)
+        heads = [(row, row["항목"]) for row in out[ITEM_TABLE] if _group_head(row)]
+        for row, _ in heads:  # 머리 행 항목 칸의 날짜 글자는 시작일자로 이었다 — 분류 이름으로 잇지 않는다(채운 뒤 되돌린다)
+            row["항목"] = _group_name(row)
         for index, title in list(_section_items(out[ITEM_TABLE], blocks or [])):
             out[ITEM_TABLE][index]["항목"] = title
         for column in ("항목", "시작일자", "종료일자"):
             _carry(out[ITEM_TABLE], column)
-        # 제목은 채우기에 쓴 뒤 뺀다. 행은 자리를 지키며 바뀐다(_swap은 새 dict) — 수가 그대로일 때 처음 가린 자리로 뺀다
-        if titles and len(out[ITEM_TABLE]) == count:
-            out[ITEM_TABLE] = [row for index, row in enumerate(out[ITEM_TABLE]) if index not in titles]
+        for row, name in heads:
+            row["항목"] = name
+        # 머리 행은 채우기에 쓴 뒤 뺀다 — 이름 있는 제목은 채운 뒤 아래 행에 분류가 있을 때(인쇄됐거나 섹션 제목을 이어 받았다).
+        # 머리 행 판정(_group_head)은 날짜 칸을 허용하므로 진료기간 날짜(_period)가 제목 행에 채워져도 그대로 머리 행이다
+        out[ITEM_TABLE] = drop_group_titles(out[ITEM_TABLE])
     return out

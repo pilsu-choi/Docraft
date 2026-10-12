@@ -20,7 +20,7 @@ from PIL import Image
 from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit, request_id
-from . import band as bandkit, doctypes, table_layout
+from . import band as bandkit, doctypes, print_register, rules, table_layout
 from .latency import note, parallel, provider_slot, remaining, spawn, timed
 
 logger = logging.getLogger(__name__)
@@ -666,27 +666,51 @@ def _bands(page_blocks, columns, per=None):
     if not tables or not all(b.get("page_size") and any(line.get("bbox") for line in b.get("lines") or []) for b in tables):
         return []
     most = max(1, TABLE_REPLY_TOKENS // (10 * columns + 20) - 20)  # amounts a band's reply cap allows
+    units = [(block, turn, unturn([block], 360 - turn)[0] if turn else block) for block in tables for turn in [_angle(block)]]
+    if per:  # 표 블록을 한 표로: 레이아웃이 항목 표를 행 한가운데에서 둘로 나눠도 블록 경계에서 자르지 않는다(같은 쪽, 같은 돌림)
+        boxes = [upright["bbox"] for *_, upright in units]
+        units = [(units[0][0], units[0][1], {**units[0][2], "lines": [line for *_, upright in units for line in upright["lines"]],
+                                             "bbox": [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)]})]
     bands = []
-    for block in tables:
-        turn = _angle(block)
-        upright = unturn([block], 360 - turn)[0] if turn else block
+    for block, turn, upright in units:
         lines = [line for line in upright["lines"] if line.get("bbox") and str(line["text"]).strip()]
         if sum(line["bbox"][3] - line["bbox"][1] > line["bbox"][2] - line["bbox"][0] for line in lines) * 2 > len(lines):
             return []
-        rows, tall = _line_rows(lines)
+        # 남은 기울기(사진 휨): 같은 줄 상자쌍 기울기(print_register._deskew)로 줄 y를 x=0 기준으로 되돌려 행을 묶는다. 띠 경계는 쪽 좌표의
+        # 가로선이라, 행 사이 틈이 표 폭에서 기운 만큼(lo~hi)보다 넓은 곳에서만 자른다.
+        slope = print_register._deskew([{"x": (x0 + x1) / 2, "y": (y0 + y1) / 2, "h": y1 - y0} for x0, y0, x1, y1 in
+                                        (line["bbox"] for line in lines)])[1] if per else 0
+        flat = [{**line, "bbox": [b[0], b[1] - slope * (b[0] + b[2]) / 2, b[2], b[3] - slope * (b[0] + b[2]) / 2]}
+                for line in lines for b in [line["bbox"]]] if slope else lines
+        rows, tall = _line_rows(flat)
         amounts = [len(ROW_AMOUNT.findall(row[2])) for row in rows]
-        if per:  # 금액 행 하나를 1로 세어 띠당 약 per행, 띠는 많아야 MAX_STRIPS개
-            amounts = [int(bool(count)) for count in amounts]
+        if per:  # 항목 표만: 머리글 줄(머리글 낱말 개념 넷 이상)부터 마지막 집계 행(없으면 마지막 금액 행)까지 — 위 환자정보 표·아래 서명·안내는 뺀다
+            heads = [i for i, row in enumerate(rows) if len({hits[0] for part in row[2].split(" | ") for word in table_layout._words(part)
+                                                            for hits, _ in [table_layout._concepts(word)] if hits}) >= 4]
+            if not heads or not any(amounts[heads[0]:]):
+                return []
+            last = max([i for i, row in enumerate(rows) if i > heads[0] and any(rules._total_name(part) for part in row[2].split(" | "))]
+                       or [max(i for i, count in enumerate(amounts) if count)])
+            height = sorted(bottom - top for top, bottom, _ in rows)[len(rows) // 2]
+            while last + 1 < len(rows) and not amounts[last + 1] and rows[last + 1][0] - rows[last][1] < height:  # 마지막 행의 이어 쓴 줄
+                last += 1
+            rows, amounts = rows[heads[0]:last + 1], [int(bool(count)) for count in amounts[heads[0]:last + 1]]
+            # 금액 행 하나를 1로 세어 띠당 약 per행, 띠는 많아야 MAX_STRIPS개
             most = max(1, -(-sum(amounts) // max(1, min(MAX_STRIPS, -(-sum(amounts) // per)))))
         head = next((i for i, count in enumerate(amounts) if count), 0)
         target = -(-sum(amounts) // -(-sum(amounts) // most)) if sum(amounts) else 0  # 고른 띠 크기
         x0, y0, x1, y1 = upright["bbox"]
-        if per and rows:  # 표 블록 상자가 맨 위·아래 줄에 붙어 있어도 행 높이 1/4 여백(행 사이는 가운데에서 잘라 이미 틈의 절반씩 여백)
+        lo, hi = sorted((slope * x0, slope * x1))
+        if per:  # 머리글 줄 위·마지막 행 아래에서 자르고 행 높이 1/4 여백(행 사이는 가운데에서 잘라 이미 틈의 절반씩 여백)
             pad = sorted(bottom - top for top, bottom, _ in rows)[len(rows) // 2] / 4
-            y0, y1 = max(0, min(y0, rows[0][0] - pad)), min(upright["page_size"][1], max(y1, rows[-1][1] + pad))
+            y0, y1 = max(0, rows[0][0] + lo - pad), min(upright["page_size"][1], rows[-1][1] + hi + pad)
+            tall = [line for line in tall if rows[0][0] < (line["bbox"][1] + line["bbox"][3]) / 2 < rows[-1][1]]
 
         def cut(i):
-            return y0 if i == 0 else y1 if i == len(rows) else (rows[i - 1][1] + rows[i][0]) / 2
+            return y0 if i == 0 else y1 if i == len(rows) else (rows[i - 1][1] + hi + rows[i][0] + lo) / 2
+
+        def clear(i):  # 쪽 좌표 가로선 하나가 i-1행 아래·i행 위 사이를 표 폭 내내 지난다
+            return not per or rows[i - 1][1] + hi < rows[i][0] + lo
 
         start = fresh = head
         while fresh < len(rows):
@@ -694,7 +718,7 @@ def _bands(page_blocks, columns, per=None):
             while end < len(rows) and sum(amounts[fresh:end + 1]) <= target:
                 end += 1
             if end < len(rows):
-                end = next((i for i in range(end, fresh, -1) if amounts[i]), end)
+                end = next((i for i in range(end, fresh, -1) if amounts[i] and clear(i)), end)
             top, bottom = cut(0 if start == head else start), cut(end)
             text = [row[2] for row in rows[:head] + rows[start:end]] + [line["text"] for line in tall if line["bbox"][1] < bottom and line["bbox"][3] > top]
             bands.append({"page": block.get("page"), "type": "table", "page_size": block["page_size"], **({"orientation": turn} if turn else {}),
