@@ -682,19 +682,21 @@ def _fields_cap(schema):
 
 
 def _band_page(schema, table_extract):
-    """True when `extract` reads `schema`'s one table by band (`BAND_DOC_TYPES`) once its document is one page with an image."""
+    """True when `extract` reads `schema`'s one table by band (`BAND_DOC_TYPES` with a `bandkit.PROFILES` entry) once its
+    document is one page with an image."""
     settings = ai_settings()
-    return (table_extract == "band" and schema.get("title") in settings["band_doc_types"] and len(_table_fields(schema)) == 1
+    return (table_extract == "band" and schema.get("title") in settings["band_doc_types"] and schema.get("title") in bandkit.PROFILES
+            and len(_table_fields(schema)) == 1
             and settings["vision"] and settings["mode"] != "local")
 
 
-def _locate(images, lines=(), deadline=None, cancel=None, on_call=None):
-    """`bandkit.boxes` of the item table and the 금액산정 block from one call on the whole page image, the table's right end
-    set by the panel's OCR `lines` (`_page_lines`) when they show it; None when the call or its boxes are unusable and the
-    table is read as rowmajor (`extract` notes `band_fallback`)."""
+def _locate(images, doc_type, lines=(), deadline=None, cancel=None, on_call=None):
+    """`bandkit.boxes` of the item table (and the 금액산정 block of a receipt) of `doc_type` (`bandkit.PROFILES`) from one call
+    on the whole page image, the table's right end set by the panel's OCR `lines` (`_page_lines`) when they show it; None
+    when the call or its boxes are unusable and the table is read as rowmajor (`extract` notes `band_fallback`)."""
     _begin_call(cancel, on_call)
     try:
-        return bandkit.boxes(_provider([_user(bandkit.LOCATE_PROMPT, images)], timeout_cap=remaining(deadline), max_tokens=500), lines)
+        return bandkit.boxes(_provider([_user(bandkit.locate_prompt(doc_type), images)], timeout_cap=remaining(deadline), max_tokens=500), lines, doc_type)
     except (RuntimeError, ValueError) as exc:
         if cancel is not None and cancel.is_set():
             raise
@@ -721,7 +723,7 @@ def prelocate(schema, source, table_extract, *, deadline=None, cancel=None, on_c
         from .parsers import page_tilt  # parsers → engine 순환을 피한다
         turns = {1: turn} if (turn := page_tilt(source)) else {}
         images = _page_images(source, [1], turns)
-        return (turns, _locate(images, deadline=deadline, cancel=cancel, on_call=on_call)) if len(images) == 1 else None
+        return (turns, _locate(images, schema["title"], deadline=deadline, cancel=cancel, on_call=on_call)) if len(images) == 1 else None
     return spawn(locate)
 
 
@@ -737,23 +739,44 @@ def _page_lines(blocks, page):
     return lines
 
 
-def _located_bands(found, page, turn):
-    """The strips of a located table as blocks `read_group` reads (`keyed`: short-key rows) and `read_bands` joins by the
-    names of the rows two strips share (`repeats`)."""
-    return [{"page": page, "type": "table", "text": "", "keyed": True, "repeats": True, **({"orientation": turn} if turn else {}),
-             "clips": [_clip(box, [1, 1]) for box in strips]} for strips in bandkit.clips(found, ai_settings()["band_strips"])]
+KEYED_CAP, THINK_TOKENS, MAX_STRIPS, EDGE_ROWS = 3000, 4000, 8, 2  # MAX_STRIPS = BAND_STRIPS 상한
 
 
-def _read_keyed(spec, images, strip, deadline=None, cancel=None, on_call=None):
-    """One strip of a located table as keyed rows (`bandkit.prompt`): short keys per amount column, all present in every row,
-    expanded back to the schema's columns. Raises RuntimeError when the reply has no row list."""
+def _located_bands(found, page, turn, lines, doc_type, columns):
+    """The strips of a located table as blocks `read_group` reads (`keyed`: its doc type, short-key rows; `cap`: the strip's
+    reply cap) and `read_bands` joins by the rows two strips share (`repeats`). A receipt is cut in `BAND_STRIPS` strips with
+    a KEYED_CAP reply each. A type whose profile sets `rows` per strip (세부내역서, many rows) is cut in as many strips (at most
+    MAX_STRIPS) as hold about that many printed rows, counted in its upright OCR `lines` (`_page_lines`) inside the table box
+    as text rows carrying an amount (`_line_rows`, `ROW_AMOUNT`; `BAND_STRIPS` without such lines). Two strips then share
+    about EDGE_ROWS rows at a cut (the receipt's 10% of the table would double a strip of many), and each strip's cap is
+    `_reply_cap` of the rows it covers (at most TABLE_REPLY_TOKENS) plus THINK_TOKENS: a thinking model served by vLLM may
+    think although `AI_REASONING` is off (the `reasoning` switch is an OpenRouter parameter vLLM ignores), and its thinking
+    counts against the cap."""
+    per, (x1, _, x2, _) = bandkit.PROFILES[doc_type]["rows"], found["grid"]
+    top, bottom = found["first_row"][1], found["total"][3]
+    inside = [line for line in lines if x1 <= sum(line["bbox"][0::2]) / 2 <= x2 and top <= sum(line["bbox"][1::2]) / 2 <= bottom]
+    rows = [row for row in _line_rows(inside)[0] if ROW_AMOUNT.search(row[2])] if per and inside else []
+    count = min(MAX_STRIPS, -(-len(rows) // per)) if rows else ai_settings()["band_strips"]
+
+    def cap(strip):
+        covered = [row[2] for row in rows if strip[1] * 1000 <= (row[0] + row[1]) / 2 <= strip[3] * 1000]
+        return min(TABLE_REPLY_TOKENS, _reply_cap("\n".join(covered), columns)) + THINK_TOKENS if per else KEYED_CAP
+    overlap = min(bandkit.OVERLAP, EDGE_ROWS / len(rows)) if rows else bandkit.OVERLAP
+    return [{"page": page, "type": "table", "text": "", "keyed": doc_type, "cap": cap(strips[-1]), "repeats": True, **({"orientation": turn} if turn else {}),
+             "clips": [_clip(box, [1, 1]) for box in strips]} for strips in bandkit.clips(found, count, overlap)]
+
+
+def _read_keyed(spec, images, strip, doc_type=bandkit.RECEIPT, cap=KEYED_CAP, deadline=None, cancel=None, on_call=None):
+    """One strip of a located `doc_type` table as keyed rows (`bandkit.prompt`): short keys per column, all present in every
+    row, expanded back to the schema's columns; the reply capped at `cap` tokens. Raises RuntimeError when the reply has no row list."""
     _begin_call(cancel, on_call)
     compact = COMPACT_NOTE if ai_settings()["compact_reply"] else ""
-    reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE + compact}, _user(bandkit.prompt(spec, strip, ai_settings()["band_header_note"]), images)],
-                      timeout_cap=remaining(deadline), max_tokens=3000)
+    reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE + compact},
+                       _user(bandkit.prompt(spec, strip, ai_settings()["band_header_note"], doc_type), images)],
+                      timeout_cap=remaining(deadline), max_tokens=cap)
     if not isinstance(reply, dict) or not isinstance(reply.get("rows"), list):
         raise RuntimeError("band 응답에 행 목록이 없습니다.")
-    rows, unknown, missing = bandkit.expand(reply["rows"], spec)
+    rows, unknown, missing = bandkit.expand(reply["rows"], spec, doc_type)
     note("band_unknown_keys", unknown)
     note("band_missing_keys", missing)
     return rows
@@ -871,7 +894,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         return {**schema, "properties": {key: prop for key, prop in properties.items() if key in keys},
                 "required": [key for key in schema.get("required", []) if key in keys]}
 
-    found = early = None  # band: the one table of a one-page document of a BAND_DOC_TYPES type is located first, then read in strips beside the 금액산정 block
+    found = early = None  # band: the one table of a one-page document of a BAND_DOC_TYPES type is located first, then read in strips (beside a receipt's 금액산정 block)
     if _band_page(schema, table_extract) and tables[:1] == whole and len(images) == 1:
         guess = {*tables, *(key for key in bandkit.SUMMARY_KEYS if key in properties)}
         if ai_settings()["band_speculate"] and len(guess) > len(tables) and set(properties) - guess and not (prelocated and prelocated.done()):
@@ -880,14 +903,15 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
             reply = prelocated.result()
             same = reply is not None and _pages(blocks) == [1] and reply[0] == _turns(blocks)
             note("band_prelocate", "used" if same else "turned", add=False)
-        found = reply[1] if prelocated is not None and same else _locate(images, _page_lines(blocks, _pages(blocks)[0]), deadline, cancel, on_call)
+        lines = _page_lines(blocks, _pages(blocks)[0])
+        found = reply[1] if prelocated is not None and same else _locate(images, schema["title"], lines, deadline, cancel, on_call)
         if found is None:
             note("band_fallback", "locate", add=False)
         elif located is not None:
             located.update(found)
     page = _pages(blocks)[0] if found else None
     turn = _turns(blocks).get(page, 0)
-    strips = _located_bands(found, page, turn) if found else []
+    strips = _located_bands(found, page, turn, lines, schema["title"], len(properties[tables[0]]["items"]["properties"])) if found else []
     summary = [key for key in bandkit.SUMMARY_KEYS if key in properties] if found and "summary" in found else []
 
     def read_group(table, group, index, count):
@@ -895,7 +919,8 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group), group[0].get("clips"))):
             try:
                 if group[0].get("keyed"):
-                    return _read_keyed(properties[table], group_images, BAND_NOTE[len(group_images) > 1], deadline, cancel, on_call)
+                    return _read_keyed(properties[table], group_images, BAND_NOTE[len(group_images) > 1], group[0]["keyed"], group[0]["cap"],
+                                       deadline, cancel, on_call)
                 return _read_rows(table, properties[table], plans[table], _chunk_text(group, budget), group_images,
                                   PAGES_NOTE.format(pages=pages, span=_page_range(blocks))
                                   + (BAND_NOTE[len(group_images) > 1] if "clips" in group[0] else ""), deadline, cancel, on_call)
@@ -921,7 +946,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     def read_bands(table, bands):
         """The rows of one page read band by band (`_bands`, `_located_bands`), in band order; a band that repeats rows before it
         (`repeats`) keeps one read of them: the richer of two reads of the last row (`_same_row`), or, in located bands (`keyed`),
-        the earlier read of the rows whose names match the end of the rows so far (`bandkit.overlap`), with one 합계 row.
+        the earlier read of the rows that match the end of the rows so far (`bandkit.overlap`), with one 합계 row on a receipt.
         The last band's error when no band could be read."""
         parts = parallel(lambda item: read_group(table, [item[1]], item[0], len(bands)), enumerate(bands), limit("TABLE_PAGE_CONCURRENCY", 4, 32))
         rows, before = [], None
@@ -931,14 +956,14 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
                 continue
             if band.get("repeats") and rows and part and not isinstance(before, Exception):
                 if band.get("keyed"):
-                    part = part[bandkit.overlap(rows, part):]
+                    part = part[bandkit.overlap(rows, part, band["keyed"]):]
                 elif _same_row(rows[-1], part[0]):
                     rows[-1] = max(rows[-1], part[0], key=lambda row: sum(value not in (None, "") for value in row.values()))
                     part = part[1:]
             rows, before = rows + part, part
         if all(isinstance(part, Exception) for part in parts):
             return parts[-1]
-        return bandkit.last_total(rows) if bands[0].get("keyed") else rows
+        return bandkit.last_total(rows) if bands[0].get("keyed") and bandkit.PROFILES[bands[0]["keyed"]]["statutory"] else rows
 
     def read_pages(table):
         count = len(groups[table])
