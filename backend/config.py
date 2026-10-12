@@ -142,8 +142,8 @@ def ai_settings() -> dict:
     table_recheck_ratio = float(os.getenv("TABLE_RECHECK_RATIO", "2"))
     # 진료비영수증 band 읽기 뒤 금액 층이 양식 칸선에서 통째로 밀려 찍힌 인쇄를 OCR 줄 좌표로 문서 단위에서 되돌린다(print_register).
     print_register = _flag("PRINT_REGISTER", "false")
-    # band 띠 프롬프트에 쪼개 인쇄된 머리글 이어 읽기·비급여 묶음 제목 안내를 붙인다(band.HEADER_NOTE, 실측 전이라 기본 꺼짐).
-    band_header_note = _flag("BAND_HEADER_NOTE", "false")
+    # band 띠 프롬프트에 쪼개 인쇄된 머리글 이어 읽기·비급여 묶음 제목 안내를 붙인다(band.HEADER_NOTE). 기본 켬(2026-10-12 AWS 하네스 30건·10건 +1칸씩, 깨짐 0).
+    band_header_note = _flag("BAND_HEADER_NOTE", "true")
     # band 읽기 지연 줄이기. prelocate: OCR과 동시에 바로 선 쪽 이미지로 표 위치를 찾고 OCR이 쪽을 돌리지 않았으면 그 답을 쓴다(결과 동일).
     # speculate: 위치 응답을 기다리지 않고 금액산정 키를 뺀 나머지 필드를 먼저 읽고, 금액산정 상자가 없으면 버리고 지금처럼 다시 읽는다(결과 동일).
     # strips: 항목 표를 자르는 띠 수. compact_reply: 띠·금액산정·나머지 필드 응답을 한 줄 JSON·상한 토큰으로 줄인다(응답이 달라질 수 있어 기본 끔).

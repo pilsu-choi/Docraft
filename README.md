@@ -251,7 +251,7 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `BAND_STRIPS` | `3` | `band` 항목 표를 자르는 띠 수(1~8). 늘리면 띠 하나의 응답이 짧아져 문서 하나는 빨라지지만 호출·머리글 이미지가 늘어 VLM이 포화되면 오히려 느려짐 |
 | `COMPACT_REPLY` | `false` | 띠·금액산정·나머지 필드 응답을 한 줄 JSON으로 요청하고, 나머지 필드 호출은 서버 JSON 스키마로 묶고 필드 수로 정한 출력 상한(필드당 60+100 토큰)을 둠. 응답이 달라질 수 있어 기본 끔 |
 | `PRINT_REGISTER` | `false` | `true`이면 `band`로 읽은 바로 선 1쪽 진료비영수증에서, 금액 층이 양식 칸선과 반 행가량 통째로 밀려 찍혀 이웃 행에 붙어 읽힌 값을 OCR 줄 좌표로 되돌림(`backend/print_register.py`). 문서마다 이동량 하나를 합계 줄 기준점으로 정하고 인쇄 줄 단위로 옮기며, 모호하거나 도착 칸이 차 있으면 손대지 않음. 결과는 진단 값 `print_register`([인쇄 정합 이식](wiki/2026-10-09-receipt-print-register-port.md)) |
-| `BAND_HEADER_NOTE` | `false` | `true`이면 `band` 띠 읽기 프롬프트에 머리글 글자가 줄·칸으로 쪼개 인쇄된 서식('선택진료료 / 이외')을 같은 칸끼리 이어 읽고, 외·이외(⑤)는 선택진료료외, 하위 칸을 묶는 비급여 제목은 0으로 두라는 안내(`band.HEADER_NOTE`)를 붙임. 꺼짐이면 프롬프트는 이전과 같음 |
+| `BAND_HEADER_NOTE` | `true` | 켜져 있으면 `band` 띠 읽기 프롬프트에 머리글 글자가 줄·칸으로 쪼개 인쇄된 서식('선택진료료 / 이외')을 같은 칸끼리 이어 읽고, 외·이외(⑤)는 선택진료료외, 하위 칸을 묶는 비급여 제목은 0으로 두라는 안내(`band.HEADER_NOTE`)를 붙임. `false`면 프롬프트는 도입 전(dev 0751745)과 같음 |
 | `VLM_CONCURRENCY` | `8` | provider(VLM) 동시 호출 수(서버 전체), 시한까지 자리가 안 나면 408(0이면 제한 없음). vLLM `--max-num-seqs`에서 같은 vLLM을 쓰는 다른 서비스(harness) 몫을 뺀 값에 맞춘다 |
 | `WEB_CONCURRENCY` | `1` | uvicorn 프로세스 수(uvicorn이 직접 읽음, `--workers` 대신 이 변수로 준다). CPU 후처리가 한 GIL을 나눠 쓰지 않게 한다. `OCR_CONCURRENCY`·`VLM_CONCURRENCY`는 서버 전체 상한이라 프로세스마다 나눈 몫(최소 1)을 쥔다. 프로세스마다 따로인 것: 같은 페이지 결과 공유(`READ_CACHE_*`, 다른 프로세스로 간 같은 페이지 요청은 OCR을 다시 함), `cancel-all`의 진행 중 요청 취소·`/api/health`의 `verify_inflight`, inline 작업 풀(`QUEUE_CONCURRENCY`가 프로세스마다), 마스터 캐시 메모리 |
 | `REPETITION_PENALTY` | 빈 값 | 요청 본문의 `repetition_penalty`. 비우면 보내지 않음(띠 읽기 실험은 1.05) |
