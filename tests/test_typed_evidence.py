@@ -346,7 +346,8 @@ def test_skewed_page_rows_are_read_along_the_slope_and_turned_pages_are_left_out
 def test_read_exposes_typed_table_cells_of_final_rows_with_matching_quality(monkeypatch):
     blocks, rows = printed_receipt()
     monkeypatch.setattr(verify, "parse", lambda *a, **k: ("md", blocks))
-    monkeypatch.setattr(engine, "ai_settings", lambda: {"table_extract": "band", "print_register": False, "table_recheck_ratio": 2})
+    settings = {**engine.ai_settings(), "table_extract": "band", "print_register": False, "table_recheck_ratio": 2}
+    monkeypatch.setattr(engine, "ai_settings", lambda: settings)
     monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None, **k: ({"항목내역": [dict(r) for r in rows]}, {}))
     _, fields, _, groundings = verify.read("scan.png", "진료비영수증", {"항목내역"}, with_groundings=True, auto_reprocess=False)
     exposed = groundings["항목내역"]
