@@ -33,6 +33,26 @@ def test_a_summary_below_the_table_leaves_the_table_whole():
     assert found["grid"] == GRID["item_grid"] and found["summary"] == [100, 820, 700, 990]
 
 
+def labels(*places):
+    """금액산정 패널 OCR 줄(쪽 1000 정규화): ``places``는 (글자, 왼쪽 x, 위 y)."""
+    return [{"text": text, "bbox": [x, y, x + 60, y + 20]} for text, x, y in places]
+
+
+PANEL = labels(("진료비 총액", 660, 400), ("환자부담 총액", 660, 450), ("납부할 금액", 662, 500), ("카드", 700, 550))
+
+
+@pytest.mark.parametrize("grid, summary, lines, right", [
+    ([100, 300, 700, 800], [600, 300, 1000, 800], PANEL, 660),  # 패널 상자가 표 맨 오른쪽 열(600~660)을 덮었다: 라벨 왼쪽 끝까지 둔다
+    ([100, 300, 600, 800], [650, 300, 1000, 800], PANEL, 660),  # 표 상자가 맨 오른쪽 열 앞에서 끝났다: 라벨 왼쪽 끝까지 넓힌다
+    ([100, 300, 700, 800], [600, 300, 1000, 800], PANEL + labels(("빠른 쾌유를 바랍니다", 610, 600), ("이성", 640, 650)), 660),  # 걸친 글·오독은 정렬선 밖
+    ([100, 300, 700, 800], [600, 300, 1000, 800], labels(("진료비 총액", 660, 310)), 600),  # 라벨이 표 본문 높이 밖(머리글 줄): 근거 없음, 상자에서 자른다
+    ([100, 300, 700, 800], [600, 300, 1000, 800], [], 600),  # OCR 없음: 상자에서 자른다
+    ([100, 300, 700, 800], [100, 820, 700, 990], PANEL, 700),  # 패널이 표 아래: 표 그대로
+])
+def test_the_table_ends_where_the_panel_labels_begin(grid, summary, lines, right):
+    assert band.boxes({**GRID, "item_grid": grid, "summary": summary}, lines)["grid"][2] == right
+
+
 @pytest.mark.parametrize("broken", [{"item_grid": None}, {"header": [1, 2]}, {"first_row": [100, 200, 700, 250]},  # 첫 행이 머리글 위
                                     {"total": [100, 300, 700, 330]}, {"item_grid": [700, 300, 100, 800]}])
 def test_boxes_are_none_without_a_usable_table_box(broken):
@@ -230,6 +250,14 @@ def test_band_applies_only_to_the_listed_doc_types(state, monkeypatch, types, do
     engine.extract(schema, state.blocks, state.image, table_extract=mode)
 
     assert ("locate" in kinds(state)) is located
+
+
+def test_band_locates_the_table_end_from_the_upright_ocr_lines_of_the_page(state):
+    located = {}
+    state.blocks = [{**state.blocks[0], "page_size": [200, 200], "lines": [{"text": text, "bbox": [150, y, 190, y + 4]} for text, y in
+                                                                          (("진료비 총액", 80), ("환자부담 총액", 90), ("납부할 금액", 100))]}]
+    engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band", located=located)
+    assert located["grid"][2] == 750  # 쪽 크기 200 → 1000 정규화한 패널 라벨 왼쪽 끝(표 상자 700보다 오른쪽)
 
 
 def test_band_needs_one_page_with_an_image(state):

@@ -1036,7 +1036,7 @@ SHIFT_REACH = 3  # 세로로 밀린 금액을 찾아볼 위아래 행 수
 _ITEM_GROUP = re.compile(r"^(필수항목|선택항목|필수|선택|필)")  # 항목명 앞에 붙어 오는 서식의 분류 칸 글자
 LUMP_ITEMS = ("정액수가", "65세이상등정액", "질병군포괄수가")  # 항목 행을 묶어 담는 포괄수가 행
 _MULTI_AMOUNT = re.compile(r"\d[\d,]*\s+\d")
-_OTHER_THAN = re.compile(r"선택진료[료비]?.?외")  # '이외'를 '미외'로 읽는 등 한 글자 OCR 오독을 허용한다
+_OTHER_THAN = re.compile(r"선.진료[료비]?.?외")  # '선택'을 '선태'로, '이외'를 '미외'로 읽는 등 한 글자 OCR 오독을 허용한다
 _RECEIPT_ITEM_TEXT = re.compile(r"^[0-9A-Z가-힣_()/%-]{1,24}$")
 
 
@@ -1449,25 +1449,34 @@ def _near(a, b):
     return abs(a - b) < TOLERANCE
 
 
-def _swaps(rows):
-    """항목 행 두 금액 열의 합이 합계 행과 어긋나는데 두 열을 통째로 맞바꾸면 둘 다 맞는 열 쌍.
+def _swaps(rows, blocks=()):
+    """항목 행 두 금액 열의 합이 합계 행과 어긋나는데 두 열을 통째로 맞바꾸면 둘 다 맞는 열 쌍 ``(a, b, 합계 행만인지)``.
 
-    한 열이 두 쌍에 걸리면(모호하면) 고르지 않는다."""
+    합만으로는 '항목 행 열을 이웃 열로 읽음'과 '합계 행만 이웃 열로 읽음'이 대칭이다(띠 읽기는 합계 행이 든 띠만 열 이름을 달리 적곤 한다).
+    두 열 값이 인쇄된 칸 위 머리글(``_printed_under``)이 모두 항목 행 쪽 읽기와 맞으면 합계 행만, 합계 행 쪽과 맞으면 항목 행을 바꾼다. 근거가 없거나 엇갈리면
+    항목 행을 바꾼다(197건 재생 근거: wiki 2026-10-12-receipt-rightcol-swap-crop). 한 열이 두 쌍에 걸리면(모호하면) 고르지 않는다."""
     stated, added, lump = _column_sums(rows)
     if not stated or lump:
         return []
     pairs = [(a, b) for a, b in SWAPS if added[a] != added[b] and _near(added[a], stated[b]) and _near(added[b], stated[a])
              and not (_near(added[a], stated[a]) and _near(added[b], stated[b]))]
     columns = [column for pair in pairs for column in pair]
-    return [pair for pair in pairs if all(columns.count(column) == 1 for column in pair)]
+    under = _printed_under(blocks, "진료비영수증") if pairs and blocks else {}
+    result = []
+    for a, b in (pair for pair in pairs if all(columns.count(column) == 1 for column in pair)):
+        votes = {(head == column) != is_total(row) for row in rows for column in (a, b) if (value := _money(row.get(column)))
+                 for head in under.get(value, set()) & {a, b}}  # True: 그 칸 머리글이 항목 행 쪽 읽기와 맞다
+        result.append((a, b, votes == {True}))
+    return result
 
 
 def _swap(rows, pairs, totals=False):
-    """항목 행(``totals``면 합계 행까지)의 열 쌍 값을 맞바꾼 새 행 목록."""
+    """열 쌍 값을 맞바꾼 새 행 목록. 쌍 ``(a, b)``는 항목 행만(``totals``면 합계 행까지), ``(a, b, True)``는 합계 행만 바꾼다."""
     rows = [dict(row) for row in rows]
     for row in rows:
-        for a, b in pairs if totals or not is_total(row) else ():
-            row[a], row[b] = row.get(b), row.get(a)
+        for a, b, *only in pairs:
+            if (totals or any(only)) if is_total(row) else not any(only):
+                row[a], row[b] = row.get(b), row.get(a)
     return rows
 
 
@@ -1475,18 +1484,41 @@ def _is_edi(value):
     return bool(table_layout.EDI.fullmatch(re.sub(r"\s", "", str(value)).upper()))
 
 
-def _printed_under(blocks):
-    """OCR 표 줄의 금액 → 그 금액이 찍힌 칸의 머리글 열들(x가 가장 가까운 읽은 머리글). 머리글을 못 읽으면 빈 dict."""
-    at = table_layout.header_positions(blocks, list(doctypes.spec("세부내역서")["tables"][ITEM_TABLE]))[0]
+def _printed_under(blocks, doc_type="세부내역서"):
+    """OCR 표 줄의 금액 → 그 금액이 찍힌 칸의 머리글 열들. 세부내역서는 x가 가장 가까운 읽은 머리글(``table_layout.header_positions``),
+    진료비영수증은 그 칸 위에 쌓인 머리글 글자(``_receipt_head``). 머리글을 못 읽으면 빈 dict."""
+    lines = table_layout._lines(blocks)
+    if doc_type == "진료비영수증":
+        heads = [line for line in lines if re.search(r"[가-힣]", line["text"])]
+        column = lambda left, right, y: _receipt_head(heads, left, right, y)
+    else:
+        at = table_layout.header_positions(blocks, list(doctypes.spec(doc_type)["tables"][ITEM_TABLE]))[0]
+        lines = lines if at else []
+        column = lambda left, right, y: min(at, key=lambda key: abs(at[key] - (left + right) / 2))
     under = {}
-    for line in table_layout._lines(blocks) if at else ():
-        (x0, _, x1, _), parts = line["bbox"], line["text"].split()
+    for line in lines:
+        (x0, y0, x1, y1), parts = line["bbox"], line["text"].split()
         total, done = sum(map(len, parts)) or 1, 0
         for part in parts:
-            x, done = x0 + (x1 - x0) * (done + len(part) / 2) / total, done + len(part)
-            if table_layout.NUMBER.fullmatch(part) and (value := _money(part)):
-                under.setdefault(value, set()).add(min(at, key=lambda key: abs(at[key] - x)))
+            left, done = x0 + (x1 - x0) * done / total, done + len(part)
+            if table_layout.NUMBER.fullmatch(part) and (value := _money(part)) and (name := column(left, x0 + (x1 - x0) * done / total, (y0 + y1) / 2)):
+                under.setdefault(value, set()).add(name)
     return under
+
+
+def _receipt_head(heads, left, right, y):
+    """영수증 금액 칸(가로 ``left``~``right``, 세로 가운데 ``y``) 위에 겹쳐 찍힌 글자 줄을 아래부터 위아래로 붙은 무리로 묶어, 열 이름
+    (``_receipt_column``)이 되는 첫 무리의 열. 쪼개 인쇄된 머리글('선택진료료'/'이외')은 한 무리라 이어 읽는다. 없으면 None."""
+    above = sorted((line for line in heads if line["bbox"][3] < y and min(line["bbox"][2], right) > max(line["bbox"][0], left)),
+                   key=lambda line: -line["bbox"][3])
+    group = []
+    for line in above + [None]:
+        if group and (line is None or group[-1]["bbox"][1] - line["bbox"][3] > 1.5 * (line["bbox"][3] - line["bbox"][1])):
+            if name := _receipt_column([part["text"] for part in reversed(group)]):
+                return name
+            group = []
+        group += [line] if line else []
+    return None
 
 
 def _detail_swaps(rows, blocks):
@@ -1536,8 +1568,8 @@ def _sum_checks(doc):
 
 def _swap_checks(doc):
     """항목 금액 열 두 개가 통째로 맞바뀌었는지(``_swaps``)."""
-    return [_flag("column_shift", f"항목 행의 '{a}'·'{b}' 열을 통째로 맞바꾸면 두 열의 합이 합계 행과 맞는다.",
-                  column=a, target=b) for a, b in _swaps(doc.rows)]
+    return [_flag("column_shift", f"{'합계' if total else '항목'} 행의 '{a}'·'{b}' 열을 통째로 맞바꾸면 두 열의 합이 합계 행과 맞는다.",
+                  column=a, target=b, **({"totals": True} if total else {})) for a, b, total in _swaps(doc.rows, doc.blocks)]
 
 
 PLAN_FLAGS = {  # table_layout.planned 알림 → 문구. 근거가 약해 열 배치에서 추측하지 않은 곳이다
@@ -1824,8 +1856,8 @@ def _fix_row_shift(fix, flags):
 
 def _fix_swap(fix, flags):
     for flag in flags:
-        fix.rows = _swap(fix.rows, [(flag["column"], flag["target"])])
-        fix.reasons.append(f"[{flag['rule']}] 항목 행의 {flag['column']}·{flag['target']} 열을 맞바꿨다")
+        fix.rows = _swap(fix.rows, [(flag["column"], flag["target"], flag.get("totals", False))])
+        fix.reasons.append(f"[{flag['rule']}] {'합계' if flag.get('totals') else '항목'} 행의 {flag['column']}·{flag['target']} 열을 맞바꿨다")
 
 
 def _fix_column_shift(fix, flags):
@@ -2025,8 +2057,8 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
         out[ITEM_TABLE] = _swap(out[ITEM_TABLE], sure, totals=True)
         latency.note("column_swaps", {"swapped": [list(pair) for pair in sure], "flagged": [list(pair) for pair in unsure]}, add=False)
     _header_columns(doc_type, out, blocks or [])
-    if doc_type == "진료비영수증":  # 통째로 맞바뀐 이웃 금액 열을 합계 행에 맞춰 되돌린다
-        out[ITEM_TABLE] = _swap(out[ITEM_TABLE], _swaps(out[ITEM_TABLE]))
+    if doc_type == "진료비영수증":  # 통째로 맞바뀐 이웃 금액 열을 되돌린다(항목 행·합계 행 중 인쇄 머리글이 가리키지 않는 쪽)
+        out[ITEM_TABLE] = _swap(out[ITEM_TABLE], _swaps(out[ITEM_TABLE], blocks or []))
     if doc_type == "세부내역서":  # 내원일마다 한 번 찍힌 무리 날짜 줄을 그 무리 행의 시작일자로(날짜 열이 없는 서식, 날짜 하나라 종료일자는 비운다)
         for index, day in list(_group_dates(out[ITEM_TABLE], blocks or [])):
             out[ITEM_TABLE][index]["시작일자"] = day
