@@ -138,7 +138,8 @@ def ai_settings() -> dict:
     band_doc_types = tuple(name.strip() for name in os.getenv("BAND_DOC_TYPES", "진료비영수증").split(",") if name.strip())
     # 비우면 보내지 않는다. 표를 띠로 읽을 때 같은 행이 반복되는 것을 줄이려 1.05 정도를 쓴다.
     penalty = os.getenv("REPETITION_PENALTY", "").strip()
-    table_recheck_ratio = float(os.getenv("TABLE_RECHECK_RATIO", "0.6"))
+    # 1보다 크면 다시 읽지 않는다(기본 — 2026-10-12, 다시 읽기가 VLM 호출 1회를 순차로 더해 지연을 늘린다). 켤 때는 0.6을 쓴다.
+    table_recheck_ratio = float(os.getenv("TABLE_RECHECK_RATIO", "2"))
     # 진료비영수증 band 읽기 뒤 금액 층이 양식 칸선에서 통째로 밀려 찍힌 인쇄를 OCR 줄 좌표로 문서 단위에서 되돌린다(print_register).
     print_register = _flag("PRINT_REGISTER", "false")
     # band 읽기 지연 줄이기. prelocate: OCR과 동시에 바로 선 쪽 이미지로 표 위치를 찾고 OCR이 쪽을 돌리지 않았으면 그 답을 쓴다(결과 동일).

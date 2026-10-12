@@ -640,18 +640,28 @@ def test_table_misses_counts_collapsed_rows_by_values_that_do_not_fit_their_colu
 
 
 @pytest.mark.parametrize("rows,rechecked", [
-    (shifted_rows(4, 6), False),  # 가산처럼 일부 행만 어긋나면(기본 0.6 미만) 다시 읽지 않는다
+    (shifted_rows(4, 6), False),  # 가산처럼 일부 행만 어긋나면(0.6 미만) 다시 읽지 않는다
     (shifted_rows(7, 3), True),  # 열이 밀리면 행 대부분이 어긋난다
     ([{"항목": "검사료", "EDI코드": "B1010"}] * 5, True),  # 금액을 통째로 비웠다
 ])
-def test_default_gate_rereads_only_broken_tables(monkeypatch, read_calls, rows, rechecked):
+def test_gate_rereads_only_broken_tables(monkeypatch, read_calls, rows, rechecked):
     monkeypatch.setenv("TABLE_EXTRACT", "rowmajor")
-    monkeypatch.delenv("TABLE_RECHECK_RATIO", raising=False)
+    monkeypatch.setenv("TABLE_RECHECK_RATIO", "0.6")
     read_calls.first = rows
 
     verify.read("scan.png", "세부내역서", only={"항목내역"}, auto_reprocess=False)
 
     assert len(read_calls.calls) == 1 + rechecked
+
+
+def test_table_recheck_is_off_by_default(monkeypatch, read_calls):
+    monkeypatch.setenv("TABLE_EXTRACT", "rowmajor")
+    monkeypatch.delenv("TABLE_RECHECK_RATIO", raising=False)
+    read_calls.first = [{"항목": "검사료", "EDI코드": "B1010"}] * 5  # 금액을 통째로 비운 표도
+
+    verify.read("scan.png", "세부내역서", only={"항목내역"}, auto_reprocess=False)
+
+    assert len(read_calls.calls) == 1
 
 
 # --- 돌아간 페이지(orientation) ----------------------------------------------------
