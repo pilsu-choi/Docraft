@@ -65,6 +65,11 @@ def _group(boxes, chain):
     return out
 
 
+def _names(boxes, width, left=0):
+    """이름 상자: 쪽 폭 ``NAME_COL`` 왼쪽이고 항목 격자 왼쪽 끝(``left``) 오른쪽인, 숫자가 아닌 글자 상자."""
+    return [b for b in boxes if b["x"] < NAME_COL * width and b["r"] > left and re.search(r"[가-힣A-Za-z]", b["t"]) and not _is_num(b["t"])]
+
+
 def _score(label, line):
     """이름표와 글줄(앞·뒤 창)의 유사도. 긴 이름표가 앞서도록 길이를 조금 더한다(진찰료 vs 예약진찰료)."""
     n = len(label)
@@ -136,7 +141,7 @@ def _register(rows, blocks, found, page):
     W, H = size
     g, sm = ([v[0] * W / 1000, v[1] * H / 1000, v[2] * W / 1000, v[3] * H / 1000] if v else None for v in (found["grid"], found.get("summary")))
     boxes, slope = _deskew(_boxes(blocks, page))
-    nameb = [b for b in boxes if b["x"] < NAME_COL * W and b["r"] > g[0] and re.search(r"[가-힣A-Za-z]", b["t"]) and not _is_num(b["t"])]
+    nameb = _names(boxes, W, g[0])
     anc, abox = _anchors(names, nameb)
     info = {"slope": round(slope, 4), "anchored": len(anc), "rows": len(rows)}
     if len(anc) < 4:

@@ -4,7 +4,7 @@ import re
 import math
 from decimal import Decimal, InvalidOperation
 
-from . import doctypes, rules
+from . import doctypes, print_register, rules, table_layout
 
 
 _MARKED = set("✓✔√☑■●▣")
@@ -118,7 +118,7 @@ def valid(source, value):
     if evidence == "table_cell":
         kind = transform.removesuffix("_normalize") if isinstance(transform, str) else None
         return (source.get("match") == "typed" and kind in {"amount", "number"} and transform == f"{kind}_normalize"
-                and role in {"total_cell", "data_cell"} and source.get("geometry_scope") == "cell"
+                and role in {"total_cell", "data_cell"} and source.get("geometry_scope") in {"cell", "line"}
                 and rules.normalize(kind, printed) is not None
                 and bound == rules.normalize(kind, printed) == rules.normalize(kind, value))
     if evidence == "labelled_amount":
@@ -451,15 +451,20 @@ def _physical(cell):
             and len(cell["bbox"]) == 4 and isinstance(cell.get("page"), int))
 
 
-def _table_row(row, source_rows):
-    """A unique printed item/total row; never assume extraction and OCR row indexes coincide."""
+def _row_names(source_rows):
+    """Per printed row: whether a cell is a total label and the item names its cells read as, each text read once."""
+    seen = {}
+    read = lambda cell: seen[cell] if cell in seen else seen.setdefault(cell, (rules.is_total({"항목": cell}), rules.item(cell)))
+    return [(any(read(cell)[0] for cell in source), {read(cell)[1] for cell in source if cell}) for source in source_rows]
+
+
+def _table_row(row, names):
+    """A unique printed item/total row (`_row_names`); never assume extraction and OCR row indexes coincide."""
     name = row.get("항목") if isinstance(row, dict) else None
     if not name:
         return None
-    total = rules.is_total({"항목": name})
-    matches = [index for index, source in enumerate(source_rows)
-               if (total and any(rules.is_total({"항목": cell}) for cell in source)
-                   or not total and any(rules.item(cell) == rules.item(name) for cell in source if cell))]
+    total, item = rules.is_total({"항목": name}), rules.item(name)
+    matches = [index for index, (totals, items) in enumerate(names) if (totals if total else item in items)]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -488,13 +493,16 @@ def _column(block, row, key, group=None):
     return (next(iter(columns)), max(candidates, key=lambda cell: cell["row"])["text"]) if len(columns) == 1 else None
 
 
-def _table_proofs(table, index, key, value, kind, blocks, rows):
+def _table_proofs(table, index, key, value, kind, blocks, rows, names):
+    """`names`: the `_row_names` of each grid block, filled on first use and shared by the cells of one document."""
     found = []
     for block in blocks:
         source_rows = block.get("rows") or []
         if not _cells(block) or not source_rows:
             continue
-        source_row = _table_row(rows[index], source_rows)
+        if id(block) not in names:
+            names[id(block)] = _row_names(source_rows)
+        source_row = _table_row(rows[index], names[id(block)])
         if source_row is None:
             continue
         selected = _column(block, source_row, key)
@@ -521,6 +529,50 @@ def _table_proofs(table, index, key, value, kind, blocks, rows):
         else:
             continue
         proof.update(row=source_row, column=col)
+        proof["field_key"] = f"{table}/{index}/{key}"
+        found.append(proof)
+    return found[0] if len(found) == 1 else None
+
+
+def _printed_rows(doc_type, rows, blocks):
+    """Per upright page: ``(block, numbers)`` for `_line_proof`, each number printed under a header column
+    (`rules.printed_cells`) with its row coordinate: its deskewed height mapped to a row index through the printed name
+    lines of the rows (`print_register._anchors`, `_row_coord`). A page with fewer than three anchored rows has none. Turned
+    pages stay out: their line boxes are not in the page frame a proof reports."""
+    out = []
+    names = [row.get("항목") if isinstance(row, dict) else None for row in rows]
+    for page in sorted({block.get("page") for block in blocks if block.get("type") == "table" and block.get("lines")}):
+        tables = [block for block in blocks if block.get("page") == page and block.get("type") == "table"]
+        if any(block.get("orientation") for block in blocks if block.get("page") == page) or not tables[0].get("page_size"):
+            continue
+        boxes, slope = print_register._deskew(print_register._boxes(blocks, page))
+        anchors = print_register._anchors(names, print_register._names(boxes, tables[0]["page_size"][0]))[0]
+        if len(anchors) < 3:
+            continue
+        coordinate = print_register._row_coord(anchors)[0]
+        numbers = [(text, box, column, coordinate((box[1] + box[3]) / 2 - slope * (box[0] + box[2]) / 2))
+                   for text, box, column in rules.printed_cells(table_layout._lines(tables), tables, doc_type)]
+        out.append((tables[0], numbers))
+    return out
+
+
+def _line_proof(table, index, key, value, kind, printed, rows):
+    """A table cell without a ruled grid cell: the one number printed under the column's header (`rules.printed_cells`)
+    whose row coordinate is within `print_register.TOL` of the row (`_printed_rows`), bound only when it reads as the value."""
+    if value is None or kind not in {"amount", "number"}:
+        return None
+    found = []
+    for block, numbers in printed:
+        hits = [(text, box) for text, box, column, (at, supported) in numbers
+                if column == key and supported and abs(at - index) <= print_register.TOL]
+        if len(hits) != 1:
+            continue
+        text, box = hits[0]
+        normalized = rules.normalize(kind, text)
+        if normalized is None or normalized != rules.normalize(kind, value):
+            continue
+        proof = _proof(block, box, text, key, "table_cell", f"{kind}_normalize",
+                       "total_cell" if rules.is_total(rows[index]) else "data_cell", "line", normalized)
         proof["field_key"] = f"{table}/{index}/{key}"
         found.append(proof)
     return found[0] if len(found) == 1 else None
@@ -670,12 +722,17 @@ def augment(result, schema, blocks, groundings):
                 groundings[key] = proof
         elif isinstance(value, list) and key in spec["tables"]:
             columns = spec["tables"][key]
+            printed, names = None, {}
             for index, row in enumerate(value):
                 if not isinstance(row, dict):
                     continue
                 for column, cell_value in row.items():
                     if column in columns:
-                        proof = _table_proofs(key, index, column, cell_value, columns[column]["kind"], blocks, value)
+                        kind = columns[column]["kind"]
+                        proof = _table_proofs(key, index, column, cell_value, kind, blocks, value, names)
+                        if proof is None and cell_value is not None and kind in {"amount", "number"}:
+                            printed = _printed_rows(doc_type, value, blocks) if printed is None else printed
+                            proof = _line_proof(key, index, column, cell_value, kind, printed, value)
                         if proof:
                             groundings.setdefault(key, {}).setdefault(str(index), {})[column] = proof
     for key in doctypes.SCHEMA_ALIASES.get(doc_type, {}):

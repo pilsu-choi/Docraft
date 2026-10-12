@@ -628,9 +628,17 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
             final_groundings = _merge_recovered_groundings(final_groundings, recovery_groundings,
                                                             recovered["trace"], fields)
         source_groundings = recovery_groundings if recovery_groundings is not None else engine.ground(fields, schema, blocks)
-        for key, value in fields.items():
+        for key, value in fields.items():  # a typed proof binds the final value itself, so it needs no extracted-row match
             source = source_groundings.get(key, {}) if isinstance(source_groundings, dict) else {}
-            if not isinstance(value, (dict, list)) and reprocess._typed(source, value):
+            if isinstance(value, list):
+                for index, row in enumerate(value):
+                    cells = source.get(str(index)) if isinstance(source, dict) else None
+                    for column, cell in (row.items() if isinstance(row, dict) and isinstance(cells, dict) else ()):
+                        if reprocess._typed(cells.get(column), cell):
+                            rows = final_groundings.setdefault(key, [])
+                            rows += [{} for _ in range(len(value) - len(rows))]
+                            rows[index][column] = _exposed_grounding(cells[column], cell)
+            elif not isinstance(value, dict) and reprocess._typed(source, value):
                 final_groundings[key] = _exposed_grounding(source, value)
         return (doc_type, fields, blocks, final_groundings, recovered_quality, recovered) if with_reprocess else (doc_type, fields, blocks, final_groundings)
     if with_reprocess:

@@ -284,3 +284,74 @@ def test_resolve_keys_accepts_the_legal_limit_excess_key_and_rejects_the_old_mis
     assert verify.resolve_keys("진료비영수증", ["상한액초과금"]) == {"상한액초과금"}
     with pytest.raises(ValueError):
         verify.resolve_keys("진료비영수증", ["상환액초과금"])
+
+
+# 칸선 없는 영수증 항목 표(band 읽기 대상): 항목명 줄(x=100)과 머리글 줄(y=260) 아래 금액 줄(행 간격 40). 입원료 행은 금액이 인쇄되지 않았다.
+def printed_receipt(amounts=None, skew=0.0):
+    amounts = amounts or {"진찰료": ("1,100", "3,300"), "식대": ("500", "1,500"), "검사료": ("2,200", "0"), "합계": ("3,800", "4,800")}
+    names = ["진찰료", "입원료", "식대", "검사료", "합계"]
+
+    def line(text, x, y):
+        y += skew * x
+        return {"text": text, "bbox": [x, y - 10, x + 80, y + 10]}
+    lines = [line("본인부담금", 400, 260), line("공단부담금", 600, 260)]
+    for i, name in enumerate(names):
+        lines.append(line(name, 100, 300 + 40 * i))
+        lines += [line(value, x, 300 + 40 * i) for value, x in zip(amounts.get(name, ()), (400, 600))]
+    rows = [{"항목": name, "본인부담금": (amounts.get(name) or ("0", "0"))[0].replace(",", ""),
+             "공단부담금": (amounts.get(name) or ("0", "0"))[1].replace(",", "")} for name in names]
+    return [{"type": "table", "page": 1, "page_size": [1000, 1400], "bbox": [50, 240, 900, 460], "text": "", "lines": lines}], rows
+
+
+def cells(fields, blocks):
+    return engine.ground(fields, doctypes.schema("진료비영수증"), blocks)["항목내역"]
+
+
+def test_unruled_table_cell_binds_the_number_printed_under_its_header_on_the_row_line():
+    blocks, rows = printed_receipt()
+    source = cells({"항목내역": rows}, blocks)["0"]["본인부담금"]
+    assert (source["evidence_type"], source["role"], source["geometry_scope"]) == ("table_cell", "data_cell", "line")
+    assert (source["source_text"], source["normalized_value"], source["label"]) == ("1,100", "1100", "본인부담금")
+    assert source["bbox"] == [400, 290, 480, 310] and source["field_key"] == "항목내역/0/본인부담금"
+    assert reprocess._typed(source, "1100")
+    zero = cells({"항목내역": rows}, blocks)["3"]["공단부담금"]
+    assert zero["match"] == "typed" and zero["source_text"] == "0"  # 인쇄된 0도 원문 근거다
+
+
+def test_unruled_total_row_cell_is_a_total_cell():
+    blocks, rows = printed_receipt()
+    source = cells({"항목내역": rows}, blocks)["4"]["공단부담금"]
+    assert source["match"] == "typed" and source["role"] == "total_cell" and source["source_text"] == "4,800"
+
+
+def test_unruled_cell_with_no_printed_number_or_another_value_gets_no_typed_proof():
+    blocks, rows = printed_receipt()
+    rows[1]["본인부담금"] = "0"      # 입원료 행: 칸에 아무것도 인쇄되지 않았다
+    rows[0]["공단부담금"] = "1500"   # 다른 행(식대)에 인쇄된 값을 읽음
+    rows[3]["본인부담금"] = None     # 칸선이 없으면 빈칸 증명(table_blank)을 만들지 않는다
+    rows[3]["공단부담금"] = "4800"   # 합계 행 값이지만 그 행 줄에는 0이 찍혔다
+    grounded = cells({"항목내역": rows}, blocks)
+    for index, column in ((1, "본인부담금"), (0, "공단부담금"), (3, "본인부담금"), (3, "공단부담금")):
+        assert grounded[str(index)][column].get("match") not in {"typed", "blank"}
+
+
+def test_skewed_page_rows_are_read_along_the_slope_and_turned_pages_are_left_out():
+    blocks, rows = printed_receipt(skew=0.04)  # 항목명과 금액 사이 300에 12(행 간격의 0.3)만큼 기운 사진: 기울기를 빼야 같은 행이다
+    source = cells({"항목내역": rows}, blocks)["3"]["본인부담금"]
+    assert source["match"] == "typed" and source["source_text"] == "2,200"
+    turned = [{**blocks[0], "orientation": 90}]
+    assert cells({"항목내역": rows}, turned)["3"]["본인부담금"].get("match") != "typed"
+
+
+def test_read_exposes_typed_table_cells_of_final_rows_with_matching_quality(monkeypatch):
+    blocks, rows = printed_receipt()
+    monkeypatch.setattr(verify, "parse", lambda *a, **k: ("md", blocks))
+    monkeypatch.setattr(engine, "ai_settings", lambda: {"table_extract": "band", "print_register": False, "table_recheck_ratio": 2})
+    monkeypatch.setattr(engine, "extract", lambda schema, blocks, source=None, **k: ({"항목내역": [dict(r) for r in rows]}, {}))
+    _, fields, _, groundings = verify.read("scan.png", "진료비영수증", {"항목내역"}, with_groundings=True, auto_reprocess=False)
+    exposed = groundings["항목내역"]
+    assert exposed[0]["본인부담금"]["source_text"] == "1,100" and exposed[4]["공단부담금"]["role"] == "total_cell"
+    assert "본인부담금" not in exposed[1]  # 인쇄되지 않은 칸은 근거를 만들지 않는다
+    quality = engine.assess(fields, verify._restrict(doctypes.schema("진료비영수증"), {"항목내역"}), blocks)
+    proof = quality["항목내역/0/본인부담금"]
+    assert proof["status"] == "PASS" and all(proof["provenance"].get(key) == exposed[0]["본인부담금"].get(key) for key in proof["provenance"])
