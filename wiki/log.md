@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-12 세부내역서 band 읽기
+
+- **Creation**: [세부내역서 band 읽기 v1~v4](2026-10-12-detail-band-ocr-rows.md) — OCR 행 경계 띠, 30건 92.3%, rowmajor 행 누락 원인 3가지(상위 wiki와 동기화).
+
 ## 2026-10-12 BAND_HEADER_NOTE 기본 켬
 
 - **Update**: [BAND_HEADER_NOTE](2026-10-12-band-header-note.md) — AWS 끔/켬 실측(30건·10건 +1칸씩, 깨짐 0) 후 기본값 켬.
