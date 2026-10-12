@@ -45,7 +45,11 @@ ACTIVE = {"parsing": ("parsing",), "extracting": ("extracting", "validating")}
 RUNNING_STATUSES = {"parsing", "extracting", "validating"}  # 실행 중인 잡이 있는 상태(취소는 다음 단계 경계에서)
 PROCESSING_STATUSES = {"queued", *RUNNING_STATUSES}  # 삭제 금지·취소 대상 문서 상태
 # /api/read 응답 diagnostics·로그에 남기는 표 읽기 운영 지표(verify._note_table·engine·rules가 남긴다)
-TABLE_STAGES = ("table_plan", "table_plan_reason", "table_plan_flags", "table_gate", "table_reread", "rowmajor_fallback", "column_swaps", "turned", "table_pages_failed", "extraction_completeness", "band_fallback", "band_unknown_keys", "band_missing_keys")
+TABLE_STAGES = ("table_plan", "table_plan_reason", "table_plan_flags", "table_gate", "table_reread", "rowmajor_fallback", "column_swaps", "turned", "table_pages_failed", "extraction_completeness", "band_fallback", "band_unknown_keys", "band_missing_keys", "band_prelocate", "band_speculate")
+# read finished 로그 줄의 단계 시간. READ_STAGES는 요청을 차례로 나눈 몫이라 elapsed_ms에서 빼고 남은 것이 gap_ms다.
+# 나머지는 그 안에 든 세부(parse_ms ⊃ ocr·lines·upright·refine, extract_ms ⊃ vlm·ground, reprocess_ms ⊃ ground·assess) — 병렬로 겹치면 합이 더 크다.
+READ_STAGES = ("upload_ms", "queue_ms", "parse_ms", "extract_ms", "post_ms", "reprocess_ms", "finish_ms")
+DETAIL_STAGES = ("ocr_wait_ms", "ocr_ms", "lines_ms", "upright_ms", "refine_ms", "vlm_wait_ms", "vlm_ms", "ground_ms", "assess_ms", "cache_hit")
 
 
 @asynccontextmanager
@@ -824,13 +828,19 @@ async def process_image(request: Request, image: UploadFile, fn, *args, multipag
     global INFLIGHT
     with tempfile.TemporaryDirectory() as folder:
         target = Path(folder) / f"{uid()}{suffix}"
-        await save_upload(image, target)
-        if not multipage and frames(target) > 1: raise HTTPException(422, "다중 페이지 문서는 아직 지원하지 않습니다.")
+        with latency.timed("upload_ms"):
+            await save_upload(image, target)
+            if not multipage and frames(target) > 1: raise HTTPException(422, "다중 페이지 문서는 아직 지원하지 않습니다.")
         INFLIGHT += 1
         cancel = threading.Event()
         with _inflight_lock: INFLIGHT_EVENTS.add(cancel)
+        queued = time.monotonic()
+
+        def work():  # 스레드 자리가 날 때까지 기다린 시간(queue_ms): 동시 요청이 기본 스레드 풀을 다 쓰면 는다
+            latency.note("queue_ms", round((time.monotonic() - queued) * 1000))
+            return fn(str(target), *args, cancel=cancel)
         try:
-            task = asyncio.ensure_future(asyncio.to_thread(fn, str(target), *args, cancel=cancel))
+            task = asyncio.ensure_future(asyncio.to_thread(work))
             while not task.done():
                 if await request.is_disconnected(): cancel.set()
                 await asyncio.wait({task}, timeout=1)
@@ -934,9 +944,10 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
                                                               deadline=deadline, auto_reprocess=auto_reprocess,
                                                               row_filter=row_filter)
         schema = verify._restrict(verify.doctypes.schema(doc_type), only)
-        quality = recovered_quality or engine.assess(
-            fields, verify._restrict(schema, set(schema["properties"]) - set(row_filter)), blocks)
-        latency.note("integrity", engine.apply_integrity(quality, fields, schema, groundings, blocks, path), add=False)
+        with latency.timed("finish_ms"):  # 칸 품질·입력 무결성
+            quality = recovered_quality or engine.assess(
+                fields, verify._restrict(schema, set(schema["properties"]) - set(row_filter)), blocks)
+            latency.note("integrity", engine.apply_integrity(quality, fields, schema, groundings, blocks, path), add=False)
         return fields, groundings, quality, recovery
 
     try:
@@ -958,9 +969,10 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
         groundings = {key: value for key, value in groundings.items() if key in only}
         quality = {key: value for key, value in quality.items() if key.split("/")[0] in only}
     elapsed_ms = round((time.monotonic() - started) * 1000)
+    stages["gap_ms"] = elapsed_ms - sum(stages.get(name, 0) for name in READ_STAGES)
     logger.info("read finished: filename=%s doc_type=%s fields=%d elapsed_ms=%d %s", filename, doc_type, len(fields), elapsed_ms,
-                " ".join(f"{name}={stages.get(name, 0)}" for name in ("ocr_ms", "ocr_wait_ms", "refine_ms", "extract_ms", "reprocess_ms", "cache_hit")
-                         + tuple(name for name in TABLE_STAGES if name in stages)))
+                " ".join(f"{name}={stages.get(name, 0)}" for name in (*READ_STAGES, "gap_ms", *DETAIL_STAGES))
+                + "".join(f" {name}={stages[name]}" for name in TABLE_STAGES if name in stages))
     return {"doc_type": doc_type, "fields": fields, "groundings": groundings, "field_quality": quality,
             "elapsed_ms": elapsed_ms, "reprocess": recovery, "diagnostics": dict(stages)}
 

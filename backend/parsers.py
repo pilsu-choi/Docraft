@@ -132,6 +132,7 @@ def _html_table(content):
     return {key: table[key] for key in ("rows", "spans") if key in table}
 
 
+@latency.timed("lines_ms")  # read finished 로그의 parse_ms 세부
 def _attach_lines(blocks, encoded, file_type, settings, page_map, deadline=None):
     """Add PP-OCRv5 text line boxes (`block["lines"]`) so grounding can point at a line instead of a whole block.
 
@@ -365,6 +366,7 @@ def _tilt(image):
     return angle if SKEW_MIN <= abs(angle) and sharpness >= SKEW_SURE else 0.0
 
 
+@latency.timed("upright_ms")  # read finished 로그의 parse_ms 세부
 def _upright(blocks, path, file_type, deadline=None):
     """Re-read every page whose text is not upright (`orientation`) from an upright copy.
 

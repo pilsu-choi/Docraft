@@ -19,7 +19,7 @@ from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit
 from . import band as bandkit, doctypes, table_layout
-from .latency import note, parallel, provider_slot, remaining
+from .latency import note, parallel, provider_slot, remaining, spawn, timed
 
 logger = logging.getLogger(__name__)
 
@@ -526,6 +526,7 @@ PAGES_NOTE = (" These are page(s) {pages} of a table printed over page(s) {span}
 BAND_NOTE = (" The image shows only a horizontal strip of this table: transcribe only the rows in it.",
              " The first image is only the table's header (no rows to output); the second image is a horizontal strip of "
              "this table: transcribe only the rows in it.")
+COMPACT_NOTE = " Write the JSON reply minified on one line: no indentation, line breaks or spaces between tokens."  # COMPACT_REPLY
 ROW_AMOUNT = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?![\d,])|(?<![\d.,])\d{3,}(?![\d.,])")  # 금액 꼴 숫자('12,300'·'4500')
 
 
@@ -674,34 +675,61 @@ def _bands(page_blocks, columns):
     return bands if len(bands) > len(tables) else []
 
 
+def _fields_cap(schema):
+    """Reply token cap of a call reading `schema`'s scalar fields as one JSON object (`COMPACT_REPLY`): 60 per field + 100."""
+    return 60 * len(schema.get("properties", {})) + 100
+
+
+def _band_page(schema, table_extract):
+    """True when `extract` reads `schema`'s one table by band (`BAND_DOC_TYPES`) once its document is one page with an image."""
+    settings = ai_settings()
+    return (table_extract == "band" and schema.get("title") in settings["band_doc_types"] and len(_table_fields(schema)) == 1
+            and settings["vision"] and settings["mode"] != "local")
+
+
 def _locate(images, deadline=None, cancel=None, on_call=None):
-    """`bandkit.boxes` of the item table and the 금액산정 block from one call on the whole page image; None (with a
-    `band_fallback` note) when the call or its boxes are unusable and the table is read as rowmajor."""
+    """`bandkit.boxes` of the item table and the 금액산정 block from one call on the whole page image; None when the call or
+    its boxes are unusable and the table is read as rowmajor (`extract` notes `band_fallback`)."""
     _begin_call(cancel, on_call)
     try:
-        found = bandkit.boxes(_provider([_user(bandkit.LOCATE_PROMPT, images)], timeout_cap=remaining(deadline), max_tokens=500))
+        return bandkit.boxes(_provider([_user(bandkit.LOCATE_PROMPT, images)], timeout_cap=remaining(deadline), max_tokens=500))
     except (RuntimeError, ValueError) as exc:
         if cancel is not None and cancel.is_set():
             raise
-        found = None
         logger.warning("extract: band locate failed: %s", exc)
-    if found is None:
-        note("band_fallback", "locate", add=False)
-    return found
+        return None
+
+
+def prelocate(schema, source, table_extract, *, deadline=None, cancel=None, on_call=None):
+    """The band locate call (`_locate`) of a one-page `source` started now on its unturned page image, before OCR, as a Future
+    `extract(prelocated=...)` takes; None when `extract` would not locate it (`_band_page`, `BAND_PRELOCATE`, not one page).
+    `extract` uses its reply only when OCR left the page unturned (`_turns` empty): its image is then the one `extract`
+    would send, so the reply is the same; otherwise it locates again on the turned page."""
+    if not (_band_page(schema, table_extract) and ai_settings()["band_prelocate"] and ai_settings()["configured"]):
+        return None
+    try:
+        with fitz.open(source) as document:
+            if len(document) != 1:
+                return None
+    except Exception:  # not a page document: OCR reports it
+        return None
+    images = _page_images(source, [1])
+    return spawn(_locate, images, deadline, cancel, on_call) if len(images) == 1 else None
 
 
 def _located_bands(found, page, turn):
     """The strips of a located table as blocks `read_group` reads (`keyed`: short-key rows) and `read_bands` joins by the
     names of the rows two strips share (`repeats`)."""
     return [{"page": page, "type": "table", "text": "", "keyed": True, "repeats": True, **({"orientation": turn} if turn else {}),
-             "clips": [_clip(box, [1, 1]) for box in strips]} for strips in bandkit.clips(found)]
+             "clips": [_clip(box, [1, 1]) for box in strips]} for strips in bandkit.clips(found, ai_settings()["band_strips"])]
 
 
 def _read_keyed(spec, images, strip, deadline=None, cancel=None, on_call=None):
     """One strip of a located table as keyed rows (`bandkit.prompt`): short keys per amount column, all present in every row,
     expanded back to the schema's columns. Raises RuntimeError when the reply has no row list."""
     _begin_call(cancel, on_call)
-    reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE}, _user(bandkit.prompt(spec, strip), images)],
+    compact = COMPACT_NOTE if ai_settings()["compact_reply"] else ""
+    reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE + compact}, _user(bandkit.prompt(spec, strip), images)],
                       timeout_cap=remaining(deadline), max_tokens=3000)
     if not isinstance(reply, dict) or not isinstance(reply.get("rows"), list):
         raise RuntimeError("band 응답에 행 목록이 없습니다.")
@@ -715,9 +743,10 @@ def _read_summary(schema, images, deadline=None, cancel=None, on_call=None):
     """The 금액산정 block fields (`schema` narrowed to them) read from the block's own crop. The answer for these keys: a blank
     cell is null and is not filled from the whole-page read. Raises RuntimeError when the reply is no JSON object."""
     _begin_call(cancel, on_call)
-    reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + VISION_NOTE},
+    compact = ai_settings()["compact_reply"]
+    reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + VISION_NOTE + (COMPACT_NOTE if compact else "")},
                        _user(bandkit.SUMMARY_PROMPT.format(schema=json.dumps(schema, ensure_ascii=False)), images)],
-                      timeout_cap=remaining(deadline), max_tokens=1500)
+                      timeout_cap=remaining(deadline), max_tokens=_fields_cap(schema) if compact else 1500)
     if not isinstance(reply, dict):
         raise RuntimeError("금액산정 블록 응답이 JSON object가 아닙니다.")
     return {key: None if reply.get(key) == "" else reply.get(key) for key in schema["properties"]}
@@ -745,11 +774,16 @@ def _read_chunk(schema, chunk, index, count, source, budget, deadline=None, canc
         )
     if on_call is not None:
         on_call()
+    compact = {}
+    if ai_settings()["compact_reply"]:  # 한 줄 JSON, 스키마로 묶은 응답, 표가 없으면 필드 수만큼의 상한
+        system += COMPACT_NOTE
+        compact = {"json_schema": schema, **({} if any(prop.get("type") == "array" for prop in schema.get("properties", {}).values())
+                                             else {"max_tokens": _fields_cap(schema)})}
     messages = [
         {"role": "system", "content": system},
         _user(f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks:\n{evidence}", images),
     ]
-    result = _provider(messages, timeout_cap=left) if left is not None else _provider(messages)
+    result = _provider(messages, timeout_cap=left, **compact) if left is not None else _provider(messages, **compact)
     if not isinstance(result, dict):
         raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
     return result
@@ -761,7 +795,8 @@ def _read_chunks(schema, chunks, source, budget, deadline=None, cancel=None, on_
                                  for index, chunk in enumerate(chunks)], schema)
 
 
-def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=None, table_extract="asis", completeness=None, located=None):
+def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=None, table_extract="asis", completeness=None, located=None,
+            prelocated=None):
     """`source` is the original document file path; its page images are attached to each chunk call when available.
 
     `table_extract="rowmajor"` reads each table field (array of objects) in its own call as positional rows (`_read_rows`),
@@ -769,6 +804,10 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     whose rowmajor reply fails, the table is read as part of the JSON object (`asis`).
     `completeness`, when provided, receives page/table success and failure ranges; partial rows remain usable for review.
     `located`, when provided, receives the band locate boxes (`bandkit.boxes`, page 1000-normalized) the table was read by.
+    `prelocated` is the `prelocate` Future of the same file, started before OCR; its reply stands in for the locate call when
+    the page came out of OCR unturned. While the locate reply is pending (`BAND_SPECULATE`), the other fields are read without
+    the 금액산정 keys; that read is used only when the reply finds the 금액산정 block (the call is then the one made after it), else
+    the other fields are read again with those keys, as without it.
 
     A table whose pages do not fit one reply (`_table_pages` gives several page groups) is read page group by page group in
     parallel (`TABLE_PAGE_CONCURRENCY`, default 4) and its rows are concatenated in page order: one call has to hold the
@@ -807,19 +846,29 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     whole = [table for table in tables if table not in paged] if images else []
     if rowmajor and len(whole) + len(paged) < len(tables):
         logger.info("extract: rowmajor needs one chunk with page images (chunks=%d), reading tables asis", len(chunks))
-    found = None  # band: the one table of a one-page document of a BAND_DOC_TYPES type is located first, then read in strips beside the 금액산정 block
-    if table_extract == "band" and schema.get("title") in ai_settings()["band_doc_types"] and tables[:1] == whole and len(tables) == 1 and len(images) == 1:
-        found = _locate(images, deadline, cancel, on_call)
-        if found and located is not None:
+
+    def narrowed(keys):
+        return {**schema, "properties": {key: prop for key, prop in properties.items() if key in keys},
+                "required": [key for key in schema.get("required", []) if key in keys]}
+
+    found = early = None  # band: the one table of a one-page document of a BAND_DOC_TYPES type is located first, then read in strips beside the 금액산정 block
+    if _band_page(schema, table_extract) and tables[:1] == whole and len(images) == 1:
+        if prelocated is not None:
+            same = not _turns(blocks) and _pages(blocks) == [1]  # OCR left the page as prelocate saw it: the same image is sent here
+            note("band_prelocate", "used" if same else "turned", add=False)
+            prelocated = prelocated if same else None
+        guess = {*tables, *(key for key in bandkit.SUMMARY_KEYS if key in properties)}
+        if ai_settings()["band_speculate"] and len(guess) > len(tables) and set(properties) - guess and not (prelocated and prelocated.done()):
+            early = (guess, spawn(_read_chunks, narrowed(set(properties) - guess), chunks, source, budget, deadline, cancel, on_call))
+        found = prelocated.result() if prelocated is not None else _locate(images, deadline, cancel, on_call)
+        if found is None:
+            note("band_fallback", "locate", add=False)
+        elif located is not None:
             located.update(found)
     page = _pages(blocks)[0] if found else None
     turn = _turns(blocks).get(page, 0)
     strips = _located_bands(found, page, turn) if found else []
     summary = [key for key in bandkit.SUMMARY_KEYS if key in properties] if found and "summary" in found else []
-
-    def narrowed(keys):
-        return {**schema, "properties": {key: prop for key, prop in properties.items() if key in keys},
-                "required": [key for key in schema.get("required", []) if key in keys]}
 
     def read_group(table, group, index, count):
         pages = _page_range(group)
@@ -895,7 +944,11 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
             return None
 
     def read(table):
+        if table is None and early and early[0] == taken:
+            return early[1].result()
         if table is None:
+            if early:
+                note("band_speculate", "reread", add=False)  # no 금액산정 block: its keys go with the other fields after all
             return _read_chunks(narrowed(set(properties) - taken) if separate else schema, chunks, source, budget, deadline, cancel, on_call)
         if table is SUMMARY:
             return read_summary()
@@ -1126,6 +1179,7 @@ def _grounding_tree(value, sources, schema, taken=None, strict=False):
     return _leaf(value, _hits(value, sources), None, False, sources)
 
 
+@timed("ground_ms")
 def ground(result, schema, blocks):
     from .typed_evidence import augment
     return augment(result, schema, blocks,
@@ -1148,6 +1202,7 @@ def validate(result, schema, groundings):
     return issues
 
 
+@timed("assess_ms")
 def assess(result, schema, blocks, groundings=None, require_geometry=True):
     """Describe per-field evidence without changing a value or treating OCR as image truth.
 

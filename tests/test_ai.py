@@ -191,7 +191,7 @@ def test_remote_paddle_page_range_sends_only_selected_pages_and_maps_back(monkey
 def _extract_messages(monkeypatch, schema, blocks):
     """extract()가 provider에 보낸 첫 호출의 (system, user text)."""
     sent = []
-    monkeypatch.setattr(engine, "ai_settings", lambda: {"mode": "provider", "chunk_chars": 40000})
+    monkeypatch.setattr(engine, "ai_settings", lambda: {"mode": "provider", "chunk_chars": 40000, "compact_reply": False})
     monkeypatch.setattr(engine, "_provider", lambda messages, timeout=90: sent.append(messages) or {})
     engine.extract(schema, blocks)
     return sent[0][0]["content"], engine._message_text(sent[0][1]["content"])
