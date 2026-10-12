@@ -627,7 +627,12 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
         if recovered and any(item.get("adopted") for item in recovered["trace"]):
             final_groundings = _merge_recovered_groundings(final_groundings, recovery_groundings,
                                                             recovered["trace"], fields)
-        source_groundings = recovery_groundings if recovery_groundings is not None else engine.ground(fields, schema, blocks)
+        source_groundings = recovery_groundings
+        if source_groundings is None:
+            source_groundings = engine.ground(fields, schema, blocks)
+            if with_reprocess and reprocess_schema is schema:
+                # 재처리를 거치지 않은 품질 판정은 같은 입력의 근거를 다시 대지 않고 이 근거로 한다(``engine.assess``가 내부에서 대는 것과 같다)
+                recovered_quality = engine.assess(fields, schema, blocks, deepcopy(source_groundings))
         for key, value in fields.items():
             source = source_groundings.get(key, {}) if isinstance(source_groundings, dict) else {}
             if not isinstance(value, (dict, list)) and reprocess._typed(source, value):
