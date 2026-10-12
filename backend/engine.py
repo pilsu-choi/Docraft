@@ -643,7 +643,8 @@ def _bands(page_blocks, columns, per=None):
     `per` (band path, `bandkit.PROFILES` rows) sizes bands by printed rows instead: text rows carrying an amount, about `per`
     a band (the fewest bands, at most MAX_STRIPS, of about equal count). Its bands repeat no row — the cut already falls
     between printed rows, and a repeated row would have to be told apart from a printed row of the same name (진찰료) —
-    and one band is kept too (the whole table as one crop). The prompt then says every row of a band is whole
+    and one band is kept too (the whole table as one crop). Each such band carries `printed`, the OCR text of its printed rows
+    in order (header rows left out, a row's wrapped lines joined), which its prompt lists for reference. The prompt then says every row of a band is whole
     (`bandkit.DETAIL_CLOSING`), and the table's top and bottom get a quarter row height of margin beyond its block box."""
     from .parsers import unturn  # parsers → engine 순환을 피한다
     tables = [b for b in page_blocks if b.get("type") == "table"]
@@ -681,8 +682,14 @@ def _bands(page_blocks, columns, per=None):
                 end = next((i for i in range(end, fresh, -1) if amounts[i]), end)
             top, bottom = cut(0 if start == head else start), cut(end)
             text = [row[2] for row in rows[:head] + rows[start:end]] + [line["text"] for line in tall if line["bbox"][1] < bottom and line["bbox"][3] > top]
+            printed = []  # 띠의 인쇄 행 OCR 글자(머리글 제외): 금액 있는 텍스트 행이 새 행을 열고, 금액 없는 이어 쓴 줄은 앞 행에 공백으로 잇는다
+            for row, count in zip(rows[start:end], amounts[start:end]) if per else ():
+                if count or not printed:
+                    printed.append(row[2])
+                else:
+                    printed[-1] += f" {row[2]}"
             bands.append({"page": block.get("page"), "type": "table", "page_size": block["page_size"], **({"orientation": turn} if turn else {}),
-                          **({"repeats": True} if start < fresh else {}),
+                          **({"repeats": True} if start < fresh else {}), **({"printed": printed} if per else {}),
                           "text": "\n".join(text), "clips": [_clip(box, upright["page_size"]) for box in ([[x0, y0, x1, cut(head)], [x0, top, x1, bottom]] if start > head and head else [[x0, top, x1, bottom]])]})
             start, fresh = end if per else next((i for i in range(end - 1, fresh - 1, -1) if amounts[i]), end - 1), end
     return bands if per or len(bands) > len(tables) else []
@@ -762,14 +769,15 @@ def _located_bands(found, page, turn):
              "clips": [_clip(box, [1, 1]) for box in strips]} for strips in bandkit.clips(found, ai_settings()["band_strips"])]
 
 
-def _read_keyed(spec, images, strip, doc_type=bandkit.RECEIPT, cap=KEYED_CAP, plan=None, deadline=None, cancel=None, on_call=None):
+def _read_keyed(spec, images, strip, doc_type=bandkit.RECEIPT, cap=KEYED_CAP, plan=None, printed=None, deadline=None, cancel=None, on_call=None):
     """One strip of a located `doc_type` table as keyed rows (`bandkit.prompt`): short keys per column, all present in every
     row, expanded back to the schema's columns; the reply capped at `cap` tokens. `plan` (`_table_plan`, profiles with `plan`)
-    asks only its printed columns in printed order, as rowmajor does. Raises RuntimeError when the reply has no row list."""
+    asks only its printed columns in printed order, as rowmajor does; `printed` (OCR row bands) lists the strip's OCR rows
+    for reference (the reply cap counts output only, so it stays). Raises RuntimeError when the reply has no row list."""
     _begin_call(cancel, on_call)
     compact = COMPACT_NOTE if ai_settings()["compact_reply"] else ""
     reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE + compact},
-                       _user(bandkit.prompt(spec, strip, ai_settings()["band_header_note"], doc_type, plan), images)],
+                       _user(bandkit.prompt(spec, strip, ai_settings()["band_header_note"], doc_type, plan, printed), images)],
                       timeout_cap=remaining(deadline), max_tokens=cap)
     if not isinstance(reply, dict) or not isinstance(reply.get("rows"), list):
         raise RuntimeError("band 응답에 행 목록이 없습니다.")
@@ -928,7 +936,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
                 if group[0].get("keyed"):
                     keyed = group[0]["keyed"]
                     return _read_keyed(properties[table], group_images, BAND_NOTE[len(group_images) > 1], keyed, group[0]["cap"],
-                                       None if bandkit.PROFILES[keyed]["statutory"] else plans[table], deadline, cancel, on_call)
+                                       None if bandkit.PROFILES[keyed]["statutory"] else plans[table], group[0].get("printed"), deadline, cancel, on_call)
                 return _read_rows(table, properties[table], plans[table], _chunk_text(group, budget), group_images,
                                   PAGES_NOTE.format(pages=pages, span=_page_range(blocks))
                                   + (BAND_NOTE[len(group_images) > 1] if "clips" in group[0] else ""), deadline, cancel, on_call)
