@@ -9,7 +9,7 @@ status: active
 날짜: 2026-10-08
 브랜치: 없음(실험 스크립트만). `error_cause_receipt.py`에 `CAUSE_SET` 환경변수만 추가했고, T 결과의 md5는 그대로다.
 워크트리: 없음
-관련: [테스트셋 197건 오류 원인](2026-10-08-receipt-docraft-error-cause.md), [행 골격 커버리지](2026-10-08-receipt-row-skeleton-coverage.md), [별칭 보강](2026-10-08-receipt-schema-aliases.md)
+관련: 테스트셋 197건 오류 원인, [행 골격 커버리지](2026-10-08-receipt-row-skeleton-coverage.md), 별칭 보강
 
 ## 방법
 
@@ -63,3 +63,10 @@ status: active
 - 대응 후보:
   - 열 되돌림은 비어 있는 칸으로만 옮긴다. 값이 있는 칸을 덮을 때는 산식 근거를 요구한다.
   - 서식 미판정 때 쓰는 합집합 배치에서는 묶음 제목 열을 머리글 근거가 있을 때만 둔다.
+
+
+## 흡수한 기록 (2026-10-12 정리)
+
+흡수한 문서는 삭제했다. 복구는 Docraft dev 21db625에서 한다.
+
+- `2026-10-08-receipt-docraft-error-cause` (진료비영수증 테스트셋 Docraft 항목표 오류 원인 분석 (요약)): 197건 Docraft 항목표 오류의 60%는 0원 행 미출력이고, 이를 빼면 Docraft·AO가 같은 수준이다. 출력 뒷부분 저하 가설은 기각, 표 구조 인식이 주원인. 상세는 상위 wiki

@@ -217,3 +217,7 @@ print(fixes)
 ```
 
 `PYTHONPATH=. python <스크립트>`로 저장소 루트에서 실행한다. 마스터 사전이 없으면 DB 조회 경고가 나오지만 결과에는 영향이 없다.
+
+## 2026-10-12 갱신
+
+하네스는 더 이상 `/api/verify`를 부르지 않고 `POST /api/read`만 쓴다. 이 문서의 verify 흐름은 Docraft 단독 사용·화면 경로이며, `rules.apply`까지는 두 경로가 공유한다(`verify.read`). 현재 상태 요약은 상위 wiki `/home/pilsu/projects/mirae-assets/wiki/2026-10-12-current-state.md`.

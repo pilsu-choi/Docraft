@@ -12,7 +12,7 @@ status: active
 - Docraft `fix/receipt-position-name`·`fix/receipt-column-realign` 등(dev `475a114`까지 병합 후 삭제)
 
 워크트리: 모두 정리했다.
-관련: [정답지 30건 오류 원인](2026-10-08-receipt-g30-error-cause.md), [별칭 보강(되돌림)](2026-10-08-receipt-schema-aliases.md)
+관련: [정답지 30건 오류 원인](2026-10-08-receipt-g30-error-cause.md), 별칭 보강(되돌림)
 
 ## 측정 방법
 
@@ -79,3 +79,10 @@ status: active
 - push와 harness-installer 반영. push 전 전체 회귀가 필요하다.
 - T 정답에서 정액수가 장기요양 표기가 일관되지 않다(정답지 검수 필요).
 - `시행처지료`는 한방 항목이 `item_order`에 없어 맞춤 대상이 아니다.
+
+
+## 흡수한 기록 (2026-10-12 정리)
+
+흡수한 문서는 삭제했다. 복구는 Docraft dev 21db625에서 한다.
+
+- `2026-10-07-receipt-alias-sync` (영수증 선별급여 법령 문구 별칭 동기화): 하네스와 함께 쓰는 receipt_items.yaml 의 선별급여 별칭을 법령 문구 오독 변형까지 덮도록 넓힌 하네스 변경을 Docraft 사본에 그대로 반영

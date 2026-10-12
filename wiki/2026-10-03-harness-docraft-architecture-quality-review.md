@@ -158,7 +158,7 @@ Harness README 첫 표의 테스트 수 1,273건(9/15)과 구현 범위 M6/M7 �
 ## 근거와 재현 자료
 
 - 코드 기준: 위 두 dev SHA와 평가 워크트리. 코드 줄 번호는 해당 고정 SHA 기준이다.
-- [AWS r9 지연·정확도 기록](2026-10-02-aws-integrated-deploy-1002i.md), [r10 영수증 기록](2026-10-02-aws-integrated-deploy-1002j.md).
+- [AWS r9 지연·정확도 기록](2026-09-30-golden-set-59-aws-harness-benchmark.md), [r10 영수증 기록](2026-09-30-golden-set-59-aws-harness-benchmark.md).
 - [rowmajor A/B 보고서](2026-10-02-table-rowmajor-report.md), [급여 인쇄 정책과 정답 변경](2026-10-03-golden-benefit-printed-only.md).
 - 로컬 검증·합성 재현·재채점 해시는 `2026-10-03-harness-docraft-review-evidence/`에 보존한다.
 

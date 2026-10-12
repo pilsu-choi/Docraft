@@ -51,5 +51,5 @@ status: active
 
 ## 남은 일
 
-- 기존 관측 이슈에는 새 축 값이 비어 있다. 이슈 레지스트리·label_viewer 분류기가 새 축을 받을지는 [작업 계획](2026-10-03-issue-taxonomy-work-plan.md) 단계에서 정한다.
+- 기존 관측 이슈에는 새 축 값이 비어 있다. 이슈 레지스트리·label_viewer 분류기가 새 축을 받을지는 [작업 계획](2026-10-03-parse-extract-issue-taxonomy.md) 단계에서 정한다.
 - 원본 데이터셋 manifest의 매체값은 5개뿐이라 복사본·재촬영본·전달 경로는 이미지를 보고 붙여야 한다.

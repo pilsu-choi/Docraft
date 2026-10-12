@@ -65,8 +65,12 @@ OpenRouter가 `qwen/qwen3.5-27b` 요청을 SiliconFlow·Novita·AtlasCloud 등 �
 | fp | 330 | 321 |
 | 추출 호출 지연 | 10~30초(과거 기록) | 중앙값 36.9초·p90 105초·최대 268초 |
 
-사고 모드를 껐는데도 지연 중앙값이 이전 모델보다 높고(사고 모드 on일 때의 222초보다는 훨씬 낫다), 정확도는 유형 전반에서 낮다. 다만 fp는 소견서 14→4 등으로 줄어 환각 억제는 새 모델이 낫다. 유형별·existing/holdout 표, 뒤진 원인 상위 5개, 단가 대비 해석과 권고는 [label-alignment-and-model-compare](2026-09-23-label-alignment-and-model-compare.md)에 정리했다.
+사고 모드를 껐는데도 지연 중앙값이 이전 모델보다 높고(사고 모드 on일 때의 222초보다는 훨씬 낫다), 정확도는 유형 전반에서 낮다. 다만 fp는 소견서 14→4 등으로 줄어 환각 억제는 새 모델이 낫다. 유형별·existing/holdout 표, 뒤진 원인 상위 5개, 단가 대비 해석과 권고는 [label-alignment-and-model-compare](2026-09-22-ocr-verify.md)에 정리했다.
 
 ## 남은 과제
 
-모델 전환 여부 결정은 사용자에게 보류돼 있다. 현 벤치마크 기준으로는 정확도·지연·단가 모두 이전 모델이 우세하므로 별도 전환 사유가 없으면 `qwen/qwen3-vl-32b-instruct` 유지를 권고한다 — 근거와 반대 근거는 [label-alignment-and-model-compare](2026-09-23-label-alignment-and-model-compare.md) "권고" 절 참고.
+모델 전환 여부 결정은 사용자에게 보류돼 있다. 현 벤치마크 기준으로는 정확도·지연·단가 모두 이전 모델이 우세하므로 별도 전환 사유가 없으면 `qwen/qwen3-vl-32b-instruct` 유지를 권고한다 — 근거와 반대 근거는 [label-alignment-and-model-compare](2026-09-22-ocr-verify.md) "권고" 절 참고.
+
+## 2026-10-12 갱신
+
+현재 기본 모델은 `qwen/qwen3-vl-32b-instruct`(.env.example)이고 `AI_REASONING=off`가 기본이다. 이 모델의 OpenRouter 제공은 10/12 제거(404)돼 AWS는 Nebius vLLM Qwen3-VL-32B FP8로 측정 중이다. qwen3.5-27b 전환 배경은 기록으로만 남긴다. 현재 상태 요약은 상위 wiki `/home/pilsu/projects/mirae-assets/wiki/2026-10-12-current-state.md`.

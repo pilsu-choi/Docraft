@@ -114,3 +114,14 @@ Docraft 추출값 복구와 AO 자체 분류는 범위 밖이다.
 
 검증: 로컬·AWS Compose 렌더링에서 API·worker의 빈 TITLE_OCR_URL 확인, GPU 프로파일 5종 YAML OFF 확인, 기존 서식 재분류 단위 테스트 48건 통과, git diff --check 통과. 새 기능·로직 변경이 없어 추가 테스트 코드는 만들지 않았다.
 실제 AWS 재생성·외부 OCR 테스트는 이 세션에서 실행하지 않았다. 변경한 작업 공간 환경 파일은 다음 적용부터 사용된다.
+
+
+## 흡수한 기록 (2026-10-12 정리)
+
+흡수한 문서는 삭제했다. 복구는 Docraft dev 21db625에서 한다.
+
+- `2026-10-03-classification-toggle-check` (harness·Docraft 서식 자동분류 끄기 확인): 제목 OCR 재분류의 기존 설정과 Docraft 수동 서식 지정 경로 확인
+
+## 2026-10-12 갱신
+
+코드·차트·installer 프로파일의 기본은 `TITLE_OCR_URL` 빈 값(재분류 꺼짐)이다. 고객사 운영계 설치 설정(`Desktop/미래에셋/운영계-설치설정/l40s-4-prod.yaml:33`)은 `titleOcrUrl=http://mlife-harness-docraft-paddleocr-lines:8080`으로 켜져 있다. AWS는 꺼짐. 현재 상태 요약은 상위 wiki `/home/pilsu/projects/mirae-assets/wiki/2026-10-12-current-state.md`.

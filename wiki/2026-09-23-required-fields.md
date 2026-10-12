@@ -13,7 +13,7 @@ status: stable
 - 브랜치: `feat/required-fields`
 - 워크트리: `.worktrees/required-fields`
 
-[룰 엔진 설계안](2026-09-23-rule-engine-design.md) 4단계다. 필수 목록은 사용자 지시대로 `refs/postprocess_schema_example/20260828_v1.1`(고객 후처리 플러그인·반출 샘플)과 `backend/rulesets/rules.yaml`을 기반으로 정했다.
+룰 엔진 설계안 4단계다. 필수 목록은 사용자 지시대로 `refs/postprocess_schema_example/20260828_v1.1`(고객 후처리 플러그인·반출 샘플)과 `backend/rulesets/rules.yaml`을 기반으로 정했다.
 
 ## 근거 찾기
 

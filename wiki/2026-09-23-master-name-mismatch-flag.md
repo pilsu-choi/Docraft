@@ -111,3 +111,7 @@ ssh -i <SSH_KEY> -N -L 8201:<컨테이너IP>:8000 ec2-user@<SSH_HOST> &
 - [KCD·EDI 마스터 원본 소스를 harness DB·docraft DB로 재사용](2026-09-23-master-source-reuse.md) — `MASTER_SOURCE_DIR` 등 마스터 로딩 구조
 - harness-v2 `src/mlife_harness/master/{embedding,similarity,kcd_name}.py` — bge-m3 임베딩 클라이언트·EDI 명칭 전처리·KCD 4단 판정(U4) 구현, 이번 재현이 따라 한 원본
 - `backend/rules.py::_master_checks`
+
+## 2026-10-12 갱신
+
+EDI 마스터 명칭 보정은 고객사 염려로 보류 상태다(원문과 달라지는 보정 금지). 불일치는 표시만 한다. 현재 상태 요약은 상위 wiki `/home/pilsu/projects/mirae-assets/wiki/2026-10-12-current-state.md`.

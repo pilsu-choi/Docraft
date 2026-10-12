@@ -59,3 +59,24 @@ python3 out/golden0930-aws/make_bundle.py <데이터셋 압축 푼 폴더(NFC)> 
 ## label_veiwer 비교 번들
 
 `e2e/out/golden0930-aws/0930_golden_aws_harness.zip` (106MB). 데이터셋과 같은 구조(`{종류}_labeled/{original,preprocessed,ao_extract,golden,harness}/{원본파일명}.json`)이고 `harness/` 만 이번 AWS 결과다. 59건 모두 하네스 결과가 있다. 그대로 업로드하면 문서별로 AO·하네스·정답을 비교할 수 있다.
+
+
+## 흡수한 기록 (2026-10-12 정리)
+
+흡수한 문서는 삭제했다. 복구는 Docraft dev 21db625에서 한다.
+
+### 회차별 결과
+
+| 문서(삭제) | 배포 내용과 59건 결과 |
+| --- | --- |
+| 2026-10-02-aws-integrated-deploy-1002c | 배포 담당 6c의 첫 통합 배포. Docraft f668ac9만 재배포하고 진료비영수증 30건을 1회 돌려 r3와 비교 |
+| 2026-10-02-aws-integrated-deploy-1002d | harness d8ce096(9016c9f·e87e529 포함)과 label_veiwer 00f181e를 배포하고 정답지 59건을 1회 돌려 r3와 같은 정답으로 비교 |
+| 2026-10-02-aws-integrated-deploy-1002f | harness 9695984(Docraft 폴백 요청을 필드·표로 나눠 동시 호출, 영수증 표 row_filter)를 배포하고 정답지 59건을 1회 돌려 r5와 비교 |
+| 2026-10-02-aws-integrated-deploy-1002g | harness 335acb3(f1, b2 f67d926 포함)를 배포하고 정답지 59건을 1회 돌려 r6와 비교 |
+| 2026-10-02-aws-integrated-deploy-1002h | harness f9d417f(규칙셋 2026.09.19)와 Docraft cba1b3b를 배포하고 정답지 59건을 1회 돌려 r7과 비교 |
+| 2026-10-02-aws-integrated-deploy-1002i | Docraft 298570b와 READ_MAX_MS=280000을 배포하고 정답지 59건(5491 golden 현재본)을 1회 돌려 같은 정답으로 다시 채점한 r8과 비교 |
+| 2026-10-02-aws-integrated-deploy-1002j | harness cd1461a(규칙셋 2026.09.20)를 배포하고 진료비영수증 30건을 1회 돌려 r9 영수증과 비교 |
+| 2026-10-02-aws-integrated-deploy-r3 | 배포 담당 세션(9f)이 떠 있는 세션의 요청을 모아 하네스·Docraft 를 한 번에 AWS 에 배포하고, 정답지 59건을 현재 검수본 기준으로 한 번 돌려 채점한 결과와 인계 내용 |
+| 2026-10-02-aws-redeploy-golden59-rerun | 하네스 dev dba1755(규칙셋 2026.09.11)를 AWS 개발 서버에 재배포하고 정답지 59건을 /v2/jobs 로 다시 돌려 9/30 실행과 비교한 결과 |
+| 2026-10-06-aws-integrated-deploy-1006a | 사용자 지시로 harness origin/dev 4438155(규칙셋 2026.09.22)와 Docraft mlife/dev 134f385를 AWS에 배포했다. 테스트 호출은 하지 않았다. |
+

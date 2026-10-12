@@ -11,7 +11,7 @@ status: active
 
 2026-09-22 · 브랜치 `feat/kv-fill-fp` · 워크트리 `.worktrees/kv-fill-fp`
 
-[key-value 추출 정확도 개선 지점 검토](2026-09-22-kv-accuracy-review.md)의 우선순위 2를 구현했다.
+[key-value 추출 정확도 개선 지점 검토](2026-09-22-ocr-verify.md)의 우선순위 2를 구현했다.
 캐시(`data/verify/accuracy-20260922/pipeline-cache`)만 써서 모델·OCR 재실행 없이 측정했다.
 
 ## 문제
@@ -81,5 +81,5 @@ rules가 새로 만드는 오탐 27건 중 `치료내역.치료명` 10건은 위
 
 ## 관련 자료
 
-- [key-value 추출 정확도 개선 지점 검토](2026-09-22-kv-accuracy-review.md)
-- [76건 평가 확장](2026-09-22-accuracy-eval-expansion.md)
+- [key-value 추출 정확도 개선 지점 검토](2026-09-22-ocr-verify.md)
+- [76건 평가 확장](2026-09-22-ocr-verify.md)

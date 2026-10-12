@@ -109,3 +109,10 @@ AWS 배포/실물 모델 호출은 0회이며 통합 배포 요청을 담당에�
 
 - [원래 아키텍처·품질 리뷰](2026-10-03-harness-docraft-architecture-quality-review.md).
 - [평가 스냅샷 구현](/home/pilsu/projects/mirae-assets/harness-v2/wiki/2026-10-03-evaluation-snapshots.md).
+
+
+## 흡수한 기록 (2026-10-12 정리)
+
+흡수한 문서는 삭제했다. 복구는 Docraft dev 21db625에서 한다.
+
+- `2026-10-03-review-integrity` (작업 세대·부분 추출·스프레드시트 내보내기 무결성 보강): 구조 검토 D1·D3·D5의 공유 상태 소유권, 추출 완전성, 실행 문맥 문제를 일반화해 수정한 결과와 회귀 근거
