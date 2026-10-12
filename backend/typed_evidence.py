@@ -4,7 +4,7 @@ import re
 import math
 from decimal import Decimal, InvalidOperation
 
-from . import doctypes, rules
+from . import doctypes, print_register, rules, table_layout
 
 
 _MARKED = set("✓✔√☑■●▣")
@@ -118,7 +118,7 @@ def valid(source, value):
     if evidence == "table_cell":
         kind = transform.removesuffix("_normalize") if isinstance(transform, str) else None
         return (source.get("match") == "typed" and kind in {"amount", "number"} and transform == f"{kind}_normalize"
-                and role in {"total_cell", "data_cell"} and source.get("geometry_scope") == "cell"
+                and role in {"total_cell", "data_cell"} and source.get("geometry_scope") in {"cell", "line"}
                 and rules.normalize(kind, printed) is not None
                 and bound == rules.normalize(kind, printed) == rules.normalize(kind, value))
     if evidence == "labelled_amount":
@@ -532,6 +532,50 @@ def _table_proofs(table, index, key, value, kind, tables, rows):
     return found[0] if len(found) == 1 else None
 
 
+def _printed_rows(doc_type, rows, blocks):
+    """Per upright page: ``(block, numbers)`` for `_line_proof`, each number printed under a header column
+    (`rules.printed_cells`) with its row coordinate: its deskewed height mapped to a row index through the printed name
+    lines of the rows (`print_register._anchors`, `_row_coord`). A page with fewer than three anchored rows has none. Turned
+    pages stay out: their line boxes are not in the page frame a proof reports."""
+    out = []
+    names = [row.get("항목") if isinstance(row, dict) else None for row in rows]
+    for page in sorted({block.get("page") for block in blocks if block.get("type") == "table" and block.get("lines")}):
+        tables = [block for block in blocks if block.get("page") == page and block.get("type") == "table"]
+        if any(block.get("orientation") for block in blocks if block.get("page") == page) or not tables[0].get("page_size"):
+            continue
+        boxes, slope = print_register._deskew(print_register._boxes(blocks, page))
+        anchors = print_register._anchors(names, print_register._names(boxes, tables[0]["page_size"][0]))[0]
+        if len(anchors) < 3:
+            continue
+        coordinate = print_register._row_coord(anchors)[0]
+        numbers = [(text, box, column, coordinate((box[1] + box[3]) / 2 - slope * (box[0] + box[2]) / 2))
+                   for text, box, column in rules.printed_cells(table_layout._lines(tables), tables, doc_type)]
+        out.append((tables[0], numbers))
+    return out
+
+
+def _line_proof(table, index, key, value, kind, printed, rows):
+    """A table cell without a ruled grid cell: the one number printed under the column's header (`rules.printed_cells`)
+    whose row coordinate is within `print_register.TOL` of the row (`_printed_rows`), bound only when it reads as the value."""
+    if value is None or kind not in {"amount", "number"}:
+        return None
+    found = []
+    for block, numbers in printed:
+        hits = [(text, box) for text, box, column, (at, supported) in numbers
+                if column == key and supported and abs(at - index) <= print_register.TOL]
+        if len(hits) != 1:
+            continue
+        text, box = hits[0]
+        normalized = rules.normalize(kind, text)
+        if normalized is None or normalized != rules.normalize(kind, value):
+            continue
+        proof = _proof(block, box, text, key, "table_cell", f"{kind}_normalize",
+                       "total_cell" if rules.is_total(rows[index]) else "data_cell", "line", normalized)
+        proof["field_key"] = f"{table}/{index}/{key}"
+        found.append(proof)
+    return found[0] if len(found) == 1 else None
+
+
 def _blank_geometry(proof, cell):
     proof["blank_method"] = cell.get("blank_method", "closed_cell")
     if cell.get("rotation_degrees") is not None and abs(cell["rotation_degrees"]) >= 0.1:
@@ -679,12 +723,17 @@ def augment(result, schema, blocks, groundings):
             columns = spec["tables"][key]
             if tables is None:
                 tables = [(block, _row_names(block["rows"])) for block in blocks if _cells(block) and block.get("rows")]
+            printed = None
             for index, row in enumerate(value):
                 if not isinstance(row, dict):
                     continue
                 for column, cell_value in row.items():
                     if column in columns:
-                        proof = _table_proofs(key, index, column, cell_value, columns[column]["kind"], tables, value)
+                        kind = columns[column]["kind"]
+                        proof = _table_proofs(key, index, column, cell_value, kind, tables, value)
+                        if proof is None and cell_value is not None and kind in {"amount", "number"}:
+                            printed = _printed_rows(doc_type, value, blocks) if printed is None else printed
+                            proof = _line_proof(key, index, column, cell_value, kind, printed, value)
                         if proof:
                             groundings.setdefault(key, {}).setdefault(str(index), {})[column] = proof
     for key in doctypes.SCHEMA_ALIASES.get(doc_type, {}):

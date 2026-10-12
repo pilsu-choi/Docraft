@@ -1546,9 +1546,18 @@ def _is_edi(value):
 
 
 def _printed_under(blocks, doc_type="세부내역서"):
-    """OCR 표 줄의 금액 → 그 금액이 찍힌 칸의 머리글 열들. 세부내역서는 x가 가장 가까운 읽은 머리글(``table_layout.header_positions``),
-    진료비영수증은 그 칸 바로 위 머리글 줄의 열 이름(``_receipt_head``). 머리글을 못 읽으면 빈 dict."""
-    lines = table_layout._lines(blocks)
+    """OCR 표 줄의 0 아닌 금액 → 그 금액이 찍힌 칸의 머리글 열들(``printed_cells``). 머리글을 못 읽으면 빈 dict."""
+    under = {}
+    for text, _, name in printed_cells(table_layout._lines(blocks), blocks, doc_type):
+        if value := _money(text):
+            under.setdefault(value, set()).add(name)
+    return under
+
+
+def printed_cells(lines, blocks, doc_type="세부내역서"):
+    """표 OCR 줄 ``lines``(``table_layout._lines``)에 찍힌 숫자 토큰마다 ``(토큰, 상자 [x0, y0, x1, y1], 그 칸의 머리글 열)``.
+    토큰 상자는 줄 상자를 글자 수 비례로 나눈 것이다. 세부내역서는 x가 가장 가까운 읽은 머리글(``table_layout.header_positions``),
+    진료비영수증은 그 칸 바로 위 머리글 줄의 열 이름(``_receipt_head``). 머리글을 못 읽은 토큰은 내지 않는다."""
     if doc_type == "진료비영수증":
         heads = [line for line in lines if re.search(r"[가-힣]", line["text"])]
         column = lambda left, right, y: _receipt_head(heads, left, right, y)
@@ -1556,15 +1565,14 @@ def _printed_under(blocks, doc_type="세부내역서"):
         at = table_layout.header_positions(blocks, list(doctypes.spec(doc_type)["tables"][ITEM_TABLE]))[0]
         lines = lines if at else []
         column = lambda left, right, y: min(at, key=lambda key: abs(at[key] - (left + right) / 2))
-    under = {}
     for line in lines:
         (x0, y0, x1, y1), parts = line["bbox"], line["text"].split()
         total, done = sum(map(len, parts)) or 1, 0
         for part in parts:
             left, done = x0 + (x1 - x0) * done / total, done + len(part)
-            if table_layout.NUMBER.fullmatch(part) and (value := _money(part)) and (name := column(left, x0 + (x1 - x0) * done / total, (y0 + y1) / 2)):
-                under.setdefault(value, set()).add(name)
-    return under
+            right = x0 + (x1 - x0) * done / total
+            if table_layout.NUMBER.fullmatch(part) and (name := column(left, right, (y0 + y1) / 2)):
+                yield part, [left, y0, right, y1], name
 
 
 def _receipt_head(heads, left, right, y):
