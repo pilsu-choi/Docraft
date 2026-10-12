@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 VISION_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
 VISION_MAX_IMAGES = 4  # Page images per provider call.
-VISION_MAX_EDGE = 2000  # Longest side of an attached page image, in pixels.
+VISION_MAX_EDGE = limit("VISION_MAX_EDGE", 2000, 8000) or 2000  # Longest side of an attached page image, in pixels (VLM prefill tokens grow with its square).
 VISION_SCHEMA_PAGES = [1, 2]  # Pages taken from each reference document when generating a schema.
 VISION_NOTE = (
     " The page image is attached: read the table structure (merged cells, column headers) from the image, "
