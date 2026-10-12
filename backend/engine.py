@@ -674,12 +674,13 @@ def _bands(page_blocks, columns):
     return bands if len(bands) > len(tables) else []
 
 
-def _locate(images, deadline=None, cancel=None, on_call=None):
-    """`bandkit.boxes` of the item table and the 금액산정 block from one call on the whole page image; None (with a
-    `band_fallback` note) when the call or its boxes are unusable and the table is read as rowmajor."""
+def _locate(images, lines=(), deadline=None, cancel=None, on_call=None):
+    """`bandkit.boxes` of the item table and the 금액산정 block from one call on the whole page image, the table's right end
+    set by the panel's OCR `lines` (`_page_lines`) when they show it; None (with a `band_fallback` note) when the call or its
+    boxes are unusable and the table is read as rowmajor."""
     _begin_call(cancel, on_call)
     try:
-        found = bandkit.boxes(_provider([_user(bandkit.LOCATE_PROMPT, images)], timeout_cap=remaining(deadline), max_tokens=500))
+        found = bandkit.boxes(_provider([_user(bandkit.LOCATE_PROMPT, images)], timeout_cap=remaining(deadline), max_tokens=500), lines)
     except (RuntimeError, ValueError) as exc:
         if cancel is not None and cancel.is_set():
             raise
@@ -688,6 +689,18 @@ def _locate(images, deadline=None, cancel=None, on_call=None):
     if found is None:
         note("band_fallback", "locate", add=False)
     return found
+
+
+def _page_lines(blocks, page):
+    """OCR lines of `page` turned upright like its image, in the 0-1000 page coordinates of the located boxes."""
+    from .parsers import unturn  # parsers → engine 순환을 피한다
+    lines = []
+    for block in (b for b in blocks if b.get("page") == page and b.get("page_size") and b.get("lines")):
+        block = unturn([block], 360 - turn)[0] if (turn := _angle(block)) else block
+        width, height = block["page_size"]
+        lines += [{"text": str(line.get("text") or ""), "bbox": [x0 * 1000 / width, y0 * 1000 / height, x1 * 1000 / width, y1 * 1000 / height]}
+                  for line in block["lines"] if line.get("bbox") for x0, y0, x1, y1 in [line["bbox"]]]
+    return lines
 
 
 def _located_bands(found, page, turn):
@@ -809,7 +822,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         logger.info("extract: rowmajor needs one chunk with page images (chunks=%d), reading tables asis", len(chunks))
     found = None  # band: the one table of a one-page document of a BAND_DOC_TYPES type is located first, then read in strips beside the 금액산정 block
     if table_extract == "band" and schema.get("title") in ai_settings()["band_doc_types"] and tables[:1] == whole and len(tables) == 1 and len(images) == 1:
-        found = _locate(images, deadline, cancel, on_call)
+        found = _locate(images, _page_lines(blocks, _pages(blocks)[0]), deadline, cancel, on_call)
         if found and located is not None:
             located.update(found)
     page = _pages(blocks)[0] if found else None

@@ -8,7 +8,7 @@ import re
 
 from . import doctypes, rules
 
-BANDS, OVERLAP, TAIL, SIMILAR = 3, 0.10, 8, 0.7
+BANDS, OVERLAP, TAIL, SIMILAR, ALIGN = 3, 0.10, 8, 0.7, 15
 SUMMARY_KEYS = ("진료비총액", "환자부담총액", "이미납부한금액", "납부할금액", "납부한금액_카드", "납부한금액_현금영수증", "납부한금액_현금",
                 "납부한금액_합계", "공단부담총액", "상한액초과금")  # 항목표 밖 금액산정 블록에 인쇄된 필드
 REGIONS = {"item_grid": "ONLY the itemized charge table: the item-name column plus its 급여/비급여 amount columns, from the column-header rows down to and including the final 합계/계 row. "
@@ -33,9 +33,12 @@ def _box(value):
     return list(value) if isinstance(value, list) and len(value) == 4 and all(isinstance(x, (int, float)) for x in value) else None
 
 
-def boxes(reply):
-    """위치 응답 → {grid, header, first_row, total[, summary]} 또는 None(표 상자가 모자라거나 순서가 어긋남).
-    금액산정 상자가 항목 표 옆에서 가로로 겹치면 표의 오른쪽 끝을 그 왼쪽에서 자르고, 높이 8% 미만 상자는 금액산정 블록이 아니라 버린다."""
+def boxes(reply, lines=()):
+    """위치 응답 → {grid, header, first_row, total[, summary]} 또는 None(표 상자가 모자라거나 순서가 어긋남). 높이 8% 미만 상자는 금액산정 블록이 아니라 버린다.
+
+    금액산정 상자가 항목 표 옆(표 가로 40% 오른쪽)에 있으면 표의 오른쪽 끝은 패널 라벨의 왼쪽 끝이다(``panel_edge``, OCR 줄 ``lines``는 바로 선
+    쪽 1000 정규화). 위치 응답의 표·패널 경계는 한 열쯤 어긋나곤 해(패널 상자가 표 맨 오른쪽 열을 덮거나 표 상자가 그 열 앞에서 끝남) 라벨 근거를
+    먼저 따르고, 근거가 없으면 패널 상자가 표와 겹칠 때만 그 왼쪽에서 자른다."""
     found = {key: _box(value) for key, value in reply.items()} if isinstance(reply, dict) else {}
     if not all(found.get(key) for key in ("item_grid", "header", "first_row", "total")):
         return None
@@ -45,9 +48,19 @@ def boxes(reply):
         return None
     if summary and summary[2] > summary[0] and summary[3] - summary[1] >= 80:
         result["summary"] = summary
-        if grid[0] + 0.4 * (grid[2] - grid[0]) < summary[0] < grid[2]:
-            grid[2] = summary[0]
+        if grid[0] + 0.4 * (grid[2] - grid[0]) < summary[0]:
+            edge = panel_edge(lines, summary, result["first_row"][1], result["total"][3])
+            grid[2] = edge if edge is not None else min(grid[2], summary[0])
     return result
+
+
+def panel_edge(lines, summary, top, bottom):
+    """금액산정 상자 안·표 본문 높이(``top``~``bottom``)에 가운데가 든 패널 라벨(한글 두 글자 이상인 OCR 줄)의 왼쪽 정렬선: 왼쪽 끝이 ALIGN
+    안에 가장 많이 모인 자리(같으면 왼쪽). 없으면 None. 가장 왼쪽 끝이 아니다 — 표와 패널에 걸친 안내 문구나 표 칸 오독 글자, 들여 쓴 하위 라벨이
+    섞여도 라벨 열 자리는 그대로다."""
+    lefts = [x0 for line in lines for x0, y0, x1, y1 in [line["bbox"]] if len(re.findall(r"[가-힣]", str(line["text"]))) >= 2
+             and summary[0] <= (x0 + x1) / 2 <= summary[2] and max(top, summary[1]) <= (y0 + y1) / 2 <= min(bottom, summary[3])]
+    return max(lefts, key=lambda x: (sum(x <= other <= x + ALIGN for other in lefts), -x), default=None)
 
 
 def summary_clip(found):

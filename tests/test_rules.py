@@ -1129,6 +1129,55 @@ def test_a_whole_column_read_into_its_neighbour_is_swapped_back():
     assert [row["선택진료료외"] for row in fixed] == ["20000", "15000", "35000"] and "맞바꿨다" in reason
 
 
+def printed(*heads, values=()):
+    """영수증 OCR 블록 한 쪽: ``heads``는 (글자, 왼쪽 x, 위 y) 머리글 줄, ``values``는 (금액, 왼쪽 x, 위 y) 금액 줄(높이 20, 폭 글자당 10)."""
+    lines = [{"text": text, "bbox": [x, y, x + 10 * len(text), y + 20]} for text, x, y in (*heads, *values)]
+    return [{"page": 1, "type": "table", "page_size": [1000, 1000], "lines": lines}]
+
+
+BAND_TOTAL = receipt(("진찰료", {"선택진료료외": "20000"}), ("검사료", {"선택진료료외": "15000"}),
+                     ("합계", {"비급여": "35000"}))  # 띠 읽기: 본문 띠는 선택진료료외, 합계 행이 든 띠만 비급여로 적었다
+VALUES = (("20000", 600, 200), ("15000", 600, 240), ("35000", 600, 400))
+OTHER_THAN = printed(("선택진료료", 590, 100), ("이외", 610, 121), values=VALUES)  # 두 줄로 쪼개 인쇄된 '선택진료료 이외' 칸
+CHOSEN = printed(("선택진료료", 590, 121), values=VALUES)
+
+
+@pytest.mark.parametrize("rows, blocks, expected", [
+    (BAND_TOTAL, OTHER_THAN, [("20000", "0"), ("15000", "0"), ("35000", "0")]),  # 머리글이 항목 행 쪽: 합계 행만 되돌린다
+    (SHIFTED, OTHER_THAN, [("20000", "0"), ("15000", "0"), ("35000", "0")]),  # 머리글이 합계 행 쪽: 항목 행을 되돌린다
+    (BAND_TOTAL, printed(("선태진료", 590, 100), ("외③", 610, 121), values=VALUES), [("20000", "0"), ("15000", "0"), ("35000", "0")]),  # '택' 오독
+    (BAND_TOTAL, printed(values=VALUES), [("0", "20000"), ("0", "15000"), ("0", "35000")]),  # 머리글 근거 없음: 항목 행(기존 동작)
+    (BAND_TOTAL, [], [("0", "20000"), ("0", "15000"), ("0", "35000")]),  # OCR 없음: 항목 행(기존 동작)
+])
+def test_a_column_swap_turns_back_the_side_the_printed_header_disagrees_with(rows, blocks, expected):
+    out = rules.apply("진료비영수증", {"항목내역": rows}, blocks)["항목내역"]
+    assert [(row["선택진료료외"], row["비급여"]) for row in out] == expected
+
+
+def test_a_total_row_read_into_the_neighbour_column_is_the_one_turned_back():
+    """머리글이 항목 행 쪽(선택진료료)이면 합계 행만 그 열로 되돌린다. Judge 교정(check·run)도 같은 쪽을 고친다."""
+    out = rules.apply("진료비영수증", {"항목내역": SHIFTED}, CHOSEN)["항목내역"]
+    assert [(row["선택진료료"], row["선택진료료외"]) for row in out] == [("20000", "0"), ("15000", "0"), ("35000", "0")]
+    flags = [flag for flag in rules.check("진료비영수증", {"항목내역": SHIFTED}, {}, CHOSEN) if flag["code"] == "column_shift" and "row" not in flag]
+    assert [(flag["column"], flag["target"], flag.get("totals")) for flag in flags] == [("선택진료료", "선택진료료외", True)]
+    fixed, reason = rules.run("진료비영수증", {"항목내역": SHIFTED}, {}, CHOSEN, rounds=1)[0]["항목내역"]
+    assert [row["선택진료료"] for row in fixed] == ["20000", "15000", "35000"] and "합계 행" in reason
+
+
+def test_conflicting_printed_headers_leave_the_swap_to_the_item_rows():
+    blocks = printed(("선택진료료", 590, 100), ("이외", 610, 121), ("비급여", 790, 121),  # 두 값이 다른 열 머리글 아래
+                     values=(("20000", 600, 200), ("15000", 800, 240), ("35000", 600, 400)))
+    out = rules.apply("진료비영수증", {"항목내역": BAND_TOTAL}, blocks)["항목내역"]
+    assert [row["비급여"] for row in out] == ["20000", "15000", "35000"]  # 항목 행을 바꾼다(기존 동작)
+
+
+def test_receipt_head_reads_a_header_split_over_lines_and_skips_text_that_names_no_column():
+    heads = printed(("영수증번호", 560, 40), ("선택진료료", 590, 100), ("이외", 610, 121), ("메모", 600, 300))[0]["lines"]
+    assert rules._receipt_head(heads, 600, 650, 400) == "선택진료료외"  # '메모'는 열 이름이 아니라 그 위 무리를 본다
+    assert rules._receipt_head(heads, 600, 650, 110) is None  # 값 위에 머리글이 없다
+    assert rules._receipt_head(heads, 900, 950, 400) is None  # 가로로 겹치는 머리글이 없다
+
+
 def test_an_ambiguous_column_swap_is_left_alone():
     rows = receipt(("진찰료", {"선택진료료": "35000"}), ("합계", {"선택진료료외": "35000", "비급여": "35000"}))
     assert rules._swaps(rows) == []
