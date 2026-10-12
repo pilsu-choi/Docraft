@@ -5,14 +5,14 @@ import io
 import fitz
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from backend import engine, parsers
 from backend.parsers import expanded, spin, unturn
 
 from test_orientation import _page, _scanned
 
-ANGLES = [0, 2, -2, 5, -5, 90 + 3, 180 - 2, 270 + 4, 90, 180]
+ANGLES = [0, 2, -2, 5, -5, 90 + 3, 180 - 2, 270 + 4, 90, 180, 20, -30, 40, -44, 90 + 30, 270 - 40]
 
 
 def _decode(url):
@@ -24,10 +24,15 @@ def vision(monkeypatch):
     monkeypatch.setattr(engine, "ai_settings", lambda: {"vision": True})
 
 
-@pytest.mark.parametrize("tilt", [0, 2, -2, 5, -5, 7, -7])
-def test_tilt_measures_the_turn_that_straightens_a_tilted_page(tilt):
+WIDE = [0, 2, -2, 5, -5, 7, -7, 10, -10, 15, -15, 20, -20, 30, -30, 40, -40, 44, -44]
+
+
+@pytest.mark.parametrize("tilt", WIDE)
+@pytest.mark.parametrize("lying", [0, 90, 180, 270])
+def test_tilt_measures_the_turn_that_straightens_a_tilted_page_at_any_quarter_turn(tilt, lying):
     image, _ = _page()
-    assert parsers._tilt(image.rotate(-tilt, resample=Image.BICUBIC, fillcolor="white")) == pytest.approx(tilt, abs=0.5)
+    scan = image.rotate(-tilt, resample=Image.BICUBIC, expand=True, fillcolor="white").rotate(lying, expand=True)
+    assert parsers._tilt(scan) == pytest.approx(tilt, abs=0.5)
 
 
 @pytest.mark.parametrize("tilt", [0.2, -0.2, 0.1])
@@ -36,9 +41,17 @@ def test_tilt_below_the_threshold_is_ignored(tilt):
     assert parsers._tilt(image.rotate(-tilt, resample=Image.BICUBIC, fillcolor="white")) == 0
 
 
-def test_tilt_beyond_the_search_limit_is_not_trusted():
+def test_tilt_past_45_degrees_is_the_other_side_of_a_quarter_turn():
     image, _ = _page()
-    assert parsers._tilt(image.rotate(-12, resample=Image.BICUBIC, fillcolor="white")) == 0
+    assert parsers._tilt(image.rotate(-50, resample=Image.BICUBIC, expand=True, fillcolor="white")) == pytest.approx(-40, abs=0.5)
+
+
+@pytest.mark.parametrize("page", ["blank", "noise", "blur"])
+def test_tilt_declines_a_page_without_lines(page):
+    rng = np.random.default_rng(0)
+    noise = Image.fromarray(rng.integers(0, 255, (640, 900), dtype=np.uint8))
+    image = {"blank": Image.new("RGB", (900, 640), "white"), "noise": noise, "blur": noise.filter(ImageFilter.GaussianBlur(8))}[page]
+    assert parsers._tilt(image) == 0
 
 
 @pytest.mark.parametrize("turn, tilt", [(0, 3), (0, -4), (90, 3), (180, -2), (270, 4), (90, 0), (270, 0)])
@@ -104,14 +117,45 @@ def test_quarter_turns_render_as_before(angle, tmp_path, vision):
     assert base64.b64decode(whole[0].split(",", 1)[1]) == old and base64.b64decode(band[0].split(",", 1)[1]) == strip
 
 
-@pytest.mark.parametrize("angle", [0, 3, -5, 93, 178, 274])
-def test_unturn_to_the_turned_page_moves_each_box_centre_where_the_image_puts_it(angle):
+@pytest.mark.parametrize("angle", [0, 3, -5, 93, 178, 274, 20, -30, 38, 120, 235])
+def test_unturn_to_the_turned_page_gives_back_the_straight_line_box(angle):
     size = [900, 640]
-    block = {"bbox": [100, 200, 300, 260], "page_size": size, "lines": [{"bbox": [100, 200, 300, 230]}]}
-    [mapped] = unturn([block], 360 - angle)
     canvas = expanded(size, angle)
+    straight = [400, 300, 600, 330]  # 돌린 페이지에서 똑바로 선 줄
+    seen = engine._covering(straight, -angle, canvas, size)  # 원본(기울어진) 페이지의 OCR 줄 상자: 기운 줄을 덮는 상자
+    block = {"bbox": list(seen), "page_size": size, "lines": [{"bbox": list(seen)}]}
+    [mapped] = unturn([block], 360 - angle)
     assert mapped["page_size"] == pytest.approx(canvas)
-    expected = spin((200, 215), angle, size, canvas)
-    line = mapped["lines"][0]["bbox"]
-    assert ((line[0] + line[2]) / 2, (line[1] + line[3]) / 2) == pytest.approx(expected)
-    assert (line[2] - line[0], line[3] - line[1]) == pytest.approx((300 - 100, 30) if angle % 180 < 45 or angle % 180 > 135 else (30, 200), abs=1e-6)
+    assert mapped["lines"][0]["bbox"] == pytest.approx(straight, abs=1e-6)
+
+
+def test_unturn_keeps_the_box_size_where_the_box_no_longer_tells_the_line_apart():
+    block = {"page_size": [900, 640], "lines": [{"bbox": [100, 100, 300, 300]}]}
+    line = unturn([block], 360 - 44)[0]["lines"][0]["bbox"]
+    assert (line[2] - line[0], line[3] - line[1]) == pytest.approx((200, 200))
+
+
+@pytest.mark.parametrize("tilt", [10, -20, 30, -35])
+def test_text_rows_of_a_steep_page_stay_apart_on_the_turned_page(tilt):
+    size = [1200, 900]
+    canvas = expanded(size, tilt)
+    rows = [[100, 100 + 60 * i, 900, 130 + 60 * i] for i in range(10)]  # 똑바로 세운 페이지의 줄 10개, 30 간격
+    lines = [{"text": f"{i} 1,000", "bbox": list(engine._covering(box, -tilt, canvas, size))} for i, box in enumerate(rows)]
+    block = {"page": 1, "type": "table", "page_size": size, "skew": tilt, "lines": lines}
+    upright = unturn([block], 360 - engine._angle(block))[0]
+    assert len(engine._line_rows(upright["lines"])[0]) == 10
+
+
+@pytest.mark.parametrize("turn, tilt", [(0, 20), (0, -30), (90, 15), (180, 25), (270, -20), (90, -35)])
+def test_orientation_is_voted_on_the_straightened_page_of_a_steep_scan(turn, tilt, tmp_path, monkeypatch):
+    upright, boxes = _page()
+    scan = upright.rotate(-(turn + tilt), resample=Image.BICUBIC, expand=True, fillcolor="white")
+    path = tmp_path / "scan.png"
+    scan.save(path)
+    seen = [list(engine._covering(box, -(turn + tilt), upright.size, scan.size)) for box in boxes]  # OCR 줄 상자: 기운 줄을 덮는 상자
+    block = {"page": 1, "text": "x", "bbox": [0, 0, *scan.size], "page_size": list(scan.size), "lines": [{"bbox": box} for box in seen]}
+    monkeypatch.setattr(parsers, "ocr_settings", lambda: {"page_deskew": True})
+    monkeypatch.setattr(parsers, "_read_turned", lambda image, angle, deadline: [dict(block, page_size=list(image.rotate(angle, expand=True).size))])
+    [out] = parsers._upright([block], str(path), 1)
+    assert out.get("orientation", 0) == turn
+    assert engine._angle(out) == pytest.approx(turn + tilt, abs=0.5)

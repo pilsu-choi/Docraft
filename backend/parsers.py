@@ -203,7 +203,7 @@ def _page_image(path, file_type, index, size, mode):
 
 
 TURNS = (0, 90, 180, 270)
-SKEW_LIMIT, SKEW_MIN = 8.0, 0.3  # degrees of page tilt searched, and the smallest one worth resampling the page for
+SKEW_MIN, SKEW_SURE = 0.3, 1.15  # the smallest tilt worth resampling the page for; how much sharper than the median angle the tilt must be
 
 
 def _otsu(pixels):
@@ -320,9 +320,11 @@ def unturn(blocks, turn):
     """Map blocks read from a page turned by `turn` (counter-clockwise degrees, any angle) back to the unturned page.
 
     Each block's `page_size` is the turned page it was read from; boxes, lines, cells and polygons come back in
-    the original frame with the original `page_size`, and `orientation` adds up the turns. A box keeps its size
-    (swapped past a quarter turn): a text line is as wide and tall after a small turn as before. A quarter turn keeps a
-    deskew `rotation_degrees` valid, because plane rotations commute."""
+    the original frame with the original `page_size`, and `orientation` adds up the turns. A box is the smallest upright
+    box around a text line or cell that runs straight on the page it is mapped onto, so it comes back as that straight
+    rectangle (swapped past a quarter turn): the one whose own smallest upright box, turned back, is the given box. Past
+    about 40 degrees from a quarter turn the box no longer tells the rectangle apart, and it keeps its size. A quarter turn
+    keeps a deskew `rotation_degrees` valid, because plane rotations commute."""
     mapped = deepcopy(blocks)
     for block in mapped:
         if not turn or not block.get("page_size"):
@@ -330,9 +332,13 @@ def unturn(blocks, turn):
         turned, size = block["page_size"], expanded(block["page_size"], turn)
         point = lambda x, y: spin((x, y), -turn, turned, size)
         swap = 45 < turn % 180 < 135
+        lean = math.radians((turn + 45) % 90 - 45)  # the turn left after the nearest quarter turn
+        cos, sin, det = abs(round(math.cos(lean), 12)), abs(round(math.sin(lean), 12)), round(math.cos(2 * lean), 12)
         def box(values):
             cx, cy = point((values[0] + values[2]) / 2, (values[1] + values[3]) / 2)
-            half_w, half_h = ((values[3] - values[1]) / 2, (values[2] - values[0]) / 2) if swap else ((values[2] - values[0]) / 2, (values[3] - values[1]) / 2)
+            width, height = (values[3] - values[1], values[2] - values[0]) if swap else (values[2] - values[0], values[3] - values[1])
+            straight = ((width * cos - height * sin) / det, (height * cos - width * sin) / det) if det > .2 else (0, 0)
+            half_w, half_h = (v / 2 for v in (straight if min(straight) > 0 else (width, height)))
             return [cx - half_w, cy - half_h, cx + half_w, cy + half_h]
         for item in (block, *(block.get("lines") or []), *(block.get("cells") or [])):
             if item.get("polygon"):
@@ -348,34 +354,40 @@ def unturn(blocks, turn):
 
 
 def _tilt(image):
-    """Degrees to turn the upright `image` counter-clockwise to straighten it, 0 under SKEW_MIN or on the search limit (a bound, not a measure)."""
+    """Degrees (-45 to 45) to turn `image` counter-clockwise so its lines run straight, whatever quarter turn it lies at.
+
+    0 under SKEW_MIN or when no angle stands out (`_skew` sharpness under SKEW_SURE: blank pages, noise, photos without
+    lines). A tilt past 45 degrees is the same page a quarter turn away, which `_vote` then decides."""
     gray = ImageOps.grayscale(image)
     gray.thumbnail((2000, 2000))
-    angle = _skew(_dark(np.asarray(gray)), tilt=SKEW_LIMIT)
-    return angle if SKEW_MIN <= abs(angle) < SKEW_LIMIT - 0.2 else 0.0
+    angle, sharpness = _skew(_dark(np.asarray(gray)), tilt=45)
+    angle = round((angle + 45) % 90 - 45, 2)
+    return angle if SKEW_MIN <= abs(angle) and sharpness >= SKEW_SURE else 0.0
 
 
 def _upright(blocks, path, file_type, deadline=None):
     """Re-read every page whose text is not upright (`orientation`) from an upright copy.
 
     The re-read blocks keep the coordinate frame of the file as given (`bbox`, `page_size`) and carry the
-    `orientation` turn, so clients and image crops need no change. A page's small tilt (`_tilt`, PAGE_DESKEW) is measured on the
-    upright copy and put on its blocks as `skew`; only the page image the model sees is straightened by it. Without OCR lines nothing is judged; a
-    failed re-read keeps the first reading."""
+    `orientation` turn, so clients and image crops need no change. A page's tilt (`_tilt`, PAGE_DESKEW, up to 45 degrees) is
+    measured first, the quarter turn is voted on the straightened page and its line boxes, and the tilt is put on the blocks as
+    `skew`; only the page image the model sees is straightened by it. Without OCR lines nothing is judged; a failed re-read
+    keeps the first reading."""
     pages = sorted({b["page"] for b in blocks if b.get("lines") and b.get("page_size")})
     for page_no in pages:
         current = [b for b in blocks if b["page"] == page_no]
         size = next(b["page_size"] for b in current if b.get("page_size"))
         try:
             image = _page_image(path, file_type, page_no - 1, size, "RGB")
-            boxes = [line["bbox"] for b in current for line in b.get("lines") or []]
-            turn, fresh = _vote(image, boxes), None
+            skew = _tilt(image) if ocr_settings().get("page_deskew") else 0
+            lines = [{"bbox": line["bbox"]} for b in current for line in b.get("lines") or []]
+            boxes = [line["bbox"] for line in (unturn([{"page_size": size, "lines": lines}], -skew)[0]["lines"] if skew else lines)]
+            turn, fresh = _vote(image.rotate(skew, Image.BILINEAR, expand=True, fillcolor="white") if skew else image, boxes), None
             if turn is None and ocr_settings().get("orientation_score") and boxes:
                 turn, fresh = _turn_by_score(image, current, boxes, deadline)
             if turn:
                 logger.info("page %d is turned, re-reading it rotated %d degrees counter-clockwise", page_no, turn)
                 fresh = fresh or _read_turned(image, turn, deadline)
-            skew = _tilt(image.rotate(turn, expand=True) if turn else image) if ocr_settings().get("page_deskew") else 0
         except (ParseError, TimeoutError, OSError, ValueError) as exc:
             logger.warning("upright re-read of page %d failed, keeping the scanned orientation: %s", page_no, exc)
             continue

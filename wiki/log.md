@@ -526,3 +526,4 @@
 - **Update** (2026-10-12): [Parse와 Extract 이슈 유형 계층 분류](2026-10-03-parse-extract-issue-taxonomy.md) — 상위 wiki에서 동기화: 입력 매체·화질 조건 축, 경계 규칙 3개, 회귀 후보 1행. 노드·ID 변경 없음.
 - **Update** (2026-10-12): [Parse·Extract 이슈 분류 의료비 문서 적용 프로파일](2026-10-03-parse-extract-taxonomy-medical-profile.md) — 상위 wiki에서 동기화: 입력 매체·화질 조건 값.
 - **Creation** (2026-10-12): [페이지 기울기 보정(PAGE_DESKEW)](2026-10-12-page-skew-correction.md) — 방향과 작은 기울기를 한 각도로 합쳐 모델 이미지를 돌리고 띠 상자를 맞춤. 설정 PAGE_DESKEW(기본 켬).
+- **Update** (2026-10-12): [페이지 기울기 보정(PAGE_DESKEW)](2026-10-12-page-skew-correction.md) — 범위 확장 ±45°: 행·열 두 방향 측정, 선명도 거절(1.15), 기울기 먼저 재고 편 페이지에서 방향 투표, 기운 줄 상자의 직사각형 복원. 197장 합성 회전 측정표.
