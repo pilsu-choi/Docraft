@@ -360,7 +360,7 @@ def _header(blocks, union, min_columns=4):
                 or any(_near(re.sub(r"\W", "", word), known) for known in WORDS)):
             continue
         x = sum(t["x"] for t in group) / len(group)
-        extras[key := f"{VALUE['unknown']['key']}{len(extras) + 1}"] = word
+        extras[key := f"{VALUE['unknown']['key']}{len(extras) + 1}"], at[key] = word, x
         columns.insert(max((j + 1 for j, other in enumerate(columns) if other in at and at[other] < x), default=0), key)
     named = None not in words.values() and len(set(words.values())) == len(words)  # 오독했거나 같은 글자('금액'·'금액')면 못 가른다
     return ({key: extras.get(key, words.get(key) if named else None) for key in columns}, at, None,

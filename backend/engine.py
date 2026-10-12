@@ -16,7 +16,7 @@ from pathlib import Path
 
 import fitz
 import httpx
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit, request_id
@@ -64,12 +64,14 @@ def _covering(box, angle, src, dst):
     return fitz.Rect(min(x for x, _ in corners), min(y for _, y in corners), max(x for x, _ in corners), max(y for _, y in corners))
 
 
-def _data_url(page, clip=None, max_zoom=2.0, turn=0, edge=VISION_MAX_EDGE, masks=()):
+def _data_url(page, clip=None, max_zoom=2.0, turn=0, edge=VISION_MAX_EDGE, masks=(), guides=None):
     """One rendered page (or its `clip` region) as a base64 JPEG data URL, scaled so its longest side stays within
     `edge` (VISION_MAX_EDGE). The page is turned `turn` degrees counter-clockwise first (`_angle`: the parser's `orientation` plus a
     small `skew`) so the text is upright and straight; `clip` is a region of the turned page, in points. A quarter turn
     is rendered by the page matrix; any other angle rotates the rendered region (bicubic, white corners). `masks` (polygons
-    in the turned page's points) are painted white on the image."""
+    in the turned page's points) are painted white on the image. `guides` ((column boundary xs, [(column x, key)]) in the
+    turned page's points, `_column_guides`) draws thin gray vertical lines at the boundaries and the keys in small red letters
+    at the top."""
     from .parsers import expanded, spin  # parsers → engine 순환을 피한다
     size = [page.rect.width, page.rect.height]
     canvas = expanded(size, turn)
@@ -78,7 +80,7 @@ def _data_url(page, clip=None, max_zoom=2.0, turn=0, edge=VISION_MAX_EDGE, masks
     source = _covering(area, -turn, canvas, size) & page.rect  # the part of the file page the region shows
     if turn % 90 == 0:
         pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom).prerotate(-turn), clip=source if clip else None, alpha=False)
-        if not masks:
+        if not masks and not guides:
             return "data:image/jpeg;base64," + base64.b64encode(pixmap.tobytes("jpeg", jpg_quality=90)).decode()
         image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
     else:
@@ -91,6 +93,13 @@ def _data_url(page, clip=None, max_zoom=2.0, turn=0, edge=VISION_MAX_EDGE, masks
     draw = ImageDraw.Draw(image)
     for polygon in masks:  # 띠 경계 꺾은선 바깥(이웃 띠의 행)을 지운다
         draw.polygon([((px - area.x0) * zoom, (py - area.y0) * zoom) for px, py in polygon], fill=(255, 255, 255))
+    if guides:  # 열 경계 세로선(인쇄된 칸선과 겹쳐도 회색 한 줄)과 머리글 위 열 키
+        bounds, labels = guides
+        for x in bounds:
+            draw.line([((x - area.x0) * zoom, 0), ((x - area.x0) * zoom, image.height)], fill=(150, 150, 150), width=max(1, round(zoom / 2)))
+        font = ImageFont.load_default(size=max(10, round(5 * zoom)))
+        for x, key in labels:
+            draw.text(((x - area.x0) * zoom, 1), key, fill=(220, 0, 0), font=font, anchor="mt")
     buffer = io.BytesIO()
     image.save(buffer, "JPEG", quality=90)
     return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
@@ -115,7 +124,7 @@ def _native_zoom(source, page, number):
         return max(image.size) / max(page.rect.width, page.rect.height)
 
 
-def _page_images(source, pages, turns=None, clips=None, edge=None, masks=None):
+def _page_images(source, pages, turns=None, clips=None, edge=None, masks=None, guides=None):
     """Page images of the document file `source` for the given 1-based page numbers (the same numbering the
     parser puts on blocks), each turned upright by `turns` (page → `_angle`). Empty when vision is off, the
     format has no page image (docx/xlsx/csv/txt/html), or rendering fails — the call then falls back to the OCR text alone.
@@ -124,7 +133,8 @@ def _page_images(source, pages, turns=None, clips=None, edge=None, masks=None):
     세부내역서 OCR row bands) draws those regions at least at the file's own resolution (`_native_zoom`) within a longest side
     of `edge` px instead of VISION_MAX_EDGE; never smaller than without it, and never upsampled beyond the larger of the two
     (the zoom without it already upsamples a low-resolution page; more upsampling adds image tokens, not detail).
-    `masks` (one list per clip of polygons as page fractions, `_row_bands`) are painted white on those regions."""
+    `masks` (one list per clip of polygons as page fractions, `_row_bands`) are painted white on those regions; `guides`
+    (`_column_guides`, page fractions) draw the column boundaries on every clip and the column keys on the first (its header)."""
     if not source or not ai_settings()["vision"] or Path(source).suffix.lower() not in VISION_SUFFIXES:
         return []
     pages = list(pages)
@@ -139,8 +149,10 @@ def _page_images(source, pages, turns=None, clips=None, edge=None, masks=None):
                 width, height = expanded([page.rect.width, page.rect.height], turn)
                 areas = [fitz.Rect(x0 * width, y0 * height, x1 * width, y1 * height) & fitz.Rect(0, 0, width, height) for x0, y0, x1, y1 in clips]
                 native = _native_zoom(source, page, pages[0]) if edge else None
+                lines = guides and ([x * width for x in guides[0]], [(x * width, key) for x, key in guides[1]])
                 return [_data_url(page, area, max(native, min(VISION_MAX_EDGE / max(area.width, area.height), 4.0)) if edge else 4.0, turn,
-                                  edge or VISION_MAX_EDGE, [[(x * width, y * height) for x, y in polygon] for polygon in (masks or [[]] * len(areas))[number]])
+                                  edge or VISION_MAX_EDGE, [[(x * width, y * height) for x, y in polygon] for polygon in (masks or [[]] * len(areas))[number]],
+                                  lines and (lines[0], lines[1] if number == 0 else []))
                         for number, area in enumerate(areas)]
             return [_data_url(document[number - 1], turn=(turns or {}).get(number, 0)) for number in pages if 1 <= number <= len(document)]
     except Exception as exc:
@@ -961,15 +973,35 @@ def _band_dump(source, index, images, messages, reply):
         logger.warning("band dump failed: %s", exc)
 
 
-def _read_keyed(spec, images, strip, doc_type=bandkit.RECEIPT, cap=KEYED_CAP, plan=None, dump=None, deadline=None, cancel=None, on_call=None):
+def _column_guides(blocks, spec, keys):
+    """``BAND_COLUMN_GUIDES``: 띠 이미지 열 안내 — (열 경계 x들, [(열 머리글 x, 짧은 키)]), ``_row_bands``처럼 바로 세운 쪽의 가로 비율.
+    짧은 키 ``keys``(``bandkit.short_keys``: 열 배치 차례)의 열마다 머리글 x(``table_layout.header_positions``, 스키마 밖 자리 열 포함)를
+    알고 그 x가 차례대로 늘어날 때만, 아니면 None(그리지 않는다). 경계는 이웃 머리글 x의 가운데다."""
+    from .parsers import unturn  # parsers → engine 순환을 피한다
+    tables = [b for b in blocks if b.get("type") == "table" and b.get("page_size")]
+    if not tables:
+        return None
+    turn = _angle(tables[0])
+    uprights = [{**(unturn([b], 360 - turn)[0] if turn else b), "orientation": 0} for b in tables]
+    at = table_layout.header_positions(uprights, list(spec["items"]["properties"]))[0]
+    xs = [at.get(column) for column in keys.values()]
+    if None in xs or any(b <= a for a, b in zip(xs, xs[1:])):
+        return None
+    width = uprights[0]["page_size"][0]
+    return [(a + b) / 2 / width for a, b in zip(xs, xs[1:])], [(x / width, key) for x, key in zip(xs, keys)]
+
+
+def _read_keyed(spec, images, strip, doc_type=bandkit.RECEIPT, cap=KEYED_CAP, plan=None, dump=None, guided=False, deadline=None, cancel=None,
+                on_call=None):
     """One strip of a located `doc_type` table as keyed rows (`bandkit.prompt`): short keys per column, all present in every
     row, expanded back to the schema's columns; the reply capped at `cap` tokens. `plan` (`_table_plan`, profiles with `plan`)
     asks only its printed columns in printed order, as rowmajor does. `dump` (source, strip number) saves the call
-    (`_band_dump`) when `BAND_DUMP_DIR` is set. Raises RuntimeError when the reply has no row list."""
+    (`_band_dump`) when `BAND_DUMP_DIR` is set. `guided`: the images carry column guides (`_column_guides`), told in the prompt.
+    Raises RuntimeError when the reply has no row list."""
     _begin_call(cancel, on_call)
     compact = COMPACT_NOTE if ai_settings()["compact_reply"] else ""
     messages = [{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE + compact},
-                _user(bandkit.prompt(spec, strip, ai_settings()["band_header_note"], doc_type, plan), images)]
+                _user(bandkit.prompt(spec, strip, ai_settings()["band_header_note"], doc_type, plan, guided), images)]
     reply = _provider(messages, timeout_cap=remaining(deadline), max_tokens=cap)
     if dump and ai_settings()["band_dump_dir"]:
         _band_dump(*dump, images, messages, reply)
@@ -1127,13 +1159,16 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
 
     def read_group(table, group, index, count):
         pages = _page_range(group)
+        keyed = group[0].get("keyed")
+        plan = None if not keyed or bandkit.PROFILES[keyed]["statutory"] else plans[table]
+        guides = (_column_guides(blocks, properties[table], bandkit.short_keys(properties[table], keyed, plan))
+                  if keyed and bandkit.PROFILES[keyed]["rows"] and ai_settings()["band_column_guides"] else None)  # OCR 행 띠만
         if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group), group[0].get("clips"), group[0].get("edge"),
-                                                      group[0].get("masks"))):
+                                                      group[0].get("masks"), guides)):
             try:
-                if group[0].get("keyed"):
-                    keyed = group[0]["keyed"]
+                if keyed:
                     return _read_keyed(properties[table], group_images, BAND_NOTE[len(group_images) > 1], keyed, group[0]["cap"],
-                                       None if bandkit.PROFILES[keyed]["statutory"] else plans[table], (source, index), deadline, cancel, on_call)
+                                       plan, (source, index), bool(guides), deadline, cancel, on_call)
                 return _read_rows(table, properties[table], plans[table], _chunk_text(group, budget), group_images,
                                   PAGES_NOTE.format(pages=pages, span=_page_range(blocks))
                                   + (BAND_NOTE[len(group_images) > 1] if "clips" in group[0] else ""), deadline, cancel, on_call)

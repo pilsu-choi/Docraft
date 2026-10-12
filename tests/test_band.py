@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import fitz
 import pytest
 
-from backend import band, doctypes, engine, latency, rules, verify
+from backend import band, doctypes, engine, latency, rules, table_layout, verify
 
 ITEM = doctypes.schema("진료비영수증")["properties"]["항목내역"]
 DEV_PROMPT_SHA256 = "c96e890181e9aca410a145426f917b644d0e8da37e2422bb1b3df819a079f953"  # BAND_HEADER_NOTE 도입 전 dev(0751745) 띠 프롬프트
@@ -914,3 +914,68 @@ def test_rows_above_the_first_header_that_do_not_line_up_with_its_columns_stay_o
     bands = engine._row_bands(blocks, len(DPROPS), 12)
     assert not any(in_band(line, b) for row in leading[:-1] for line in row for b in bands)
     assert all(whole_once(line, bands) for row in rows for line in row)
+
+
+# --- BAND_COLUMN_GUIDES: 띠 이미지에 열 경계선·키 글자 ---------------------------------------------------
+
+
+def guide_header(extra=()):
+    """머리글 낱말마다 OCR 줄 하나인 세부내역서 표(쪽 1000×1000)와 그 열 배치."""
+    words = [("항목", 60), ("코드", 160), ("명칭", 260), ("단가", 420), ("횟수", 500), ("일수", 560), ("총액", 640), ("본인부담금", 740), *extra,
+             ("공단부담금", 900)]
+    lines = [{"text": word, "bbox": [x, 100, x + 16 * len(word), 116]} for word, x in sorted(words, key=lambda item: item[1])]
+    lines += [{"text": text, "bbox": [x, 130, x + 60, 146]} for text, x in (("AA154", 160), ("진찰", 260), ("1,000", 420), ("1", 500), ("1", 560),
+                                                                              ("1,000", 640), ("300", 740), ("700", 900))]
+    blocks = [{"page": 1, "type": "table", "text": "", "page_size": [1000, 1000], "lines": lines, "bbox": [50, 95, 960, 150]}]
+    plan = table_layout.plan("세부내역서", "항목내역", blocks, DETAIL["description"], {key: prop["description"] for key, prop in DPROPS.items()})
+    return blocks, plan
+
+
+@pytest.mark.parametrize("extra", [(), (("보훈감면액", 815),)])
+def test_column_guides_put_a_boundary_between_neighbouring_header_columns_and_each_key_over_its_header(extra):
+    blocks, plan = guide_header(extra)
+    keys = band.short_keys(DETAIL, "세부내역서", plan)
+    bounds, labels = engine._column_guides(blocks, DETAIL, keys)
+    centres = [x / 1000 for x in table_layout.header_positions(blocks, list(DPROPS))[0].values()]
+    assert [key for _, key in labels] == list(keys) and len(bounds) == len(keys) - 1
+    assert all(a < bound < b for bound, (a, _), (b, _) in zip(bounds, labels, labels[1:]))  # 이웃 머리글 사이
+    assert [x for x, _ in labels] == sorted(centres)  # 스키마 밖 자리 열(보훈감면액)도 제자리에 키가 붙는다
+    assert engine._column_guides(blocks, DETAIL, dict(reversed(list(keys.items())))) is None  # x가 차례대로 늘지 않으면 그리지 않는다
+
+
+def test_column_guides_are_drawn_as_gray_lines_and_red_keys_and_without_them_the_image_is_unchanged(tmp_path, monkeypatch):
+    import base64
+    import io
+    from PIL import Image
+    monkeypatch.setenv("AI_VISION", "true")
+    path = tmp_path / "white.png"
+    Image.new("RGB", (1000, 1000), "white").save(path, dpi=(72, 72))
+    clips = [[0.1, 0.1, 0.9, 0.3], [0.1, 0.4, 0.9, 0.6]]
+    decode = lambda url: Image.open(io.BytesIO(base64.b64decode(url.split(",")[1]))).convert("RGB")
+    plain = engine._page_images(str(path), [1], {}, clips)
+    assert plain == engine._page_images(str(path), [1], {}, clips, None, None, None)  # 끔: 바이트 그대로
+    head, body = map(decode, engine._page_images(str(path), [1], {}, clips, None, None, ([0.5], [(0.3, "a"), (0.7, "b")])))
+    for image in (head, body):  # 경계 0.5 = 크롭(0.1~0.9) 가운데 세로선, 위아래 끝까지
+        x = image.width // 2
+        assert all(sum(image.getpixel((x, y))) < 600 for y in (2, image.height // 2, image.height - 3))
+        assert sum(image.getpixel((x - 8, image.height // 2))) > 700  # 선 밖은 흰색
+    reds = [(x, y) for x in range(head.width) for y in range(head.height // 3) if head.getpixel((x, y))[0] > 150 > head.getpixel((x, y))[1]]
+    assert {round(x / head.width * 4) / 4 for x, _ in reds} == {0.25, 0.75}  # 키 글자는 첫 크롭(머리글) 위쪽 열 머리 자리(0.3·0.7 → 크롭의 1/4·3/4)
+    assert not [(x, y) for x in range(body.width) for y in range(body.height) if body.getpixel((x, y))[0] > 150 > body.getpixel((x, y))[1]]
+
+
+def test_column_guides_reach_only_detail_row_bands_and_are_told_in_the_prompt(detail, monkeypatch):
+    seen = []
+    images = engine._page_images
+    monkeypatch.setattr(engine, "_page_images", lambda *args: seen.append(args[6] if len(args) > 6 else None) or images(*args))
+    monkeypatch.setattr(engine, "_column_guides", lambda blocks, spec, keys: ([0.5], [(0.3, "a")]))
+    monkeypatch.setenv("BAND_COLUMN_GUIDES", "true")
+    detail.bands = [[], [], []]
+    engine.extract(detail_schema(), detail.blocks, detail.image, table_extract="band")
+    texts = [call.text for call in detail.calls if call.kind == "band"]
+    assert texts and all(band.GUIDE_NOTE in text for text in texts) and seen.count(([0.5], [(0.3, "a")])) == 3
+    seen.clear(), detail.calls.clear()
+    detail.blocks, detail.locate, detail.bands = [{"page": 1, "type": "table", "text": "", "rows": [["항목", "요양급여(①+②)", "비급여"]]}], GRID, [[], [], []]
+    engine.extract(receipt_schema(), detail.blocks, detail.image, table_extract="band")  # 영수증 띠: 그리지 않고 프롬프트도 그대로
+    assert set(seen) == {None} and all(band.GUIDE_NOTE not in call.text for call in detail.calls if call.kind == "band")
+    assert band.GUIDE_NOTE in band.prompt(DETAIL, engine.BAND_NOTE[0], False, "세부내역서", None, True)
