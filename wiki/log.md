@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-13 세부내역서 band v12·v13
+
+- **Update**: [세부내역서 band 읽기](2026-10-12-detail-band-ocr-rows.md) — 이어지는 쪽·머리 행 날짜·스키마 밖 열, 97.0%.
+
 ## 2026-10-13 세부내역서 band 띠 자르기 구조 수정
 
 - **Update**: [...](2026-10-12-detail-band-ocr-rows.md) — v8~v11, 96.1%.
