@@ -910,6 +910,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     strips = []
     banded = _band_page(schema, table_extract) and tables[:1] == whole and len(images) == 1
     if banded and (per := bandkit.PROFILES[schema["title"]]["rows"]):
+        per = ai_settings()["band_strip_rows"] or per  # BAND_STRIP_ROWS: 띠당 행 수 실험값
         # 세부내역서: 위치 찾기 없이 OCR 행 경계에서 띠당 약 per행으로 자른다(_bands). 띠 응답 상한은 띠 OCR 글자의 _reply_cap(최대
         # TABLE_REPLY_TOKENS)에 THINK_TOKENS를 더한다 — vLLM은 OpenRouter용 reasoning 끔을 무시해 생각 모드 모델이 AI_REASONING을 꺼도
         # 생각하고 그 토큰이 상한에 든다. OCR 줄로 자를 수 없으면 rowmajor.
