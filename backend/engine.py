@@ -629,7 +629,7 @@ def _clip(box, size):
     return [box[0] / size[0], box[1] / size[1], box[2] / size[0], box[3] / size[1]]
 
 
-def _bands(page_blocks, columns):
+def _bands(page_blocks, columns, per=None):
     """Row bands of one page whose table reply broke (`extract` reads them again band by band). Each table block's OCR text rows (`_line_rows`) from its first row
     carrying an amount (the rows above are its header) are cut into the fewest bands of about equal amount count whose
     reply cap (`_reply_cap`) stays within TABLE_REPLY_TOKENS. A cut falls in the gap between two text rows, before a row
@@ -638,7 +638,12 @@ def _bands(page_blocks, columns):
     band (`repeats`); `extract` keeps one of the two reads (`_same_row`). A band is a block with the header rows, its rows and the merged-cell lines it overlaps as text, and
     `clips` (page fractions): the header strip (bands after the first) and the band strip, both table-wide.
     Empty when a table block has no OCR line boxes or runs its text across (most line boxes taller than wide: a page
-    printed sideways without a known turn), or when no block is cut in two: the page is then read whole asis."""
+    printed sideways without a known turn), or when no block is cut in two: the page is then read whole asis.
+
+    `per` (band path, `bandkit.PROFILES` rows) sizes bands by printed rows instead: text rows carrying an amount, about `per`
+    a band (the fewest bands, at most MAX_STRIPS, of about equal count). Its bands repeat no row — the cut already falls
+    between printed rows, and a repeated row would have to be told apart from a printed row of the same name (진찰료) —
+    and one band is kept too (the whole table as one crop)."""
     from .parsers import unturn  # parsers → engine 순환을 피한다
     tables = [b for b in page_blocks if b.get("type") == "table"]
     if not tables or not all(b.get("page_size") and any(line.get("bbox") for line in b.get("lines") or []) for b in tables):
@@ -653,6 +658,9 @@ def _bands(page_blocks, columns):
             return []
         rows, tall = _line_rows(lines)
         amounts = [len(ROW_AMOUNT.findall(row[2])) for row in rows]
+        if per:  # 금액 행 하나를 1로 세어 띠당 약 per행, 띠는 많아야 MAX_STRIPS개
+            amounts = [int(bool(count)) for count in amounts]
+            most = max(1, -(-sum(amounts) // max(1, min(MAX_STRIPS, -(-sum(amounts) // per)))))
         head = next((i for i, count in enumerate(amounts) if count), 0)
         target = -(-sum(amounts) // -(-sum(amounts) // most)) if sum(amounts) else 0  # 고른 띠 크기
         x0, y0, x1, y1 = upright["bbox"]
@@ -672,8 +680,8 @@ def _bands(page_blocks, columns):
             bands.append({"page": block.get("page"), "type": "table", "page_size": block["page_size"], **({"orientation": turn} if turn else {}),
                           **({"repeats": True} if start < fresh else {}),
                           "text": "\n".join(text), "clips": [_clip(box, upright["page_size"]) for box in ([[x0, y0, x1, cut(head)], [x0, top, x1, bottom]] if start > head and head else [[x0, top, x1, bottom]])]})
-            start, fresh = next((i for i in range(end - 1, fresh - 1, -1) if amounts[i]), end - 1), end
-    return bands if len(bands) > len(tables) else []
+            start, fresh = end if per else next((i for i in range(end - 1, fresh - 1, -1) if amounts[i]), end - 1), end
+    return bands if per or len(bands) > len(tables) else []
 
 
 def _fields_cap(schema):
@@ -690,13 +698,13 @@ def _band_page(schema, table_extract):
             and settings["vision"] and settings["mode"] != "local")
 
 
-def _locate(images, doc_type, lines=(), deadline=None, cancel=None, on_call=None):
-    """`bandkit.boxes` of the item table (and the 금액산정 block of a receipt) of `doc_type` (`bandkit.PROFILES`) from one call
-    on the whole page image, the table's right end set by the panel's OCR `lines` (`_page_lines`) when they show it; None
-    when the call or its boxes are unusable and the table is read as rowmajor (`extract` notes `band_fallback`)."""
+def _locate(images, lines=(), deadline=None, cancel=None, on_call=None):
+    """`bandkit.boxes` of the item table and the 금액산정 block from one call on the whole page image, the table's right end
+    set by the panel's OCR `lines` (`_page_lines`) when they show it; None when the call or its boxes are unusable and the
+    table is read as rowmajor (`extract` notes `band_fallback`)."""
     _begin_call(cancel, on_call)
     try:
-        return bandkit.boxes(_provider([_user(bandkit.locate_prompt(doc_type), images)], timeout_cap=remaining(deadline), max_tokens=500), lines, doc_type)
+        return bandkit.boxes(_provider([_user(bandkit.LOCATE_PROMPT, images)], timeout_cap=remaining(deadline), max_tokens=500), lines)
     except (RuntimeError, ValueError) as exc:
         if cancel is not None and cancel.is_set():
             raise
@@ -706,11 +714,12 @@ def _locate(images, doc_type, lines=(), deadline=None, cancel=None, on_call=None
 
 def prelocate(schema, source, table_extract, *, deadline=None, cancel=None, on_call=None):
     """The band locate call (`_locate`) of a one-page `source` started now, before OCR, as a Future `extract(prelocated=...)`
-    takes; None when `extract` would not locate it (`_band_page`, `BAND_PRELOCATE`, not one page). The page image is
+    takes; None when `extract` would not locate it (`_band_page` of a located type, `BAND_PRELOCATE`, not one page). The page image is
     straightened by the tilt OCR will find (`parsers.page_tilt`, pixels only) and the Future gives (that turn, the reply), or
     None when the image could not be rendered. `extract` uses the reply only when OCR turned the page by exactly that much
     (no quarter turn): its image is then the one `extract` would send, so the reply is the same; otherwise it locates again."""
-    if not (_band_page(schema, table_extract) and ai_settings()["band_prelocate"] and ai_settings()["configured"]):
+    if not (_band_page(schema, table_extract) and not bandkit.PROFILES[schema["title"]]["rows"] and ai_settings()["band_prelocate"]
+            and ai_settings()["configured"]):
         return None
     try:
         with fitz.open(source) as document:
@@ -723,7 +732,7 @@ def prelocate(schema, source, table_extract, *, deadline=None, cancel=None, on_c
         from .parsers import page_tilt  # parsers → engine 순환을 피한다
         turns = {1: turn} if (turn := page_tilt(source)) else {}
         images = _page_images(source, [1], turns)
-        return (turns, _locate(images, schema["title"], deadline=deadline, cancel=cancel, on_call=on_call)) if len(images) == 1 else None
+        return (turns, _locate(images, deadline=deadline, cancel=cancel, on_call=on_call)) if len(images) == 1 else None
     return spawn(locate)
 
 
@@ -739,31 +748,14 @@ def _page_lines(blocks, page):
     return lines
 
 
-KEYED_CAP, THINK_TOKENS, MAX_STRIPS, EDGE_ROWS = 3000, 4000, 8, 2  # MAX_STRIPS = BAND_STRIPS 상한
+KEYED_CAP, THINK_TOKENS, MAX_STRIPS = 3000, 4000, 8  # MAX_STRIPS = BAND_STRIPS 상한
 
 
-def _located_bands(found, page, turn, lines, doc_type, columns):
-    """The strips of a located table as blocks `read_group` reads (`keyed`: its doc type, short-key rows; `cap`: the strip's
-    reply cap) and `read_bands` joins by the rows two strips share (`repeats`). A receipt is cut in `BAND_STRIPS` strips with
-    a KEYED_CAP reply each. A type whose profile sets `rows` per strip (세부내역서, many rows) is cut in as many strips (at most
-    MAX_STRIPS) as hold about that many printed rows, counted in its upright OCR `lines` (`_page_lines`) inside the table box
-    as text rows carrying an amount (`_line_rows`, `ROW_AMOUNT`; `BAND_STRIPS` without such lines). Two strips then share
-    about EDGE_ROWS rows at a cut (the receipt's 10% of the table would double a strip of many), and each strip's cap is
-    `_reply_cap` of the rows it covers (at most TABLE_REPLY_TOKENS) plus THINK_TOKENS: a thinking model served by vLLM may
-    think although `AI_REASONING` is off (the `reasoning` switch is an OpenRouter parameter vLLM ignores), and its thinking
-    counts against the cap."""
-    per, (x1, _, x2, _) = bandkit.PROFILES[doc_type]["rows"], found["grid"]
-    top, bottom = found["first_row"][1], found["total"][3]
-    inside = [line for line in lines if x1 <= sum(line["bbox"][0::2]) / 2 <= x2 and top <= sum(line["bbox"][1::2]) / 2 <= bottom]
-    rows = [row for row in _line_rows(inside)[0] if ROW_AMOUNT.search(row[2])] if per and inside else []
-    count = min(MAX_STRIPS, -(-len(rows) // per)) if rows else ai_settings()["band_strips"]
-
-    def cap(strip):
-        covered = [row[2] for row in rows if strip[1] * 1000 <= (row[0] + row[1]) / 2 <= strip[3] * 1000]
-        return min(TABLE_REPLY_TOKENS, _reply_cap("\n".join(covered), columns)) + THINK_TOKENS if per else KEYED_CAP
-    overlap = min(bandkit.OVERLAP, EDGE_ROWS / len(rows)) if rows else bandkit.OVERLAP
-    return [{"page": page, "type": "table", "text": "", "keyed": doc_type, "cap": cap(strips[-1]), "repeats": True, **({"orientation": turn} if turn else {}),
-             "clips": [_clip(box, [1, 1]) for box in strips]} for strips in bandkit.clips(found, count, overlap)]
+def _located_bands(found, page, turn):
+    """The `BAND_STRIPS` strips of a located receipt table as blocks `read_group` reads (`keyed`: short-key rows of a receipt,
+    `cap`: KEYED_CAP) and `read_bands` joins by the names of the rows two strips share (`repeats`)."""
+    return [{"page": page, "type": "table", "text": "", "keyed": bandkit.RECEIPT, "cap": KEYED_CAP, "repeats": True, **({"orientation": turn} if turn else {}),
+             "clips": [_clip(box, [1, 1]) for box in strips]} for strips in bandkit.clips(found, ai_settings()["band_strips"])]
 
 
 def _read_keyed(spec, images, strip, doc_type=bandkit.RECEIPT, cap=KEYED_CAP, plan=None, deadline=None, cancel=None, on_call=None):
@@ -895,8 +887,19 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         return {**schema, "properties": {key: prop for key, prop in properties.items() if key in keys},
                 "required": [key for key in schema.get("required", []) if key in keys]}
 
-    found = early = None  # band: the one table of a one-page document of a BAND_DOC_TYPES type is located first, then read in strips (beside a receipt's 금액산정 block)
-    if _band_page(schema, table_extract) and tables[:1] == whole and len(images) == 1:
+    found = early = None  # band: the one table of a one-page document of a BAND_DOC_TYPES type is read in strips
+    strips = []
+    banded = _band_page(schema, table_extract) and tables[:1] == whole and len(images) == 1
+    if banded and (per := bandkit.PROFILES[schema["title"]]["rows"]):
+        # 세부내역서: 위치 찾기 없이 OCR 행 경계에서 띠당 약 per행으로 자른다(_bands). 띠 응답 상한은 띠 OCR 글자의 _reply_cap(최대
+        # TABLE_REPLY_TOKENS)에 THINK_TOKENS를 더한다 — vLLM은 OpenRouter용 reasoning 끔을 무시해 생각 모드 모델이 AI_REASONING을 꺼도
+        # 생각하고 그 토큰이 상한에 든다. OCR 줄로 자를 수 없으면 rowmajor.
+        columns = len(properties[tables[0]]["items"]["properties"])
+        strips = [{**strip, "keyed": schema["title"], "cap": min(TABLE_REPLY_TOKENS, _reply_cap(strip["text"], columns)) + THINK_TOKENS}
+                  for strip in _bands(blocks, columns, per)]
+        if not strips:
+            note("band_fallback", "rows", add=False)
+    elif banded:  # 진료비영수증: 표·금액산정 블록 위치를 먼저 찾아 BAND_STRIPS개 띠와 금액산정 블록으로 읽는다
         guess = {*tables, *(key for key in bandkit.SUMMARY_KEYS if key in properties)}
         if ai_settings()["band_speculate"] and len(guess) > len(tables) and set(properties) - guess and not (prelocated and prelocated.done()):
             early = (guess, spawn(_read_chunks, narrowed(set(properties) - guess), chunks, source, budget, deadline, cancel, on_call))
@@ -904,15 +907,14 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
             reply = prelocated.result()
             same = reply is not None and _pages(blocks) == [1] and reply[0] == _turns(blocks)
             note("band_prelocate", "used" if same else "turned", add=False)
-        lines = _page_lines(blocks, _pages(blocks)[0])
-        found = reply[1] if prelocated is not None and same else _locate(images, schema["title"], lines, deadline, cancel, on_call)
+        found = reply[1] if prelocated is not None and same else _locate(images, _page_lines(blocks, _pages(blocks)[0]), deadline, cancel, on_call)
         if found is None:
             note("band_fallback", "locate", add=False)
         elif located is not None:
             located.update(found)
     page = _pages(blocks)[0] if found else None
     turn = _turns(blocks).get(page, 0)
-    strips = _located_bands(found, page, turn, lines, schema["title"], len(properties[tables[0]]["items"]["properties"])) if found else []
+    strips = _located_bands(found, page, turn) if found else strips
     summary = [key for key in bandkit.SUMMARY_KEYS if key in properties] if found and "summary" in found else []
 
     def read_group(table, group, index, count):
@@ -922,7 +924,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
                 if group[0].get("keyed"):
                     keyed = group[0]["keyed"]
                     return _read_keyed(properties[table], group_images, BAND_NOTE[len(group_images) > 1], keyed, group[0]["cap"],
-                                       plans[table] if bandkit.PROFILES[keyed]["plan"] else None, deadline, cancel, on_call)
+                                       None if bandkit.PROFILES[keyed]["statutory"] else plans[table], deadline, cancel, on_call)
                 return _read_rows(table, properties[table], plans[table], _chunk_text(group, budget), group_images,
                                   PAGES_NOTE.format(pages=pages, span=_page_range(blocks))
                                   + (BAND_NOTE[len(group_images) > 1] if "clips" in group[0] else ""), deadline, cancel, on_call)
@@ -958,7 +960,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
                 continue
             if band.get("repeats") and rows and part and not isinstance(before, Exception):
                 if band.get("keyed"):
-                    part = part[bandkit.overlap(rows, part, band["keyed"]):]
+                    part = part[bandkit.overlap(rows, part):]
                 elif _same_row(rows[-1], part[0]):
                     rows[-1] = max(rows[-1], part[0], key=lambda row: sum(value not in (None, "") for value in row.values()))
                     part = part[1:]

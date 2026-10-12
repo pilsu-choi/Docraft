@@ -1,8 +1,8 @@
-"""``TABLE_EXTRACT=band``: 1쪽 문서의 긴 항목 표를 위치부터 찾아 가로 띠로 잘라 읽는 데 쓰는 순수 함수.
+"""``TABLE_EXTRACT=band``: 1쪽 문서의 긴 항목 표를 가로 띠로 잘라 읽는 데 쓰는 순수 함수.
 
-모델 호출은 ``engine``이 한다. 여기는 문서 유형별 설정(``PROFILES``: 진료비영수증·세부내역서), 위치 응답 후처리(``boxes``),
-띠 자르기(``clips``), 금액산정 블록 크롭(``summary_clip``), 짧은 키 읽기 형식(``prompt``·``expand``), 띠 겹침 판정(``overlap``)만
-둔다. 좌표는 모두 쪽 크기를 1000으로 본 값이다."""
+모델 호출과 OCR 행 경계로 띠 자르기(세부내역서, ``engine._bands``)는 ``engine``이 한다. 여기는 문서 유형별 설정(``PROFILES``),
+진료비영수증 위치 응답 후처리(``boxes``)·띠 자르기(``clips``)·금액산정 블록 크롭(``summary_clip``)·띠 겹침 판정(``overlap``), 짧은 키 읽기
+형식(``prompt``·``expand``)만 둔다. 좌표는 모두 쪽 크기를 1000으로 본 값이다."""
 
 import difflib
 import re
@@ -18,13 +18,10 @@ REGIONS = {"item_grid": "ONLY the itemized charge table: the item-name column pl
            "first_row": "the first data row of item_grid (usually 진찰료), within item_grid's x range",
            "total": "the final 합계/계 row of item_grid, within item_grid's x range",
            "summary": "the 금액산정내용 block wherever it is (right side, below or beside the table): 진료비 총액, 환자부담 총액, 이미 납부한 금액, 납부할 금액, 납부한 금액 카드/현금영수증/현금/합계, 공단부담 총액, 상한액 초과금 etc."}
-DETAIL_REGIONS = {"item_grid": "ONLY the itemized charge table with all its columns (항목·일자·코드·명칭·단가·횟수·일수·금액 and the 급여/본인부담/공단부담/비급여 "
-                               "amount columns), from the column-header rows down to and including its last row. EXCLUDE the patient/hospital fields above it "
-                               "and notes or signatures outside the table frame",
-                  "header": "only the column-header rows of item_grid (항목 / 일자 / 코드 / 명칭 / 단가 / 횟수 / 일수 / 금액 / 본인부담 / 공단부담 / 비급여 ...), "
-                            "all header levels together",
-                  "first_row": "the first row below the header of item_grid (an item row or a section title such as 01.진찰료), within item_grid's x range",
-                  "total": "the last row of item_grid: the last item row or a printed 소계/계/합계 row, whichever is lowest, within item_grid's x range"}
+LOCATE_PROMPT = ("Locate regions of this Korean medical receipt (진료비 계산서·영수증). For each key give a bounding box [x1, y1, x2, y2] "
+                 "in coordinates normalized to 0-1000 of the image width/height:\n" + "\n".join(f"- {key}: {text}" for key, text in REGIONS.items())
+                 + "\nReturn only JSON: {" + ", ".join(f'"{key}": [...]' for key in REGIONS)
+                 + "}. Use null for a region that is not present.")
 LAYOUTS = ("(a) 요양급여 | 비급여; (b) 본인부담금 | 공단부담금 | 전액본인부담 | 비급여; (c) 본인부담금 | 공단부담금 | 전액본인부담 | 선택진료료 | 비급여; "
            "(d) 본인부담금 | 공단부담금 | 전액본인부담 | 선택진료료 | 선택진료료외; (e) 본인부담금 | 공단부담금 | 전액본인부담 | 선택진료료외")
 HEADER_NOTE = ("Column headers: a header's characters are often split over lines or spaced out inside one header cell ('선택진료료 / 이외', "
@@ -38,29 +35,20 @@ SUMMARY_PROMPT = ("This image is the 금액산정내용 (payment calculation) bl
                   "Copy the printed digits only, never compute; use null for a field whose label or value is not printed.")
 
 
-def locate_prompt(doc_type):
-    """위치 찾기 프롬프트: ``doc_type`` 설정의 서식 이름과 위치 키(``regions``, ``boxes``가 받는 키)."""
-    form, regions = PROFILES[doc_type]["form"], PROFILES[doc_type]["regions"]
-    return (f"Locate regions of this {form}. For each key give a bounding box [x1, y1, x2, y2] "
-            "in coordinates normalized to 0-1000 of the image width/height:\n" + "\n".join(f"- {key}: {text}" for key, text in regions.items())
-            + "\nReturn only JSON: {" + ", ".join(f'"{key}": [...]' for key in regions) + "}. Use null for a region that is not present.")
-
-
-# 문서 유형별 band 설정. form·regions: 위치 찾기 서식 이름·키(locate_prompt, boxes), hint: 열 설명에서 뗄 표 공통 힌트, name: 짧은 키 "n"으로
-# 따로 받는 행 이름 열(None이면 모든 열이 짧은 키), zero: 빈칸을 "0"으로 채우는 열 종류(doctypes.kind, 나머지 빈칸은 None), match: 띠 겹침에서
-# 두 읽기가 같은 행인지 견주는 열, rows: 띠당 인쇄 행 수(None이면 BAND_STRIPS개), plan: rowmajor 열 배치(table_layout.plan)로 인쇄된 열만
-# 인쇄 순서로 묻기(영수증은 법정 서식 안내로 대신해 쓰지 않는다), sample: 응답 예시 값, statutory: 법정 서식 안내
-# (항목 목록·열 배치 5종·머리글 안내)와 마지막 합계 행 하나만 남기기, closing: 프롬프트 끝 규칙.
+# 문서 유형별 band 설정. rows: None이면 VLM으로 표 위치를 찾아(LOCATE_PROMPT, boxes) BAND_STRIPS개로 겹쳐 자르고, 수이면 위치 찾기 없이
+# OCR 행 경계에서 띠당 그만큼의 금액 행으로 자른다(engine._bands). hint: 열 설명에서 뗄 표 공통 힌트, name: 짧은 키 "n"으로 따로 받는 행 이름 열
+# (None이면 모든 열이 짧은 키), zero: 빈칸을 "0"으로 채우는 열 종류(doctypes.kind, 나머지 빈칸은 None), sample: 응답 예시 값, statutory: 법정
+# 서식 안내(항목 목록·열 배치 5종·머리글 안내)와 마지막 합계 행 하나만 남기기, 아니면 rowmajor 열 배치(table_layout.plan)로 인쇄된 열만 인쇄
+# 순서로 묻는다. closing: 프롬프트 끝 규칙.
 PROFILES = {
-    "진료비영수증": {"form": "Korean medical receipt (진료비 계산서·영수증)", "regions": REGIONS, "hint": doctypes.RECEIPT_HINT, "name": "항목",
-                "zero": ("amount",), "match": ("항목",), "rows": None, "plan": False, "statutory": True,
+    "진료비영수증": {"rows": None, "hint": doctypes.RECEIPT_HINT, "name": "항목", "zero": ("amount",), "statutory": True,
                 "sample": {"항목": "검사료", "본인부담금": "1,200", "공단부담금": "4,800"},
                 "closing": "Skip rows whose name is cut off at the top or bottom edge. Include the final 합계 row if visible. Never return header rows. "
                            "Copy the printed digits only, never compute or infer a value. A blank cell is 0 (per the schema)."},
     # 세부내역서 항목 열(진찰료 등 구분명)은 같은 이름이 여러 행에 되풀이되고 섹션 제목 행에만 인쇄되기도 해 행 이름이 아니라 열 하나로 받는다.
     # 칸은 인쇄된 값만(DETAIL_HINT: 인쇄되지 않은 칸은 null) — 빈칸을 0으로 채우지 않는다. 미인쇄 급여 열의 0은 하네스 출력 단계 몫(2026-10-12).
-    "세부내역서": {"form": "Korean itemized medical bill statement (진료비 세부산정내역서)", "regions": DETAIL_REGIONS, "hint": doctypes.DETAIL_HINT,
-              "name": None, "zero": (), "match": ("항목", "시작일자", "EDI코드", "EDI명칭", "총액"), "rows": 12, "plan": True, "statutory": False,
+    # 띠는 행 사이에서 잘라 겹치지 않으므로 같은 이름(진찰료)이 되풀이되는 행을 견줄 겹침 판정이 없다.
+    "세부내역서": {"rows": 12, "hint": doctypes.DETAIL_HINT, "name": None, "zero": (), "statutory": False,
               "sample": {"항목": "진찰료", "시작일자": "20240105", "EDI코드": "AA154", "EDI명칭": "초진진찰료", "단가": "17,610", "횟수": "1", "일수": "1",
                          "총액": "17,610", "본인부담": "5,280", "공단부담": "12,330"},
               "closing": DETAIL_CLOSING},
@@ -74,14 +62,13 @@ def _box(value):
     return list(value) if isinstance(value, list) and len(value) == 4 and all(isinstance(x, (int, float)) for x in value) else None
 
 
-def boxes(reply, lines=(), doc_type=RECEIPT):
-    """위치 응답 → {grid, header, first_row, total[, summary]} 또는 None(표 상자가 모자라거나 순서가 어긋남). ``doc_type`` 설정의 위치 키만 받는다
-    (세부내역서는 summary 없음). 높이 8% 미만 상자는 금액산정 블록이 아니라 버린다.
+def boxes(reply, lines=()):
+    """위치 응답 → {grid, header, first_row, total[, summary]} 또는 None(표 상자가 모자라거나 순서가 어긋남). 높이 8% 미만 상자는 금액산정 블록이 아니라 버린다.
 
     금액산정 상자가 항목 표 옆(표 가로 40% 오른쪽)에 있으면 표의 오른쪽 끝은 패널 라벨의 왼쪽 끝이다(``panel_edge``, OCR 줄 ``lines``는 바로 선
     쪽 1000 정규화). 위치 응답의 표·패널 경계는 한 열쯤 어긋나곤 해(패널 상자가 표 맨 오른쪽 열을 덮거나 표 상자가 그 열 앞에서 끝남) 라벨 근거를
     먼저 따르고, 근거가 없으면 패널 상자가 표와 겹칠 때만 그 왼쪽에서 자른다."""
-    found = {key: _box(reply.get(key)) for key in PROFILES[doc_type]["regions"]} if isinstance(reply, dict) else {}
+    found = {key: _box(value) for key, value in reply.items()} if isinstance(reply, dict) else {}
     if not all(found.get(key) for key in ("item_grid", "header", "first_row", "total")):
         return None
     result = {"grid": found["item_grid"], **{key: found[key] for key in ("header", "first_row", "total")}}
@@ -113,16 +100,16 @@ def summary_clip(found):
     return [min(max(value, 0), 1000) / 1000 for value in box]
 
 
-def clips(found, count=BANDS, overlap=OVERLAP):
+def clips(found, count=BANDS):
     """띠 읽기용 크롭 목록(쪽 비율). 표 머리글 위쪽부터 마지막 합계 행까지를 ``count``(``BAND_STRIPS``, 기본 BANDS) 등분해
-    표 본문 높이의 ``overlap``(기본 OVERLAP) 만큼 겹치게 자른다. 첫 띠는 머리글째, 나머지 띠는 머리글 띠(첫 데이터 행 제외)가 첫 이미지로 붙는다."""
+    OVERLAP 만큼 겹치게 자른다. 첫 띠는 머리글째, 나머지 띠는 머리글 띠(첫 데이터 행 제외)가 첫 이미지로 붙는다."""
     x1, x2 = max(0, found["grid"][0] - 20), min(1000, found["grid"][2] + 20)
     head, first = max(0, found["header"][1] - 10), found["first_row"][1]
     top, bottom = first, min(1000, found["total"][3] + 15)
     height = bottom - top
     result = []
     for i in range(count):
-        strip = [x1, head if i == 0 else max(top, top + height * i / count - overlap * height), x2, min(bottom, top + height * (i + 1) / count + overlap * height)]
+        strip = [x1, head if i == 0 else max(top, top + height * i / count - OVERLAP * height), x2, min(bottom, top + height * (i + 1) / count + OVERLAP * height)]
         result.append([[value / 1000 for value in box] for box in ([strip] if i == 0 else [[x1, head, x2, first], strip])])
     return result
 
@@ -177,24 +164,17 @@ def expand(rows, item, doc_type=RECEIPT, plan=None):
     return result, unknown, missing
 
 
-def _cell(row, key="항목"):
-    return re.sub(r"[^0-9A-Za-z가-힣]", "", str(row.get(key) or ""))
+def _name(row):
+    return re.sub(r"[^0-9A-Za-z가-힣]", "", str(row.get("항목") or ""))
 
 
-def _same(a, b, keys):
-    """두 행이 같은 인쇄 행을 읽은 것인지: ``keys`` 중 한쪽이라도 값이 있는 열이 모두 비슷하다(difflib ≥ SIMILAR)."""
-    return all(difflib.SequenceMatcher(None, _cell(a, key), _cell(b, key)).ratio() >= SIMILAR for key in keys if _cell(a, key) or _cell(b, key))
-
-
-def overlap(rows, part, doc_type=RECEIPT):
-    """``part`` 앞쪽 k(≤TAIL)개 행이 ``rows`` 끝 k개와 모두 같은 행(``_same``, 설정의 ``match`` 열)인 가장 큰 k: 띠가 겹쳐 두 번 읽은 행 수.
-    영수증은 행 이름만 견주고, 같은 이름(진찰료) 행이 되풀이되는 세부내역서는 항목·일자·코드·명칭·총액을 함께 견준다."""
-    keys = PROFILES[doc_type]["match"]
+def overlap(rows, part):
+    """``part`` 앞쪽 k(≤TAIL)개 행의 이름이 ``rows`` 끝 k개와 모두 비슷한(difflib ≥ SIMILAR) 가장 큰 k: 띠가 겹쳐 두 번 읽은 행 수."""
     return next((k for k in range(min(TAIL, len(rows), len(part)), 0, -1)
-                 if all(_same(rows[len(rows) - k + j], part[j], keys) for j in range(k))), 0)
+                 if all(difflib.SequenceMatcher(None, _name(rows[len(rows) - k + j]), _name(part[j])).ratio() >= SIMILAR for j in range(k))), 0)
 
 
 def last_total(rows):
     """합계 행은 마지막 것만 남긴 행 목록(띠마다 합계 행을 읽은 경우)."""
-    last = max((i for i, row in enumerate(rows) if _cell(row) == "합계"), default=-1)
-    return [row for i, row in enumerate(rows) if _cell(row) != "합계" or i == last]
+    last = max((i for i, row in enumerate(rows) if _name(row) == "합계"), default=-1)
+    return [row for i, row in enumerate(rows) if _name(row) != "합계" or i == last]

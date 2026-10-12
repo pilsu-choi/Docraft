@@ -134,8 +134,9 @@ def ai_settings() -> dict:
     # Input-integrity and page/row repeat evidence only lands in issue_codes; true also sends the affected confirmed values to RECHECK.
     integrity_review = _flag("INTEGRITY_REVIEW", "false")
     table_extract = os.getenv("TABLE_EXTRACT", "band").strip().lower()
-    # band: 한 쪽에 긴 항목 표가 있는 유형만(BAND_DOC_TYPES, band.PROFILES에 설정이 있는 진료비영수증·세부내역서) 1쪽 문서의 표 위치를 먼저 찾아
-    # 가로 띠로 잘라 읽는다. 기본은 진료비영수증만, 세부내역서는 "진료비영수증,세부내역서"로 켠다. 목록 밖 유형·여러 쪽 문서는 rowmajor.
+    # band: 한 쪽에 긴 항목 표가 있는 유형만(BAND_DOC_TYPES, band.PROFILES에 설정이 있는 진료비영수증·세부내역서) 1쪽 문서의 표를 가로 띠로
+    # 잘라 읽는다. 진료비영수증은 표 위치를 먼저 찾아 BAND_STRIPS개로, 세부내역서는 위치 찾기 없이 OCR 행 경계에서 약 12행씩 자른다.
+    # 기본은 진료비영수증만, 세부내역서는 "진료비영수증,세부내역서"로 켠다. 목록 밖 유형·여러 쪽 문서는 rowmajor.
     band_doc_types = tuple(name.strip() for name in os.getenv("BAND_DOC_TYPES", "진료비영수증").split(",") if name.strip())
     # 비우면 보내지 않는다. 표를 띠로 읽을 때 같은 행이 반복되는 것을 줄이려 1.05 정도를 쓴다.
     penalty = os.getenv("REPETITION_PENALTY", "").strip()

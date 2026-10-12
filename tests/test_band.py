@@ -442,32 +442,63 @@ def test_a_skewed_upright_page_uses_the_straightened_locate_image_sent_before_oc
     assert (calls.count("locate"), stats.get("band_prelocate")) == (2, "turned")
 
 
-# --- 세부내역서 설정(BAND_DOC_TYPES=진료비영수증,세부내역서) ---------------------------------------
+# --- 세부내역서: 위치 찾기 없이 OCR 행 경계로 자른 띠(BAND_DOC_TYPES=진료비영수증,세부내역서) ---------------------------
 
 DETAIL = doctypes.schema("세부내역서")["properties"]["항목내역"]
+DPROPS = DETAIL["items"]["properties"]
 DKEYS = band.short_keys(DETAIL, "세부내역서")
-DGRID = {"item_grid": [50, 200, 950, 900], "header": [50, 200, 950, 240], "first_row": [50, 240, 950, 270], "total": [50, 870, 950, 900]}
 
 
 def detail_row(**cols):
-    """세부내역서 짧은 키 행: 열 이름으로 준 값 외에는 빈칸."""
+    """세부내역서 짧은 키 행(스키마 전체 열): 열 이름으로 준 값 외에는 빈칸."""
     names = {column: key for key, column in DKEYS.items()}
     return {key: "" for key in DKEYS} | {names[column]: value for column, value in cols.items()}
 
 
-def test_detail_locate_asks_for_the_statement_table_without_a_summary_block():
-    text = band.locate_prompt("세부내역서")
-    assert "세부산정내역서" in text and "금액산정" not in text and '"summary"' not in text
-    assert all(f'"{key}": [...]' in text for key in ("item_grid", "header", "first_row", "total"))
-    assert band.locate_prompt("진료비영수증").startswith("Locate regions of this Korean medical receipt (진료비 계산서·영수증).")
-    found = band.boxes({**DGRID, "summary": [600, 300, 1000, 800]}, (), "세부내역서")  # 묻지 않은 summary는 받지 않는다(표도 자르지 않음)
-    assert "summary" not in found and found["grid"] == DGRID["item_grid"]
-    assert band.boxes({**DGRID, "total": None}, (), "세부내역서") is None
+def detail_blocks(rows, wrapped=(), lines=True):
+    """1쪽 세부내역서 표 블록(쪽 1000×1000): 머리글 줄 아래 금액이 찍힌 인쇄 행 ``rows``개(행 간격 20), ``wrapped`` 번호 행은 명칭이
+    다음 줄로 이어진다(금액 없는 줄)."""
+    text = [{"text": "항목 | 코드 | 명칭 | 금액 | 본인부담", "bbox": [60, 205, 940, 220]}]
+    for i in range(rows):
+        y = 240 + i * 20
+        text.append({"text": f"진찰료 | AA154 | 초진진찰료 | {10000 + i:,}", "bbox": [60, y, 940, y + 8]})
+        if i in wrapped:
+            text.append({"text": "(이어 쓴 명칭)", "bbox": [300, y + 9, 500, y + 16]})
+    return [{"page": 1, "type": "table", "text": "\n".join(line["text"] for line in text), "page_size": [1000, 1000],
+             "bbox": [50, 200, 950, 245 + rows * 20], **({"lines": text} if lines else {})}]
+
+
+def body(strip):
+    """띠 본문 크롭의 위·아래(쪽 1000 기준)."""
+    return strip["clips"][-1][1] * 1000, strip["clips"][-1][3] * 1000
+
+
+@pytest.mark.parametrize("rows, count", [(1, 1), (5, 1), (12, 1), (13, 2), (30, 3), (31, 3), (60, 5), (100, 8)])
+def test_detail_bands_cut_between_printed_rows_about_twelve_rows_a_band(rows, count):
+    blocks = detail_blocks(rows, wrapped={0, 11, 12, rows - 1})
+    bands = engine._bands(blocks, len(DPROPS), band.PROFILES["세부내역서"]["rows"])
+    assert len(bands) == count and not any(b.get("repeats") for b in bands)  # 행 사이에서 자르므로 되풀이 행이 없다
+    lines = blocks[0]["lines"][1:]
+    for line in lines:  # 어느 줄도 띠 경계에 걸치지 않고, 띠 하나에만 든다(이어 쓴 명칭 줄은 제 행과 같은 띠)
+        middle = (line["bbox"][1] + line["bbox"][3]) / 2
+        assert sum(top <= middle <= bottom for top, bottom in map(body, bands)) == 1
+        assert not any(line["bbox"][1] < edge < line["bbox"][3] for b in bands for edge in body(b))
+    sizes = [sum(top <= (line["bbox"][1] + line["bbox"][3]) / 2 <= bottom for line in lines if "," in line["text"]) for top, bottom in map(body, bands)]
+    assert sum(sizes) == rows and max(sizes) <= -(-rows // count) and (max(sizes) <= 12 or count == engine.MAX_STRIPS)
+    assert [len(b["clips"]) for b in bands] == [1] + [2] * (count - 1)  # 뒤 띠에는 머리글 띠가 첫 이미지로 붙는다
+    assert all(b["clips"][0] == [0.05, 0.2, 0.95, pytest.approx(0.23)] for b in bands[1:])  # 머리글 줄과 첫 행 사이에서 끝나는 머리글 띠
+    assert bands[0]["clips"][0][1] == 0.2 and "항목 | 코드" in bands[-1]["text"]  # 첫 띠는 머리글째, 띠 글자에는 머리글 줄
+
+
+def test_rowmajor_fallback_bands_keep_their_amount_budget_and_repeats():
+    assert engine._bands(detail_blocks(20), len(DPROPS)) == []  # 응답 상한 기준이면 20행은 한 덩어리: 다시 읽을 띠가 아니다
+    bands = engine._bands(detail_blocks(200), len(DPROPS))
+    assert len(bands) > 1 and all(b.get("repeats") for b in bands[1:])
 
 
 def test_detail_prompt_keys_every_column_and_leaves_out_the_receipt_form_notes():
     text = band.prompt(DETAIL, engine.BAND_NOTE[1], True, "세부내역서")
-    assert list(DKEYS.values()) == list(DETAIL["items"]["properties"]) and DKEYS["a"] == "항목"  # 항목도 짧은 키 열(행 이름 n 없음)
+    assert list(DKEYS.values()) == list(DPROPS) and DKEYS["a"] == "항목"  # 항목도 짧은 키 열(행 이름 n 없음)
     assert '"a" = 항목: 진료 항목 구분명.' in text and doctypes.DETAIL_HINT not in text.split("Short keys")[1].split("Every row")[0]
     assert '"n": "<' not in text and "every key (a, b," in text
     for receipt_only in ("Reading aid", rules.ITEM_ORDER[0] + ", ", band.LAYOUTS, band.HEADER_NOTE, "A blank cell is 0"):
@@ -477,92 +508,12 @@ def test_detail_prompt_keys_every_column_and_leaves_out_the_receipt_form_notes()
 
 def test_detail_expand_keeps_blank_cells_of_every_column_kind_null():
     rows, unknown, missing = band.expand([detail_row(항목="진찰료", EDI코드="AA154", 총액="17,610", 일수="1", 본인부담="")], DETAIL, "세부내역서")
-    assert (unknown, missing) == (0, 0) and list(rows[0]) == list(DETAIL["items"]["properties"])
+    assert (unknown, missing) == (0, 0) and list(rows[0]) == list(DPROPS)
     assert rows[0]["항목"] == "진찰료" and rows[0]["총액"] == "17,610" and rows[0]["일수"] == "1"
     assert rows[0]["본인부담"] is None and rows[0]["시작일자"] is None and rows[0]["급여구분"] is None and rows[0]["EDI명칭"] is None  # 금액·날짜·enum·글자
     assert band.expand([{"a": "합계"}], DETAIL, "세부내역서")[0][0]["총액"] is None  # 빠진 금액 열도 0으로 채우지 않는다
 
 
-def test_detail_overlap_tells_apart_rows_that_repeat_the_same_item_name():
-    expanded = lambda *rows: band.expand([detail_row(**row) for row in rows], DETAIL, "세부내역서")[0]
-    first = dict(항목="진찰료", EDI코드="AA154", EDI명칭="초진진찰료", 총액="17,610")
-    second = dict(항목="진찰료", EDI코드="AA254", EDI명칭="재진진찰료", 총액="12,530")
-    rows = expanded(first, second)
-    assert band.overlap(rows, expanded(second, dict(항목="소계", 총액="30,140")), "세부내역서") == 1  # 마지막 행만 두 번 읽었다
-    assert band.overlap(rows, expanded(first, second), "세부내역서") == 2
-    assert band.overlap(rows, expanded(dict(second, 총액="12,580")), "세부내역서") == 1  # 한 자리 오독은 같은 행
-    assert band.overlap(rows, expanded(dict(first, 총액=""), second), "세부내역서") == 0  # 한쪽만 빈 칸은 다른 행
-    shifted = expanded(dict(항목="진찰료", EDI코드="AA300", EDI명칭="야간가산", 총액="5,000"))
-    assert band.overlap(rows, shifted, "세부내역서") == 0 and band.overlap(rows, shifted) == 1  # 영수증 규칙(이름만)이면 겹친다고 볼 행
-
-
-def amount_lines(count, top=280, step=20):
-    """표 안에 금액이 찍힌 OCR 줄(쪽 1000 정규화) ``count``개: 한 줄이 한 인쇄 행, 금액 둘."""
-    return [{"text": f"진찰료 | AA154 | {10000 + i:,}", "bbox": [100, top + i * step, 900, top + i * step + step / 2]} for i in range(count)]
-
-
-@pytest.mark.parametrize("rows, count", [(0, 3), (5, 1), (12, 1), (13, 2), (30, 3), (31, 3), (60, 5), (200, 8)])
-def test_detail_strips_hold_about_twelve_printed_rows_each(monkeypatch, rows, count):
-    monkeypatch.setenv("BAND_STRIPS", "3")
-    step = min(20, 580 / max(rows, 1))
-    lines = amount_lines(rows, step=step) + [{"text": "12,000", "bbox": [960, 300, 990, 310]},  # 표 밖 줄
-                                             {"text": "약품명 이어 쓴 줄", "bbox": [100, 282 + step / 2, 900, 282 + step * 0.9]}]  # 금액 없는 줄
-    strips = engine._located_bands(band.boxes(DGRID, (), "세부내역서"), 1, 0, lines, "세부내역서", len(DKEYS))
-    assert len(strips) == count and all(strip["keyed"] == "세부내역서" for strip in strips)
-    caps = [strip["cap"] for strip in strips]  # 띠가 덮는 행의 금액 수 × 열 수 + 생각 여유, TABLE_REPLY_TOKENS + 여유를 넘지 않는다
-    assert all(engine._reply_cap("", len(DKEYS)) + engine.THINK_TOKENS <= cap <= engine.TABLE_REPLY_TOKENS + engine.THINK_TOKENS for cap in caps)
-    if rows >= 60:  # 띠마다 약 12행 + 이웃 띠와 나눠 읽는 EDGE_ROWS 행씩(표 높이의 10%씩 겹치면 띠가 두 배가 된다)
-        middles = [sum(line["bbox"][1::2]) / 2 for line in amount_lines(rows, step=step)]
-        covered = [sum(box[1] * 1000 <= y <= box[3] * 1000 for y in middles) for box in (strip["clips"][-1] for strip in strips)]
-        spread = (DGRID["total"][3] + 15 - DGRID["first_row"][1]) / (rows * step)  # 띠를 나누는 표 본문 높이 ÷ 줄이 차지한 높이
-        assert max(covered) <= (rows / count + 2 * engine.EDGE_ROWS) * spread + 2, covered
-
-
-def test_receipt_strips_keep_band_strips_and_the_fixed_cap_whatever_the_ocr_lines(monkeypatch):
-    monkeypatch.setenv("BAND_STRIPS", "4")
-    strips = engine._located_bands(band.boxes(GRID), 1, 0, amount_lines(40, top=380, step=9), "진료비영수증", len(KEYS) + 1)
-    assert len(strips) == 4 and {strip["cap"] for strip in strips} == {engine.KEYED_CAP}
-
-
-def test_band_doc_types_without_a_profile_are_read_as_rowmajor(state, monkeypatch):
-    monkeypatch.setenv("BAND_DOC_TYPES", "진료비영수증,소견서")
-    engine.extract(verify._restrict(doctypes.schema("소견서"), {"병명내역"}), state.blocks, state.image, table_extract="band")
-    assert "locate" not in kinds(state)
-
-
-def test_a_one_page_detail_statement_is_read_in_strips_when_listed(state, monkeypatch):
-    monkeypatch.setenv("BAND_DOC_TYPES", "진료비영수증,세부내역서")
-    first, second = dict(항목="진찰료", EDI코드="AA154", 총액="17,610"), dict(항목="진찰료", EDI코드="AA254", 총액="12,530")
-    state.locate = {**DGRID, "summary": [600, 300, 1000, 800]}
-    state.bands = [[detail_row(**first), detail_row(**second)], [detail_row(**second), detail_row(항목="합계", 총액="30,140")],
-                   [detail_row(항목="합계", 총액="30,140"), detail_row(항목="끝수처리 조정금액", 총액="-40"), detail_row(항목="합계", 총액="30,100")]]
-    schema = verify._restrict(doctypes.schema("세부내역서"), {"항목내역", "환자성명"})
-    with latency.track() as stats:
-        result, _ = engine.extract(schema, state.blocks, state.image, table_extract="band")
-
-    assert kinds(state) == ["band"] * 3 + ["fields", "locate"] and "band_fallback" not in stats  # 금액산정 블록 읽기 없음
-    assert "세부산정내역서" in next(call.text for call in state.calls if call.kind == "locate")
-    band_calls = [call for call in state.calls if call.kind == "band"]
-    assert all("Reading aid" not in call.text and call.max_tokens == engine._reply_cap("", len(DKEYS)) + engine.THINK_TOKENS for call in band_calls)
-    rows = result["항목내역"]
-    assert [(row["항목"], row["총액"]) for row in rows] == [("진찰료", "17,610"), ("진찰료", "12,530"), ("합계", "30,140"),
-                                                         ("끝수처리 조정금액", "-40"), ("합계", "30,100")]  # 인쇄된 집계 행은 그대로
-    assert rows[0]["본인부담"] is None and rows[0]["EDI코드"] == "AA154"
-
-
-def test_detail_prelocate_sends_the_statement_locate_prompt(replay, monkeypatch):
-    monkeypatch.setenv("BAND_DOC_TYPES", "진료비영수증,세부내역서")
-    replay.locate, replay.first_bands = DGRID, [[detail_row(항목="진찰료", 총액="1,000")]] * 3
-    schema = verify._restrict(doctypes.schema("세부내역서"), {"항목내역", "환자성명"})
-    result, calls, stats = run(replay, monkeypatch, schema=schema)
-    assert calls.count("locate") == 1 and stats["band_prelocate"] == "used" and "summary" not in calls
-    assert "세부산정내역서" in next(call.text for call in replay.calls if call.kind == "locate")
-    assert [row["총액"] for row in result[0]["항목내역"]] == ["1,000"]
-
-
-# --- 세부내역서 띠 읽기는 rowmajor 열 배치(table_layout.plan)를 쓴다 ----------------------------------
-
-DPROPS = DETAIL["items"]["properties"]
 PLAN = (DETAIL["description"] + " 열 배치 안내.", {"항목": DPROPS["항목"]["description"], "EDI코드": DPROPS["EDI코드"]["description"] + " 이 문서에서는 '코드' 열이다.",
                                               "EDI명칭": DPROPS["EDI명칭"]["description"], "단가": DPROPS["단가"]["description"], "횟수": DPROPS["횟수"]["description"],
                                               "일수": DPROPS["일수"]["description"], "총액": DPROPS["총액"]["description"],
@@ -586,23 +537,58 @@ def test_detail_expand_puts_planned_values_under_schema_columns_and_fills_the_re
     assert (unknown, missing) == (0, 1) and list(rows[0]) == list(DPROPS)  # 스키마 열·순서, 스키마 밖 '기타'는 버린다
     assert (rows[0]["단가"], rows[0]["횟수"], rows[0]["일수"], rows[0]["총액"]) == ("15,180", "1", "1", "15,180")
     assert rows[0]["본인부담"] is None and rows[0]["급여구분"] is None and rows[0]["시작일자"] is None
-    filled = (PLAN[0], PLAN[1], "0")
-    assert band.expand(reply, DETAIL, "세부내역서", filled)[0][0]["급여구분"] == "0"  # 묻지 않은 열은 배치의 채움 값(rowmajor와 같다)
+    assert band.expand(reply, DETAIL, "세부내역서", (PLAN[0], PLAN[1], "0"))[0][0]["급여구분"] == "0"  # 묻지 않은 열은 배치의 채움 값(rowmajor와 같다)
 
 
-def test_band_strips_read_with_the_rowmajor_plan_only_for_profiles_that_use_it(state, monkeypatch):
+@pytest.fixture
+def detail(state, monkeypatch):
     monkeypatch.setenv("BAND_DOC_TYPES", "진료비영수증,세부내역서")
     monkeypatch.setattr(engine, "_table_plan", lambda doc_type, *args: PLAN if doc_type == "세부내역서" else ("영수증 배치", {"본인부담금": "x"}, "0"))
+    state.blocks = detail_blocks(30)
     keys = {column: key for key, column in band.short_keys(DETAIL, "세부내역서", PLAN).items()}
-    state.locate = DGRID
-    state.bands = [[{keys["항목"]: "검사료", keys["단가"]: "15,180", keys["총액"]: "15,180"}], [], []]
-    result, _ = engine.extract(verify._restrict(doctypes.schema("세부내역서"), {"항목내역"}), state.blocks, state.image, table_extract="band")
-    texts = [call.text for call in state.calls if call.kind == "band"]
-    assert all(text == band.prompt(DETAIL, engine.BAND_NOTE[i > 0], True, "세부내역서", PLAN) for i, text in enumerate(texts))
-    assert result["항목내역"][0]["단가"] == "15,180" and result["항목내역"][0]["급여구분"] is None
+    state.row = lambda **cols: {keys[column]: value for column, value in cols.items()}
+    return state
 
-    state.calls.clear()
-    state.locate, state.bands = GRID, [[], [], []]
-    engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")  # 영수증은 배치가 있어도 쓰지 않는다(프롬프트 그대로)
-    texts = [call.text for call in state.calls if call.kind == "band"]
-    assert texts and all(text == band.prompt(ITEM, engine.BAND_NOTE[i > 0], True) for i, text in enumerate(texts))
+
+def detail_schema():
+    return verify._restrict(doctypes.schema("세부내역서"), {"항목내역", "환자성명"})
+
+
+def test_a_one_page_detail_statement_is_read_in_row_bands_without_a_locate_call(detail):
+    detail.bands = [[detail.row(항목="진찰료", EDI코드="AA154", 총액="17,610")], [detail.row(항목="진찰료", EDI코드="AA154", 총액="17,610")],
+                    [detail.row(항목="합계", 총액="30,140"), detail.row(항목="끝수처리 조정금액", 총액="-40"), detail.row(항목="합계", 총액="30,100")]]
+    with latency.track() as stats:
+        result, _ = engine.extract(detail_schema(), detail.blocks, detail.image, table_extract="band")
+
+    assert kinds(detail) == ["band"] * 3 + ["fields"] and "band_fallback" not in stats  # 위치 찾기·금액산정 블록 읽기 없음
+    calls = [call for call in detail.calls if call.kind == "band"]
+    assert [call.images for call in calls] == [1, 2, 2]
+    bands = engine._bands(detail.blocks, len(DPROPS), 12)
+    assert [call.max_tokens for call in calls] == [min(engine.TABLE_REPLY_TOKENS, engine._reply_cap(b["text"], len(DPROPS))) + engine.THINK_TOKENS for b in bands]
+    assert all(call.text == band.prompt(DETAIL, engine.BAND_NOTE[i > 0], True, "세부내역서", PLAN) for i, call in enumerate(calls))
+    rows = result["항목내역"]  # 되풀이되는 같은 행도 겹침으로 지우지 않는다(띠가 겹치지 않는다), 인쇄된 집계 행은 그대로
+    assert [(row["항목"], row["총액"]) for row in rows] == [("진찰료", "17,610"), ("진찰료", "17,610"), ("합계", "30,140"),
+                                                         ("끝수처리 조정금액", "-40"), ("합계", "30,100")]
+    assert rows[0]["EDI코드"] == "AA154" and rows[0]["본인부담"] is None and rows[0]["급여구분"] is None
+
+
+def test_a_detail_statement_whose_ocr_lines_cannot_cut_it_is_read_as_rowmajor(detail):
+    detail.blocks = detail_blocks(30, lines=False)
+    with latency.track() as stats:
+        engine.extract(detail_schema(), detail.blocks, detail.image, table_extract="band")
+    assert "rows" in kinds(detail) and not {"locate", "band"} & set(kinds(detail)) and stats["band_fallback"] == "rows"
+
+
+def test_a_detail_statement_is_never_prelocated(detail, monkeypatch):
+    monkeypatch.setenv("BAND_PRELOCATE", "true")
+    assert engine.prelocate(detail_schema(), detail.image, "band") is None and detail.calls == []
+
+
+def test_receipt_band_strips_ignore_the_rowmajor_plan(detail):
+    detail.blocks = [{"page": 1, "type": "table", "text": "", "rows": [["항목", "요양급여(①+②)", "비급여"]]}]
+    detail.locate, detail.bands = GRID, [[], [], []]
+    engine.extract(receipt_schema(), detail.blocks, detail.image, table_extract="band")
+    texts = [call.text for call in detail.calls if call.kind == "band"]
+    assert kinds(detail).count("locate") == 1 and len(texts) == 3
+    assert all(text == band.prompt(ITEM, engine.BAND_NOTE[i > 0], True) for i, text in enumerate(texts))
+    assert {call.max_tokens for call in detail.calls if call.kind == "band"} == {engine.KEYED_CAP}
