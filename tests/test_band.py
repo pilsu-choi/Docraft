@@ -1,6 +1,7 @@
 """TABLE_EXTRACT=band: 위치 응답 후처리·띠 자르기·짧은 키 읽기·띠 합치기(band), 금액산정 블록 병합(engine.extract).
 합성 이미지와 가짜 provider만 쓴다."""
 
+import hashlib
 import threading
 from types import SimpleNamespace
 
@@ -10,6 +11,7 @@ import pytest
 from backend import band, doctypes, engine, latency, verify
 
 ITEM = doctypes.schema("진료비영수증")["properties"]["항목내역"]
+DEV_PROMPT_SHA256 = "c96e890181e9aca410a145426f917b644d0e8da37e2422bb1b3df819a079f953"  # BAND_HEADER_NOTE 도입 전 dev(0751745) 띠 프롬프트
 KEYS = band.short_keys(ITEM)  # a..g = 본인부담금 … 비급여
 GRID = {"item_grid": [100, 300, 700, 800], "header": [100, 300, 700, 340], "first_row": [100, 340, 700, 380],
         "total": [100, 760, 700, 800], "summary": [720, 300, 1000, 800]}
@@ -95,6 +97,23 @@ def test_prompt_lists_short_keys_the_standard_names_and_the_all_keys_rule():
     assert '"a" = 본인부담금: 급여 본인부담금. 숫자만.\n' in text and "마지막 최종" not in text.split("Short keys")[1].split("Every row")[0]
     assert "진찰료" in text and "never add a row because it is in the list" in text and "ALL keys" in text
     assert engine.BAND_NOTE[1].strip() in text
+
+
+def test_header_note_is_only_added_when_switched_on_and_off_keeps_the_dev_prompt():
+    on, off = band.prompt(ITEM, engine.BAND_NOTE[0], True), band.prompt(ITEM, engine.BAND_NOTE[0])
+    assert band.HEADER_NOTE not in off and on.replace(band.HEADER_NOTE + "\n", "") == off  # 꺼짐 = dev 프롬프트 그대로
+    assert hashlib.sha256(off.encode()).hexdigest() == DEV_PROMPT_SHA256  # dev 0751745 의 band.prompt(ITEM, BAND_NOTE[0]) 와 바이트 동일
+    assert "'선택진료료 / 이외'" in on and "0 under 비급여" in on  # 스키마 비급여 설명(묶음 제목이면 0)과 같은 관례
+    assert "묶는 제목이면 0" in ITEM["items"]["properties"]["비급여"]["description"]
+
+
+def test_band_reads_strips_with_the_header_note_only_when_the_setting_is_on(monkeypatch):
+    seen = []
+    monkeypatch.setattr(engine, "_provider", lambda messages, **kw: seen.append(messages[-1]["content"][-1]["text"]) or {"rows": []})
+    for value in ("", "true"):
+        monkeypatch.setenv("BAND_HEADER_NOTE", value) if value else monkeypatch.delenv("BAND_HEADER_NOTE", raising=False)
+        engine._read_keyed(ITEM, ["data:image/jpeg;base64,"], engine.BAND_NOTE[0])
+    assert band.HEADER_NOTE not in seen[0] and band.HEADER_NOTE in seen[1]
 
 
 def test_expand_fills_blank_and_missing_amount_columns_with_zero_and_counts_odd_keys():

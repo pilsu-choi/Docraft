@@ -714,7 +714,7 @@ def _read_keyed(spec, images, strip, deadline=None, cancel=None, on_call=None):
     """One strip of a located table as keyed rows (`bandkit.prompt`): short keys per amount column, all present in every row,
     expanded back to the schema's columns. Raises RuntimeError when the reply has no row list."""
     _begin_call(cancel, on_call)
-    reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE}, _user(bandkit.prompt(spec, strip), images)],
+    reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE}, _user(bandkit.prompt(spec, strip, ai_settings()["band_header_note"]), images)],
                       timeout_cap=remaining(deadline), max_tokens=3000)
     if not isinstance(reply, dict) or not isinstance(reply.get("rows"), list):
         raise RuntimeError("band 응답에 행 목록이 없습니다.")
