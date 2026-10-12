@@ -1998,3 +1998,45 @@ def test_a_row_shifted_by_one_column_moves_as_a_chain():
 ])
 def test_an_amount_without_a_certain_printed_column_stays_where_the_model_put_it(rows, blocks):
     assert rules._printed_moves(rows, blocks) == rows
+
+
+# --- 세부내역서 묶음 제목 행 빼기(2026-10-13 결정 A) ------------------------------------------------
+
+
+def _detail(항목, **cols):
+    return {"항목": 항목, **cols}
+
+
+def _data(항목, code, total):
+    return _detail(항목, EDI코드=code, EDI명칭="명칭" + code, 총액=total, 본인부담=total)
+
+
+def test_group_title_rows_are_dropped_when_the_rows_below_print_their_item():
+    rows = [_detail("진찰료"), _data("01.진찰료", "AA154", "17,610"), _data("01.진찰료", "AA254", "12,530"),
+            _detail("소계", 총액="30,140"), _detail("투약료"), _data("03.투약료", "J1234", "1,200"),
+            _detail("계", 총액="31,340"), _detail("합계", 총액="31,340"), _detail("끝수처리 조정금액"), _detail("소계")]
+    result = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
+    kept = ["01.진찰료", "01.진찰료", "소계", "03.투약료", "계", "합계", "끝수처리 조정금액", "소계"]  # 집계 행은 금액 없어도 둔다
+    assert [row["항목"].replace(" ", "") for row in result] == [name.replace(" ", "") for name in kept]
+    assert [row["항목"] for row in rules.drop_group_titles(rows)] == kept  # 저장된 행 목록에 그대로 다시 적용
+
+
+def test_a_group_title_is_kept_when_it_is_the_only_item_of_the_rows_below_or_has_no_rows():
+    blank_below = [_detail("진찰료"), _data(None, "AA154", "17,610"), _data("", "AA254", "12,530")]
+    assert rules.drop_group_titles(blank_below) == blank_below  # 아래 행에 항목이 인쇄되지 않았다: 제목이 유일한 분류
+    assert rules.drop_group_titles([_data("01.진찰료", "AA154", "17,610"), _detail("주사료")])[-1]["항목"] == "주사료"  # 표 끝
+    assert len(rules.drop_group_titles([_detail("진찰료"), _detail("소계", 총액="100")])) == 2  # 아래가 집계 행
+    stacked = [_detail("기본진료료"), _detail("진찰료"), _data("01.진찰료", "AA154", "17,610")]
+    assert [row["항목"] for row in rules.drop_group_titles(stacked)] == ["01.진찰료"]  # 이어진 제목 행들 다음 데이터 행을 본다
+
+
+@pytest.mark.parametrize("cell", [{"총액": "0"}, {"EDI코드": "AA154"}, {"시작일자": "20240105"}, {"급여구분": "급여"}])
+def test_a_row_with_any_other_printed_cell_is_not_a_group_title(cell):
+    rows = [_detail("진찰료", **cell), _data("01.진찰료", "AA154", "17,610")]
+    assert len(rules.drop_group_titles(rows)) == 2
+    assert len(rules.drop_group_titles([_detail("진찰료", 본인부담="  "), rows[1]])) == 1  # 공백만 있는 칸은 빈 칸
+
+
+def test_receipt_rows_are_not_touched_by_group_title_dropping():
+    rows = [{"항목": "진찰료"}, {"항목": "입원료", "본인부담금": "1,000"}]
+    assert [row["항목"] for row in rules.apply("진료비영수증", {"항목내역": rows}, [])["항목내역"]] == ["진찰료", "입원료"]

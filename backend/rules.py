@@ -1848,6 +1848,21 @@ def _section_items(rows, blocks=()):
             yield index, title
 
 
+def drop_group_titles(rows):
+    """세부내역서 항목 행 중 묶음 제목 행(항목 칸만 인쇄되고 다른 칸은 모두 빈 행, 집계 행 제외)을 뺀 행 목록(2026-10-13 결정 A).
+    뒤이은 제목 행들 다음 첫 행이 항목이 인쇄된 데이터 행일 때만 뺀다 — 그 행들이 제 분류를 이미 인쇄했다(이름이 '진찰료'·'01.진찰료'처럼
+    달라도). 다음 행의 항목이 비었거나 집계 행이거나 표 끝이면 제목이 유일한 분류 근거라 남긴다(아래 행을 채우지 않는다). 행 목록만 보는
+    순수 함수라 저장된 결과에도 다시 적용할 수 있다: ``rules.drop_group_titles(rows)``."""
+    def title(row):
+        return not _blank(row.get("항목")) and not is_total(row) and all(_blank(value) for key, value in row.items() if key != "항목")
+    kept = []
+    for index, row in enumerate(rows):
+        after = next((other for other in rows[index + 1:] if not title(other)), None)
+        if not (title(row) and after is not None and not is_total(after) and not _blank(after.get("항목"))):
+            kept.append(row)
+    return kept
+
+
 def _carry(rows, column):
     """무리 첫 행에만 인쇄된 열의 빈 칸을 위 값으로 채운다. 채워진 이웃 칸이 하나도 같지 않을 때(매 행 되풀이하는 서식이 아닐 때)만,
     첫 값 위의 빈 칸(앞 쪽에서 이어진 행)과 합계 행은 두고 값이 둘 이상일 때만 한다."""
@@ -2147,8 +2162,10 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     out = derive(doc_type, out)  # derive는 라벨 정리(verify_label.conform)도 쓰므로 마스터 교정은 그 뒤에 한다
     _master_names(out)
     if doc_type == "세부내역서":  # 무리마다 한 번만 인쇄된 값(섹션 제목·분류·날짜)을 항목 행마다 채운다
+        kept = {id(row) for row in drop_group_titles(out[ITEM_TABLE])}  # 채우기 전 인쇄된 항목으로 정하고, 제목은 채우기에 쓴 뒤 뺀다
         for index, title in list(_section_items(out[ITEM_TABLE], blocks or [])):
             out[ITEM_TABLE][index]["항목"] = title
         for column in ("항목", "시작일자", "종료일자"):
             _carry(out[ITEM_TABLE], column)
+        out[ITEM_TABLE] = [row for row in out[ITEM_TABLE] if id(row) in kept]
     return out
