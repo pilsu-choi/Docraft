@@ -159,7 +159,8 @@ _EDI_DIGITS = str.maketrans({"O": "0", "I": "1", "L": "1"})
 _EDI_LETTERS = str.maketrans({"S": "5", "B": "8"})  # 실제 코드에도 쓰이는 글자('B1020B'·'MX122S1')라 마스터로 확인해 바꾼다
 _DEPARTMENT = re.compile(r"^(?!.*(?:\d|병동|실|호|외래|입원))[가-힣,/\s-]*과[가-힣,/\s-]*$")  # 진료과 이름('외과'·'내과혈액종양')
 _SECTION_TITLE = re.compile(r"^[0-9A-Z]{1,2}\s*\.\s*\S")  # 세부내역서 섹션 제목 행('01.진찰료', 'B0.100분의100미만본인부담')
-_GROUP_DATE = re.compile(r"^(?:19|20)\d{2}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,2}\s*(?:\([^)]*\))?$")  # 날짜만 있는 줄(괄호 설명 허용)
+_DATE_TEXT = re.compile(r"(?<!\d)(?:(?:19|20)\d{2}|\d{2})\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{1,2}(?!\d)")  # 글자 속 날짜(2022-02-25·2022.02.25·22.02.25)
+_GROUP_DATE = re.compile(rf"^(?:{_DATE_TEXT.pattern})\s*(?:\([^)]*\))?$")  # 날짜만 있는 줄(괄호 설명 허용)
 _SECTION_LINE = re.compile(r"^[0-9A-Z]{1,2}\s*\.\s*(?=.*[가-힣A-Za-z])\S.{0,24}$")  # OCR 줄 하나 전체가 섹션 제목인지(안내문 '1.진료비 계산서…'·금액 '6.350' 제외)
 
 # ── kind별 정규화 ───────────────────────────────────────────────────────────
@@ -1812,10 +1813,10 @@ def _title_lines(blocks):
         text, day = block.get("text") or "", None  # 무리 날짜는 표 블록 안에서만 — 표 밖 발행일 등은 무리 날짜가 아니다
         parts = re.split(r"<t[dh][^>]*>|</t[dh]>|</?tr>|</?table>|<br\s*/?>", text) if _HTML.search(text) else [text]
         for line in (unescape(line).strip() for part in parts for line in part.split("\n")):
-            if _SECTION_LINE.match(line):
-                title = re.sub(r"^([0-9A-Z]{1,2})\s*\.\s*", r"\1.", line)
-            elif _GROUP_DATE.match(line) and block.get("type") == "table":
+            if _GROUP_DATE.match(line) and block.get("type") == "table":  # 섹션 제목 꼴('22.02.25'의 '22.')보다 먼저 본다
                 day = normalize("date", line)
+            elif _SECTION_LINE.match(line):
+                title = re.sub(r"^([0-9A-Z]{1,2})\s*\.\s*", r"\1.", line)
             elif line:
                 out.append((_key(line).lower(), title, day))
     return out
@@ -1836,7 +1837,6 @@ def _row_lines(rows, blocks):
 
 
 HEAD_COLUMNS = ("항목", "시작일자", "종료일자", "EDI명칭")  # 묶음 머리 행에 인쇄되는 칸(제목·날짜·'(보험외래)' 같은 꼬리표)
-_DATE_TEXT = re.compile(r"(?:19|20)\d{2}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{1,2}")
 
 
 def _head_date(row):
@@ -1846,9 +1846,10 @@ def _head_date(row):
 
 
 def _group_head(row):
-    """세부내역서 묶음 머리 행: 집계 행이 아니고 코드·수량·금액·급여구분 칸이 모두 비었으며(``HEAD_COLUMNS`` 밖이 빈 행) 항목이나 날짜가
-    인쇄된 행 — 섹션 제목('01.진찰료')과 내원일 머리 줄('2022-02-25 (보험외래)')."""
-    return (not is_total(row) and all(_blank(value) for key, value in row.items() if key not in HEAD_COLUMNS)
+    """세부내역서 묶음 머리 행: 집계 행이 아니고 수량·금액·급여구분 칸이 비었으며 코드 칸은 비었거나 숫자 없는 꼬리표 글자뿐이고(모델이
+    '(보험외래)'를 코드 칸에 옮겨 적기도 한다) 항목이나 날짜가 인쇄된 행 — 섹션 제목('01.진찰료')과 내원일 머리 줄('2022-02-25 (보험외래)')."""
+    return (not is_total(row) and all(_blank(value) or key in ("원내코드", "EDI코드") and not re.search(r"\d", str(value))
+                                      for key, value in row.items() if key not in HEAD_COLUMNS)
             and (not _blank(row.get("항목")) or _head_date(row) is not None))
 
 
@@ -1858,22 +1859,24 @@ def _group_name(row):
 
 
 def _group_dates(rows, blocks):
-    """표에 날짜 열이 없는(묶음 머리 행 밖 어느 행에도 시작일자가 없는) 세부내역서에서 행마다 무리 날짜 ``(행 번호, 날짜)``. 날짜는 두 곳에서
-    읽는다. (가) 출력에 남은 묶음 머리 행(``_group_head``)에 인쇄된 날짜 — 다음 머리 행 전까지의 행. (나) 그런 행이 없으면 바로 위 OCR 무리
-    날짜 줄. 종료일자는 날짜 하나라 비운다(정답지 관례)."""
+    """표에 날짜 열이 없는(묶음 머리 행 밖 어느 행에도 시작일자가 없는) 세부내역서에서 행마다 무리 날짜 ``(행 번호, 날짜)``. 날짜는
+    ``_section_items``처럼 두 곳에서 읽는다. (가) 출력에 남은 묶음 머리 행(``_group_head``)에 인쇄된 날짜 — 다음 머리 행 전까지의 행.
+    머리 행에서 날짜가 빠졌으면(모델이 꼬리표만 옮겼다) 그 아래 행 자리의 OCR 무리 날짜 줄(``_row_lines``)의 날짜다. 날짜를 모르는
+    머리 행(섹션 제목)은 날짜 무리를 끊지 않는다. (나) 머리 행이 없으면 행마다 바로 위 OCR 무리 날짜 줄. 종료일자는 날짜 하나라
+    비운다(정답지 관례). 날짜는 모두 인쇄된 원문(출력 칸 또는 OCR 줄)에서 온다."""
     if any(row.get("시작일자") for row in rows if not _group_head(row)):
         return
-    day, heads = None, False
+    ocr = {index: day for index, _, day in _row_lines(rows, blocks) if day}
+    if not any(_group_head(row) for row in rows):
+        yield from sorted(ocr.items())
+        return
+    day = None
     for index, row in enumerate(rows):
         if _group_head(row):
-            day = _head_date(row) or day  # 날짜 없는 섹션 제목은 날짜 무리를 끊지 않는다
-            heads |= _head_date(row) is not None
+            below = next((j for j in range(index + 1, len(rows)) if not _group_head(rows[j]) and not is_total(rows[j])), None)
+            day = _head_date(row) or ocr.get(below) or day
         elif day and not is_total(row):
             yield index, day
-    if not heads:
-        for index, _, day in _row_lines(rows, blocks):
-            if day:
-                yield index, day
 
 
 def _section_items(rows, blocks=()):

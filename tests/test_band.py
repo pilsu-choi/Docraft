@@ -867,3 +867,50 @@ def test_masks_paint_the_cut_off_side_white_and_no_masks_keep_the_old_image(tmp_
     image = Image.open(io.BytesIO(base64.b64decode(engine._page_images(str(path), [1], {}, clip, None, [[[[0.1, 0.1], [0.9, 0.1], [0.9, 0.3]]]])[0].split(",")[1])))
     width, height = image.size
     assert sum(image.getpixel((int(width * 0.9), int(height * 0.1)))) > 700 and sum(image.getpixel((int(width * 0.1), int(height * 0.9)))) < 60
+
+
+# --- 쪽이 머리글 없이 앞 쪽 표의 행으로 시작 ---------------------------------------------------------------
+
+CELLS = ((60, 160), (170, 260), (270, 340), (350, 500), (520, 560), (800, 880), (890, 940))
+
+
+def cells(values, y):
+    return [piece(value, x0, x1, y) for value, (x0, x1) in zip(values, CELLS) if value]
+
+
+def continued(lead=2, only_total=False, summary=False):
+    """앞 쪽에서 이어지는 쪽(3022033115105207 꼴): 환자정보 줄 → 머리글 없는 앞 묶음의 끝 행 ``lead``개와 그 합계 → 머리글 → 6행 → 합계.
+    ``only_total``이면 앞 묶음은 합계 행 하나, ``summary``면 표 열과 어긋난 금액 요약 줄이 환자정보 아래에 있다."""
+    info = [piece("전화번호 : 063-531-7501", 60, 400, 40), piece("사업자등록번호 : 680-99-01186", 500, 900, 40)]
+    extra = [piece("진료비총액 127,317", 60, 300, 70), piece("납부할금액 127,317 원", 520, 900, 70)] if summary else []
+    y, leading = 100, []
+    for i in range(0 if only_total else lead):
+        leading.append(cells(["2022-03-03", "이학요법료", f"MX12{i}", "도수치료", "1", f"{50000 + i:,}", "비급여"], y))
+        y += 20
+    leading.append([piece("합계", 60, 160, y), piece("127,317", 800, 880, y)])
+    head = cells(["내원일", "항목", "코드", "명칭", "횟수", "금액", "급/비"], y + 30)
+    rows = [cells(["2022-03-10", "진찰료", f"AA25{i}", "재진진찰료", "1", f"{12130 + i:,}", "급여"], y + 55 + i * 20) for i in range(6)]
+    rows.append([piece("합계", 60, 160, y + 55 + 6 * 20), piece("127,317", 800, 880, y + 55 + 6 * 20)])
+    lines = info + extra + [l for row in leading for l in row] + head + [l for row in rows for l in row]
+    return [table_block(lines)], info + extra, leading, head, rows
+
+
+@pytest.mark.parametrize("lead, only_total, summary", [(1, False, False), (2, False, False), (9, False, False), (0, True, False), (2, False, True)])
+def test_rows_continued_from_the_previous_page_above_the_first_header_are_a_leading_group(lead, only_total, summary):
+    blocks, outside, leading, head, rows = continued(lead, only_total, summary)
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    assert all(whole_once(line, bands) for row in leading + rows for line in row)  # 앞 묶음 끝 행·합계도 띠에 온전히
+    assert not any(shown(point, b, image) for line in outside for b in bands for image in range(len(b["clips"])) for point in corners(line))
+    first = next(b for b in bands if in_band(leading[0][0], b))
+    assert len(first["clips"]) == 2 and all(sum(shown(point, first, 0) for point in corners(line)) == 5 for line in head)  # 아래 첫 머리글 띠
+    assert first["text"].startswith("내원일 | 항목 | 코드")
+
+
+def test_rows_above_the_first_header_that_do_not_line_up_with_its_columns_stay_out():
+    blocks, outside, leading, head, rows = continued(2)
+    for row in leading[:-1]:  # 앞 묶음 행을 표 열과 어긋나게(값 꼴이 다른 열 자리에) 옮긴다
+        for line in row:
+            line["bbox"] = [line["bbox"][0] + 120, line["bbox"][1], line["bbox"][2] + 120, line["bbox"][3]]
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    assert not any(in_band(line, b) for row in leading[:-1] for line in row for b in bands)
+    assert all(whole_once(line, bands) for row in rows for line in row)

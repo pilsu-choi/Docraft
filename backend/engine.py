@@ -751,7 +751,9 @@ def _row_bands(page_blocks, columns, per):
     - 줄을 왼쪽에서 오른쪽으로 이어 인쇄 행으로 묶는다(``_chained_rows``) — 기울거나 휜 사진에서도 한 행의 줄들이 한 행이다.
     - 머리글 줄(머리글 낱말 개념 넷 이상)마다 새 항목 표 묶음이다(내원일마다 머리글을 다시 찍는 서식). 묶음은 그 머리글부터 다음 머리글
       전의 마지막 표 행(집계 행이나 금액 꼴 숫자 둘 이상인 행)과 그 이어 쓴 줄까지 — 위 환자정보 표·묶음 사이·아래 서명·안내 글은 뺀다.
-      소계가 일찍 나오고 계·합계가 다음 쪽인 표도 마지막 표 행까지다. 데이터 행 없이 이어진 머리글 줄은 한 머리글이다.
+      소계가 일찍 나오고 계·합계가 다음 쪽인 표도 마지막 표 행까지다. 데이터 행 없이 이어진 머리글 줄은 한 머리글이다. 쪽이 머리글 없이
+      앞 쪽 표의 행으로 시작하면 첫 머리글 바로 위로 이어진, 아래 표 행과 같은 열 자리에 같은 꼴 값을 찍은 표 행들(``fits``)도 선행 묶음이고
+      그 띠에는 아래 첫 머리글 띠를 붙인다.
     - 묶음마다 금액 행 약 ``per``행씩(띠 수는 쪽 전체 금액 행으로 MAX_STRIPS개까지 고르게) 금액 행 앞에서 자르고(``_cuts``, 행을 되풀이하지
       않는다), 뒤 띠에는 그 묶음 머리글 띠를 붙인다. 표 위·아래는 행 높이 1/4 여백.
     - 띠 경계는 행 사이 틈을 따라가는 꺾은선이다: 표 폭을 STRIP_BINS칸으로 나눠 칸마다 위 행 줄 하단 최대와 아래 행 줄 상단 최소의 가운데(한쪽만
@@ -786,9 +788,34 @@ def _row_bands(page_blocks, columns, per):
         last = table[-1]
         while last + 1 < after and not counts[last + 1] and tops[last + 1] - bottoms[last] < height:  # 마지막 행의 이어 쓴 줄
             last += 1
-        groups.append((first, last + 1))
+        groups.append((first, last + 1, None))
         first = None
-    total = sum(1 for a, b in groups for i in range(a, b) if counts[i])
+    if groups:  # 여러 쪽 표: 쪽이 머리글 없이 앞 쪽 표의 행으로 시작하면 첫 머리글 위의 그 행들도 표 묶음이다(머리글 띠는 아래 첫 머리글)
+        h0 = groups[0][0]
+        h1 = next(i for i in range(h0, groups[0][1]) if counts[i])
+        reference = next((i for i in range(h1, groups[0][1]) if counts[i] >= 2), h1)
+
+        def fits(i):
+            """머리글 없는 i행이 표 행(집계 행 또는 금액 꼴 숫자 둘 이상)이고 아래 표 행 ``reference``와 같은 열 자리에 같은 꼴 값을 찍었다:
+            집계 라벨을 뺀 줄의 2/3 이상이 reference 줄 가로 범위 안에 같은 값 꼴(``table_layout._shape`` 갈래)이다. 줄 하나뿐이면 집계
+            행만(합계 금액 한 칸). 표 열과 줄이 맞지 않는 금액 요약 줄·환자정보 줄은 빠진다."""
+            total = any(rules._total_name(part) for part in texts[i].split(" | "))
+            cells = [line for line in members[i] if not rules._total_name(str(line["text"]))]
+            family = lambda line: table_layout._family(table_layout._shape(line["text"]))
+            hits = sum(any(r["bbox"][0] <= (c["bbox"][0] + c["bbox"][2]) / 2 <= r["bbox"][2] and family(c) == family(r) for r in members[reference])
+                       for c in cells)
+            return (counts[i] >= 2 or total) and bool(cells) and hits * 3 >= len(cells) * 2 and (len(cells) >= 2 or total)
+        lead, i = [], h0 - 1
+        while i >= 0:  # 첫 머리글에서 위로, 맞는 행(과 그 아래 이어 쓴 줄)이 이어지는 동안
+            if fits(i):
+                lead, i = lead + [i], i - 1
+            elif not counts[i] and i > 0 and fits(i - 1) and tops[i] - bottoms[i - 1] < height:
+                lead, i = lead + [i, i - 1], i - 2
+            else:
+                break
+        if lead:
+            groups.insert(0, (min(lead), h0, (h0, h1)))
+    total = sum(1 for a, b, _ in groups for i in range(a, b) if counts[i])
     if not total:
         return []
     most = max(1, -(-total // max(1, min(MAX_STRIPS, -(-total // per)))))  # 금액 행 하나를 1로 세어 띠당 약 per행
@@ -824,18 +851,20 @@ def _row_bands(page_blocks, columns, per):
         return _clip([x0, y_top, x1, y_bottom], size), [[[x / size[0], y / size[1]] for x, y in polygon] for polygon in masks]
 
     bands = []
-    for a, b in groups:
+    for a, b, lead in groups:  # lead: 머리글 없는 선행 묶음이 붙일 아래 첫 머리글 행 [h0, h1)
         amounts = [int(bool(count)) for count in counts[a:b]]
         head = a + next(i for i, count in enumerate(amounts) if count)
-        roof = [(x, max(0, tops[a] - pad)) for x in (x0, x1)]  # 머리글 줄 위
+        h0, h1 = lead or (a, head)
+        roof = [(x, max(0, tops[a] - pad)) for x in (x0, x1)]  # 묶음 맨 위 줄(머리글 줄) 위
         floor = [(x, min(size[1], bottoms[b - 1] + pad)) for x in (x0, x1)]  # 마지막 행 아래
         for start, _, end in _cuts(amounts, most, lambda i: seam(a + i) is not None, repeat=False):
             start, end = a + start, a + end
             top, bottom = roof if start == head else line_at(start), floor if end == b else line_at(end)
-            parts = ([strip(roof, line_at(head))] if start > head > a else []) + [strip(top, bottom)]  # 뒤 띠: 그 묶음 머리글 띠 + 띠
+            header = [strip([(x, max(0, tops[h0] - pad)) for x in (x0, x1)], line_at(h1))] if (start > head or lead) and h1 > h0 else []
+            parts = header + [strip(top, bottom)]  # 뒤 띠·선행 묶음 띠: 그 묶음 머리글 띠 + 띠
             clips, masks = [clip for clip, _ in parts], [mask for _, mask in parts]
             low, high = min(y for _, y in top), max(y for _, y in bottom)
-            text = texts[a:head] + texts[start:end] + [line["text"] for line in tall if line["bbox"][1] < high and line["bbox"][3] > low]
+            text = texts[h0:h1] + texts[start:end] + [line["text"] for line in tall if line["bbox"][1] < high and line["bbox"][3] > low]
             bands.append({"page": tables[0].get("page"), "type": "table", "page_size": tables[0]["page_size"], **({"orientation": turn} if turn else {}),
                           "text": "\n".join(text), "clips": clips, **({"masks": masks} if any(masks) else {})})
     return bands

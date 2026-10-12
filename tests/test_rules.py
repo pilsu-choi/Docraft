@@ -2136,3 +2136,35 @@ def test_section_titles_whose_rows_print_no_item_are_carried_down_and_dropped():
             {"항목": "끝수처리 조정금액"}, {"항목": "합계", "총액": "20,610"}]
     out = rules.apply("세부내역서", {"항목내역": read}, [])["항목내역"]
     assert [row["항목"].replace(" ", "") for row in out] == ["01.진찰료"] * 3 + ["소계", "03.투약료", "소계", "계", "끝수처리조정금액", "합계"]
+
+
+# --- 묶음 머리 줄 날짜가 출력에서 빠진 경우: 같은 자리 OCR 머리 줄 날짜(2026-10-13) ----------------------------
+
+
+def _visit_ocr(*groups):
+    """OCR 표 블록: 묶음마다 날짜 머리 줄과 그 행들의 줄(코드·명칭)."""
+    text = "\n".join(f"{day} {tag}\n" + "\n".join(f"진찰료 {code} 명칭{code} 1 1 1,000" for code in codes) for day, tag, codes in groups)
+    return [{"type": "table", "page": 1, "text": text}]
+
+
+@pytest.mark.parametrize("head", [{"항목": "보험외래"}, {"항목": "(입원)"}, {"EDI코드": "보험외래", "항목": "외래"}])
+@pytest.mark.parametrize("printed, day", [("2022-02-25", "20220225"), ("2022.02.25", "20220225"), ("22.02.25", "20220225")])
+def test_a_head_row_missing_its_date_takes_the_date_of_the_ocr_head_line_at_its_place(head, printed, day):
+    blocks = _visit_ocr((printed, "(보험외래)", ["AA154", "AL801"]), ("2022-03-02", "(보험외래)", ["AA254"]))
+    read = [dict(head), _data("진찰료", "AA154", "16,970"), _data("진찰료", "AL801", "210"),
+            {"항목": "2022-03-02", "EDI명칭": "(보험외래)"}, _data("진찰료", "AA254", "12,130")]
+    out = rules.apply("세부내역서", {"항목내역": read}, blocks)["항목내역"]
+    assert [(row["EDI코드"], row["시작일자"]) for row in out] == [("AA154", day), ("AL801", day), ("AA254", "20220302")]  # 머리 행은 빠진다
+
+
+def test_a_head_row_whose_tag_went_to_the_code_column_is_still_a_head():
+    read = [{"항목": "2022-02-25", "EDI코드": "보험외래"}, _data("진찰료", "AA154", "16,970")]
+    out = rules.apply("세부내역서", {"항목내역": read}, [])["항목내역"]
+    assert [(row["EDI코드"], row["시작일자"]) for row in out] == [("AA154", "20220225")]
+    assert len(rules.drop_group_titles([{"항목": "진찰료", "EDI코드": "AA154"}, _data("01.진찰료", "AA1", "1")])) == 2  # 코드 꼴 값은 꼬리표가 아니다
+
+
+def test_a_head_row_with_its_date_keeps_it_over_the_ocr_line():
+    blocks = _visit_ocr(("2022-02-26", "(보험외래)", ["AA154"]))
+    out = rules.apply("세부내역서", {"항목내역": [{"항목": "2022-02-25 (보험외래)"}, _data("진찰료", "AA154", "16,970")]}, blocks)["항목내역"]
+    assert out[0]["시작일자"] == "20220225"
