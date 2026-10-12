@@ -48,18 +48,19 @@ def locate_prompt(doc_type):
 
 # 문서 유형별 band 설정. form·regions: 위치 찾기 서식 이름·키(locate_prompt, boxes), hint: 열 설명에서 뗄 표 공통 힌트, name: 짧은 키 "n"으로
 # 따로 받는 행 이름 열(None이면 모든 열이 짧은 키), zero: 빈칸을 "0"으로 채우는 열 종류(doctypes.kind, 나머지 빈칸은 None), match: 띠 겹침에서
-# 두 읽기가 같은 행인지 견주는 열, rows: 띠당 인쇄 행 수(None이면 BAND_STRIPS개), sample: 응답 예시 값, statutory: 법정 서식 안내
+# 두 읽기가 같은 행인지 견주는 열, rows: 띠당 인쇄 행 수(None이면 BAND_STRIPS개), plan: rowmajor 열 배치(table_layout.plan)로 인쇄된 열만
+# 인쇄 순서로 묻기(영수증은 법정 서식 안내로 대신해 쓰지 않는다), sample: 응답 예시 값, statutory: 법정 서식 안내
 # (항목 목록·열 배치 5종·머리글 안내)와 마지막 합계 행 하나만 남기기, closing: 프롬프트 끝 규칙.
 PROFILES = {
     "진료비영수증": {"form": "Korean medical receipt (진료비 계산서·영수증)", "regions": REGIONS, "hint": doctypes.RECEIPT_HINT, "name": "항목",
-                "zero": ("amount",), "match": ("항목",), "rows": None, "statutory": True,
+                "zero": ("amount",), "match": ("항목",), "rows": None, "plan": False, "statutory": True,
                 "sample": {"항목": "검사료", "본인부담금": "1,200", "공단부담금": "4,800"},
                 "closing": "Skip rows whose name is cut off at the top or bottom edge. Include the final 합계 row if visible. Never return header rows. "
                            "Copy the printed digits only, never compute or infer a value. A blank cell is 0 (per the schema)."},
     # 세부내역서 항목 열(진찰료 등 구분명)은 같은 이름이 여러 행에 되풀이되고 섹션 제목 행에만 인쇄되기도 해 행 이름이 아니라 열 하나로 받는다.
     # 칸은 인쇄된 값만(DETAIL_HINT: 인쇄되지 않은 칸은 null) — 빈칸을 0으로 채우지 않는다. 미인쇄 급여 열의 0은 하네스 출력 단계 몫(2026-10-12).
     "세부내역서": {"form": "Korean itemized medical bill statement (진료비 세부산정내역서)", "regions": DETAIL_REGIONS, "hint": doctypes.DETAIL_HINT,
-              "name": None, "zero": (), "match": ("항목", "시작일자", "EDI코드", "EDI명칭", "총액"), "rows": 12, "statutory": False,
+              "name": None, "zero": (), "match": ("항목", "시작일자", "EDI코드", "EDI명칭", "총액"), "rows": 12, "plan": True, "statutory": False,
               "sample": {"항목": "진찰료", "시작일자": "20240105", "EDI코드": "AA154", "EDI명칭": "초진진찰료", "단가": "17,610", "횟수": "1", "일수": "1",
                          "총액": "17,610", "본인부담": "5,280", "공단부담": "12,330"},
               "closing": DETAIL_CLOSING},
@@ -126,19 +127,23 @@ def clips(found, count=BANDS, overlap=OVERLAP):
     return result
 
 
-def short_keys(item, doc_type=RECEIPT):
-    """스키마 항목내역 속성(행 이름 열 ``name`` 제외)을 순서대로 a, b, c… 에 대응한 {짧은 키: 열 이름}. 출력 토큰을 줄인다."""
+def short_keys(item, doc_type=RECEIPT, plan=None):
+    """항목내역 열(행 이름 열 ``name`` 제외)을 순서대로 a, b, c… 에 대응한 {짧은 키: 열 이름}. 출력 토큰을 줄인다. 열은 ``plan``(rowmajor
+    열 배치 ``table_layout.plan``: 인쇄된 열만 인쇄 순서로)이 있으면 그 열, 없으면 스키마 순서의 모든 열."""
     name = PROFILES[doc_type]["name"]
-    return {chr(97 + i): key for i, key in enumerate(key for key in item["items"]["properties"] if key != name)}
+    return {chr(97 + i): key for i, key in enumerate(key for key in (plan[1] if plan else item["items"]["properties"]) if key != name)}
 
 
-def prompt(item, note, header_note=False, doc_type=RECEIPT):
+def prompt(item, note, header_note=False, doc_type=RECEIPT, plan=None):
     """띠 읽기 프롬프트: 모든 행에 (행 이름 열이 있는 유형은 이름 n과) 모든 짧은 키 열을 스키마 순서로 쓰게 한다. ``note``는 이미지 구성 안내.
     법정 서식(``statutory``, 진료비영수증)만 항목명 규칙·항목 목록·열 배치 5종을 붙이고, ``header_note``(``BAND_HEADER_NOTE``)면 쪼개 인쇄된
-    머리글 이어 읽기·비급여 묶음 제목 안내(``HEADER_NOTE``)를 서식 목록 뒤에 붙인다."""
-    profile, props, keys = PROFILES[doc_type], item["items"]["properties"], short_keys(item, doc_type)
+    머리글 이어 읽기·비급여 묶음 제목 안내(``HEADER_NOTE``)를 서식 목록 뒤에 붙인다. ``plan``이 있으면 열과 열 설명·표 설명은 rowmajor와 같은
+    그 배치의 것(인쇄된 열만, 인쇄 순서, '이 문서에서는 … 열이다' 안내와 열 배치 안내 포함)."""
+    profile, props, keys = PROFILES[doc_type], item["items"]["properties"], short_keys(item, doc_type, plan)
     name, sample = profile["name"], profile["sample"]
-    columns = "\n".join(f'  "{key}" = {column}: {props[column]["description"].removesuffix(profile["hint"]).strip()}' for key, column in keys.items())
+    texts = plan[1] if plan else {column: prop["description"] for column, prop in props.items()}
+    columns = "\n".join(f'  "{key}" = {column}: ' + (re.sub(" +", " ", texts[column].replace(profile["hint"], "")) if plan
+                                                      else texts[column].removesuffix(profile["hint"])).strip() for key, column in keys.items())
     example = ", ".join(f'"{key}": "{sample.get(column, "")}"' for key, column in (({"n": name} if name else {}) | keys).items())
     statutory = (f"항목 naming rule: {props['항목']['description']}\n"
                  "Reading aid: printed names on this statutory form usually come from this list: " + ", ".join(rules.ITEM_ORDER) + ". Use it to read blurred or partial names; "
@@ -150,19 +155,22 @@ def prompt(item, note, header_note=False, doc_type=RECEIPT):
             "Every row object must contain ALL keys: " + ("\"n\" and every amount key (" if name else "every key (") + ", ".join(keys) + ") in this order. "
             "Write an empty string \"\" for a blank or '-' cell, \"0\" only if a 0 is printed; never skip a key and never write null. Never compute.\n"
             f"Example reply: {{\"rows\": [{{{example}}}]}}\n" + statutory
-            + f"Rules (same as the schema): {item['description']}\n" + profile["closing"])
+            + f"Rules (same as the schema): {plan[0] if plan else item['description']}\n" + profile["closing"])
 
 
-def expand(rows, item, doc_type=RECEIPT):
-    """짧은 키 행 → 스키마 열 행: 빈칸·빠진 열은 열 종류가 ``zero``면 "0"(영수증 금액 열: 빈칸=0 규칙), 아니면 None(세부내역서: 인쇄된 값만).
+def expand(rows, item, doc_type=RECEIPT, plan=None):
+    """짧은 키 행 → 스키마 열 행(스키마 순서): 묻은 열의 빈칸·빠진 키는 열 종류가 ``zero``면 "0"(영수증 금액 열: 빈칸=0 규칙), 아니면
+    None(세부내역서: 인쇄된 값만). ``plan``에 없어 묻지 않은 열은 그 배치의 채움 값(rowmajor ``_read_rows``와 같다), 스키마 밖 배치 열은 버린다.
     (행 목록, 모르는 키 수, 키가 빠진 행 수)."""
-    profile, keys, unknown, missing, result = PROFILES[doc_type], short_keys(item, doc_type), 0, 0, []
-    blank = {column: "0" if doctypes.kind(doc_type, column, rules.ITEM_TABLE) in profile["zero"] else None for column in keys.values()}
+    profile, keys, unknown, missing, result = PROFILES[doc_type], short_keys(item, doc_type, plan), 0, 0, []
+    asked = set(keys.values())
+    blank = {column: ("0" if doctypes.kind(doc_type, column, rules.ITEM_TABLE) in profile["zero"] else None) if column in asked else plan[2]
+             for column in item["items"]["properties"] if column != profile["name"]}
     for row in (row for row in rows if isinstance(row, dict)):
         missing += not set(keys) <= set(row)
         expanded = {**({profile["name"]: row.get("n")} if profile["name"] else {}), **blank}
         for key, value in row.items():
-            if key in keys and str(value if value is not None else "").strip():
+            if key in keys and keys[key] in blank and str(value if value is not None else "").strip():
                 expanded[keys[key]] = str(value).strip()
             unknown += key not in keys and key != "n"
         result.append(expanded)

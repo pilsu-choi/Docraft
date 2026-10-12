@@ -558,3 +558,51 @@ def test_detail_prelocate_sends_the_statement_locate_prompt(replay, monkeypatch)
     assert calls.count("locate") == 1 and stats["band_prelocate"] == "used" and "summary" not in calls
     assert "세부산정내역서" in next(call.text for call in replay.calls if call.kind == "locate")
     assert [row["총액"] for row in result[0]["항목내역"]] == ["1,000"]
+
+
+# --- 세부내역서 띠 읽기는 rowmajor 열 배치(table_layout.plan)를 쓴다 ----------------------------------
+
+DPROPS = DETAIL["items"]["properties"]
+PLAN = (DETAIL["description"] + " 열 배치 안내.", {"항목": DPROPS["항목"]["description"], "EDI코드": DPROPS["EDI코드"]["description"] + " 이 문서에서는 '코드' 열이다.",
+                                              "EDI명칭": DPROPS["EDI명칭"]["description"], "단가": DPROPS["단가"]["description"], "횟수": DPROPS["횟수"]["description"],
+                                              "일수": DPROPS["일수"]["description"], "총액": DPROPS["총액"]["description"],
+                                              "본인부담": DPROPS["본인부담"]["description"], "기타": "알 수 없는 열."}, None)
+
+
+def test_detail_prompt_asks_only_the_planned_columns_in_printed_order():
+    keys = band.short_keys(DETAIL, "세부내역서", PLAN)
+    assert list(keys.values()) == list(PLAN[1])  # 인쇄 순서, 스키마 밖 열도 물어 자리를 지킨다
+    text = band.prompt(DETAIL, engine.BAND_NOTE[0], False, "세부내역서", PLAN)
+    assert '"b" = EDI코드: EDI 코드.' in text and "이 문서에서는 '코드' 열이다." in text and doctypes.DETAIL_HINT not in text.split("Short keys")[1].split("Every row")[0]
+    assert "급여구분" not in text.split("Short keys")[1].split("Every row")[0] and "every key (a, b, c, d, e, f, g, h, i) in this order" in text
+    assert "Rules (same as the schema): " + PLAN[0] in text
+    assert band.prompt(DETAIL, engine.BAND_NOTE[0], False, "세부내역서") != text  # 배치가 없으면 스키마 전체 열
+
+
+def test_detail_expand_puts_planned_values_under_schema_columns_and_fills_the_rest():
+    keys = {column: key for key, column in band.short_keys(DETAIL, "세부내역서", PLAN).items()}
+    reply = [{keys["항목"]: "검사료", keys["단가"]: "15,180", keys["횟수"]: "1", keys["일수"]: "1", keys["총액"]: "15,180", keys["본인부담"]: "", keys["기타"]: "x"}]
+    rows, unknown, missing = band.expand(reply, DETAIL, "세부내역서", PLAN)
+    assert (unknown, missing) == (0, 1) and list(rows[0]) == list(DPROPS)  # 스키마 열·순서, 스키마 밖 '기타'는 버린다
+    assert (rows[0]["단가"], rows[0]["횟수"], rows[0]["일수"], rows[0]["총액"]) == ("15,180", "1", "1", "15,180")
+    assert rows[0]["본인부담"] is None and rows[0]["급여구분"] is None and rows[0]["시작일자"] is None
+    filled = (PLAN[0], PLAN[1], "0")
+    assert band.expand(reply, DETAIL, "세부내역서", filled)[0][0]["급여구분"] == "0"  # 묻지 않은 열은 배치의 채움 값(rowmajor와 같다)
+
+
+def test_band_strips_read_with_the_rowmajor_plan_only_for_profiles_that_use_it(state, monkeypatch):
+    monkeypatch.setenv("BAND_DOC_TYPES", "진료비영수증,세부내역서")
+    monkeypatch.setattr(engine, "_table_plan", lambda doc_type, *args: PLAN if doc_type == "세부내역서" else ("영수증 배치", {"본인부담금": "x"}, "0"))
+    keys = {column: key for key, column in band.short_keys(DETAIL, "세부내역서", PLAN).items()}
+    state.locate = DGRID
+    state.bands = [[{keys["항목"]: "검사료", keys["단가"]: "15,180", keys["총액"]: "15,180"}], [], []]
+    result, _ = engine.extract(verify._restrict(doctypes.schema("세부내역서"), {"항목내역"}), state.blocks, state.image, table_extract="band")
+    texts = [call.text for call in state.calls if call.kind == "band"]
+    assert all(text == band.prompt(DETAIL, engine.BAND_NOTE[i > 0], True, "세부내역서", PLAN) for i, text in enumerate(texts))
+    assert result["항목내역"][0]["단가"] == "15,180" and result["항목내역"][0]["급여구분"] is None
+
+    state.calls.clear()
+    state.locate, state.bands = GRID, [[], [], []]
+    engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")  # 영수증은 배치가 있어도 쓰지 않는다(프롬프트 그대로)
+    texts = [call.text for call in state.calls if call.kind == "band"]
+    assert texts and all(text == band.prompt(ITEM, engine.BAND_NOTE[i > 0], True) for i, text in enumerate(texts))

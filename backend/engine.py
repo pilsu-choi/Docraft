@@ -766,17 +766,18 @@ def _located_bands(found, page, turn, lines, doc_type, columns):
              "clips": [_clip(box, [1, 1]) for box in strips]} for strips in bandkit.clips(found, count, overlap)]
 
 
-def _read_keyed(spec, images, strip, doc_type=bandkit.RECEIPT, cap=KEYED_CAP, deadline=None, cancel=None, on_call=None):
+def _read_keyed(spec, images, strip, doc_type=bandkit.RECEIPT, cap=KEYED_CAP, plan=None, deadline=None, cancel=None, on_call=None):
     """One strip of a located `doc_type` table as keyed rows (`bandkit.prompt`): short keys per column, all present in every
-    row, expanded back to the schema's columns; the reply capped at `cap` tokens. Raises RuntimeError when the reply has no row list."""
+    row, expanded back to the schema's columns; the reply capped at `cap` tokens. `plan` (`_table_plan`, profiles with `plan`)
+    asks only its printed columns in printed order, as rowmajor does. Raises RuntimeError when the reply has no row list."""
     _begin_call(cancel, on_call)
     compact = COMPACT_NOTE if ai_settings()["compact_reply"] else ""
     reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE + compact},
-                       _user(bandkit.prompt(spec, strip, ai_settings()["band_header_note"], doc_type), images)],
+                       _user(bandkit.prompt(spec, strip, ai_settings()["band_header_note"], doc_type, plan), images)],
                       timeout_cap=remaining(deadline), max_tokens=cap)
     if not isinstance(reply, dict) or not isinstance(reply.get("rows"), list):
         raise RuntimeError("band 응답에 행 목록이 없습니다.")
-    rows, unknown, missing = bandkit.expand(reply["rows"], spec, doc_type)
+    rows, unknown, missing = bandkit.expand(reply["rows"], spec, doc_type, plan)
     note("band_unknown_keys", unknown)
     note("band_missing_keys", missing)
     return rows
@@ -919,8 +920,9 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group), group[0].get("clips"))):
             try:
                 if group[0].get("keyed"):
-                    return _read_keyed(properties[table], group_images, BAND_NOTE[len(group_images) > 1], group[0]["keyed"], group[0]["cap"],
-                                       deadline, cancel, on_call)
+                    keyed = group[0]["keyed"]
+                    return _read_keyed(properties[table], group_images, BAND_NOTE[len(group_images) > 1], keyed, group[0]["cap"],
+                                       plans[table] if bandkit.PROFILES[keyed]["plan"] else None, deadline, cancel, on_call)
                 return _read_rows(table, properties[table], plans[table], _chunk_text(group, budget), group_images,
                                   PAGES_NOTE.format(pages=pages, span=_page_range(blocks))
                                   + (BAND_NOTE[len(group_images) > 1] if "clips" in group[0] else ""), deadline, cancel, on_call)
