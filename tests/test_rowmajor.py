@@ -895,6 +895,27 @@ def test_a_printed_column_outside_the_schema_keeps_its_place_in_the_plan(extras,
                                                                    "본인부담", "공단부담", "전액본인부담", "비급여"]
 
 
+@pytest.mark.parametrize("dropped", [("실시일자",), ("비급여",), ("실시일자", "비급여")])
+def test_an_outside_column_keeps_its_place_when_the_form_has_no_date_or_uncovered_column(dropped):
+    # 일자·비급여 열이 원래 없는 서식: 인쇄된 열은 다 읽었으니 보훈감면액은 자리 열이고 그 x도 머리글 위치에 있다
+    words = sorted([item for item in FULL if item[0] not in dropped] + [("보훈감면액", 1040)], key=lambda item: item[1])
+    blocks = header(*[(word, x, 0) for word, x in words])
+    _, columns, _ = table_layout.plan("세부내역서", "항목내역", blocks, "표.", {key: key + " 설명" for key in DETAIL})
+    keys, unknown = list(columns), f"{table_layout.VALUE['unknown']['key']}1"
+    assert keys[keys.index("본인부담") + 1] == unknown and keys[keys.index(unknown) + 1] == "공단부담"
+    at = table_layout.header_positions(blocks, list(DETAIL))[0]
+    assert at["본인부담"] < at[unknown] < at["공단부담"]
+
+
+def test_an_unread_header_word_is_no_outside_column_while_a_printed_column_was_placed_only_by_its_values():
+    # '일자'를 '을지'로 오독하고 본문 날짜로만 일자 열을 넣은 표: 머리글의 다른 낱말도 오독일 수 있어 자리 열을 두지 않는다
+    rows = [(text, x, 40 + 30 * r) for r in range(4) for text, x in (("진찰료", -10), ("20191225", 60), ("AA157", 200))]
+    blocks = header(("항목", 0, 0), ("을지", 100, 0), ("코드", 200, 0), ("명칭", 300, 0), ("단가", 400, 0), ("횟수", 500, 0), ("총액", 600, 0),
+                    ("보훈감면액", 700, 0), *rows)
+    assert "시작일자" in printed(blocks, DETAIL)
+    assert not [key for key in printed(blocks, DETAIL) if key.startswith(table_layout.VALUE["unknown"]["key"])]
+
+
 def test_a_split_header_word_outside_the_schema_is_one_column():
     blocks = header(*[(word, x, 0) for word, x in FULL], ("보훈", 1050, -18), ("감면액", 1040, 0))
     _, columns, _ = table_layout.plan("세부내역서", "항목내역", blocks, "표.", {key: key + " 설명" for key in DETAIL})

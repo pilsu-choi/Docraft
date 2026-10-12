@@ -342,10 +342,11 @@ def _header(blocks, union, min_columns=4):
                 flags.append(("column_unplaced", key))
     # 스키마 밖 인쇄 열: 머리글 줄들에서 어느 열 낱말도 아니고 읽은 머리글 자리(reach)에도 없는 글자 칸('보훈감면액')은 그 x 자리에 읽고 버리는
     # 열(VALUE.unknown 키)로 둔다 — 빼면 자리로 읽는 모델이 그 오른쪽 값을 한 칸씩 당겨 적는다. 위아래로 쪼개 찍힌 글자는 한 칸으로 잇는다.
-    # 열 낱말과 가까운 글자(오독)는 위 근거(evidence)의 몫이라 두지 않고, 필수 열을 머리글에서 다 읽었을 때만 둔다 — 못 읽은 필수 열이 있으면
-    # 읽지 못한 글자는 그 열의 오독일 수 있다('을지' = 일자).
+    # 열 낱말과 가까운 글자(오독)는 위 근거(evidence)의 몫이라 두지 않고, 인쇄된 필수 열(columns: 머리글로 읽었거나 본문 근거로 넣은 열)을
+    # 머리글에서 다 읽었을 때만 둔다 — 본문 근거로만 넣은 열이 있으면 읽지 못한 글자는 그 열의 오독일 수 있다('을지' = 일자). 서식에 없는
+    # 필수 열(일자·비급여 없는 서식)은 막지 않는다.
     roof = min(t["y"] for t in picked) - height * 0.6
-    sure = not flags and all(key in read for key in union if key not in OPTIONAL)
+    sure = not flags and all(key in read for key in columns if key not in OPTIONAL)
     loose = sorted((t for t in unread if sure and roof - height <= t["y"] <= bottom and all(abs(t["x"] - x) > reach for x in at.values())),
                    key=lambda t: t["x"])  # 한 줄 위 글자는 머리글 줄 글자에 쌓일 때만(아래 조각과 한 칸)
     groups, extras = [], {}
