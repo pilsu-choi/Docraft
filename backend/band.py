@@ -32,9 +32,6 @@ DETAIL_CLOSING = ("Every row in the strip is whole: the strip is cut in the blan
                   "first and last rows touching the top or bottom edge. Include the printed 소계·계·합계·끝수처리 조정금액 rows where they are printed, their "
                   "label in the 항목 key. Never return header rows. Copy the printed digits only, never compute or infer a value. "
                   "A blank cell is null (per the schema): write it as \"\".")
-GUIDE_NOTE = ("Thin gray vertical lines drawn on the images mark the column boundaries, and the small red letter above each column header "
-              "is that column's short key. Put each value under the key of the column it is printed in; write \"\" for a blank cell and "
-              "never move the next column's value into it.\n")
 SUMMARY_PROMPT = ("This image is the 금액산정내용 (payment calculation) block of a Korean medical receipt. Extract these fields only:\nSchema:\n{schema}\n"
                   "Copy the printed digits only, never compute; use null for a field whose label or value is not printed.")
 
@@ -125,12 +122,11 @@ def short_keys(item, doc_type=RECEIPT, plan=None):
     return {chr(97 + i): key for i, key in enumerate(key for key in (plan[1] if plan else item["items"]["properties"]) if key != name)}
 
 
-def prompt(item, note, header_note=False, doc_type=RECEIPT, plan=None, guides=False):
+def prompt(item, note, header_note=False, doc_type=RECEIPT, plan=None):
     """띠 읽기 프롬프트: 모든 행에 (행 이름 열이 있는 유형은 이름 n과) 모든 짧은 키 열을 스키마 순서로 쓰게 한다. ``note``는 이미지 구성 안내.
     법정 서식(``statutory``, 진료비영수증)만 항목명 규칙·항목 목록·열 배치 5종을 붙이고, ``header_note``(``BAND_HEADER_NOTE``)면 쪼개 인쇄된
     머리글 이어 읽기·비급여 묶음 제목 안내(``HEADER_NOTE``)를 서식 목록 뒤에 붙인다. ``plan``이 있으면 열과 열 설명·표 설명은 rowmajor와 같은
-    그 배치의 것(인쇄된 열만, 인쇄 순서, '이 문서에서는 … 열이다' 안내와 열 배치 안내 포함). ``guides``(``BAND_COLUMN_GUIDES``로 이미지에 열 경계선·
-    키 글자를 그렸다)면 그 안내(``GUIDE_NOTE``)를 예시 뒤에 붙인다."""
+    그 배치의 것(인쇄된 열만, 인쇄 순서, '이 문서에서는 … 열이다' 안내와 열 배치 안내 포함)."""
     profile, props, keys = PROFILES[doc_type], item["items"]["properties"], short_keys(item, doc_type, plan)
     name, sample = profile["name"], profile["sample"]
     texts = plan[1] if plan else {column: prop["description"] for column, prop in props.items()}
@@ -146,7 +142,7 @@ def prompt(item, note, header_note=False, doc_type=RECEIPT, plan=None, guides=Fa
             "Short keys for the " + ("amount " if name else "") + "columns:\n" + columns + "\n"
             "Every row object must contain ALL keys: " + ("\"n\" and every amount key (" if name else "every key (") + ", ".join(keys) + ") in this order. "
             "Write an empty string \"\" for a blank or '-' cell, \"0\" only if a 0 is printed; never skip a key and never write null. Never compute.\n"
-            f"Example reply: {{\"rows\": [{{{example}}}]}}\n" + (GUIDE_NOTE if guides else "") + statutory
+            f"Example reply: {{\"rows\": [{{{example}}}]}}\n" + statutory
             + f"Rules (same as the schema): {plan[0] if plan else item['description']}\n" + profile["closing"])
 
 
