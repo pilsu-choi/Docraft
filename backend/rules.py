@@ -1476,6 +1476,41 @@ def _swaps(rows, blocks=()):
     return result
 
 
+def _printed_moves(rows, blocks):
+    """영수증 항목 표에서 모델이 적은 열과 OCR상 인쇄된 칸의 머리글 열(``_printed_under``)이 다른 금액을 인쇄된 열로 옮긴 새 행 목록.
+
+    값은 바꾸지 않고 자리만 옮긴다. 근거가 확실한 값만 옮긴다 — 그 금액이 OCR에서 한 열 머리글 아래에만 찍혔고, 모델 표에서도 한
+    열에만 있다. 한 행의 옮김은 옮길 열이 비었거나 0이거나 그 열 값도 함께 옮겨 갈 때만(열이 한 칸씩 밀린 사슬·맞바꿈 포함) 하며,
+    옮긴 값이 비운 칸에는 사슬 끝 열의 원래 값(빈칸·0)을 놓는다. 합계 행이 있으면 옮긴 뒤 합계 행과 맞는 열이 늘거나 모든 열이 맞을
+    때만 옮긴다(기운 사진에서 아래 행 금액이 이웃 열 머리글 아래로 비껴 찍히는 등 한 칸 근거가 틀려도 표의 셈이 막는다). 머리글을 못
+    읽으면 그대로 둔다."""
+    under = _printed_under(blocks, "진료비영수증") if blocks else {}
+    read = [{column: value for column in ITEM_COLUMNS if (value := _money(row.get(column)))} for row in rows]
+    columns = {}
+    for cells in read:
+        for column, value in cells.items():
+            columns.setdefault(value, set()).add(column)
+    result = [dict(row) for row in rows]
+    for row, original, cells in zip(result, rows, read):
+        target = {column: to for column, value in cells.items() if len(heads := under.get(value, set())) == 1
+                  and len(columns[value]) == 1 and (to := next(iter(heads))) != column}
+        if len(set(target.values())) == len(target) and all(to in target or to not in cells for to in target.values()):
+            row.update({to: original[column] for column, to in target.items()})
+            for column in set(target) - set(target.values()):  # 사슬 머리: 끝 열의 원래 값(빈칸·0)을 놓는다
+                end = target[column]
+                while end in target:
+                    end = target[end]
+                row[column] = original.get(end)
+    before, after = _fitting(rows), _fitting(result)
+    return result if after is None or after > before or after == len(ITEM_COLUMNS) else rows
+
+
+def _fitting(rows):
+    """합계 행 금액이 항목 행 합과 맞는 열 수. 합계 행이 없거나 포괄수가 표(열 합이 원래 어긋남)면 None."""
+    stated, added, lump = _column_sums(rows)
+    return sum(_near(stated[column], added[column]) for column in ITEM_COLUMNS) if stated and not lump else None
+
+
 def _swap(rows, pairs, totals=False):
     """열 쌍 값을 맞바꾼 새 행 목록. 쌍 ``(a, b)``는 항목 행만(``totals``면 합계 행까지), ``(a, b, True)``는 합계 행만 바꾼다."""
     rows = [dict(row) for row in rows]
@@ -1492,7 +1527,7 @@ def _is_edi(value):
 
 def _printed_under(blocks, doc_type="세부내역서"):
     """OCR 표 줄의 금액 → 그 금액이 찍힌 칸의 머리글 열들. 세부내역서는 x가 가장 가까운 읽은 머리글(``table_layout.header_positions``),
-    진료비영수증은 그 칸 위에 쌓인 머리글 글자(``_receipt_head``). 머리글을 못 읽으면 빈 dict."""
+    진료비영수증은 그 칸 바로 위 머리글 줄의 열 이름(``_receipt_head``). 머리글을 못 읽으면 빈 dict."""
     lines = table_layout._lines(blocks)
     if doc_type == "진료비영수증":
         heads = [line for line in lines if re.search(r"[가-힣]", line["text"])]
@@ -1513,18 +1548,29 @@ def _printed_under(blocks, doc_type="세부내역서"):
 
 
 def _receipt_head(heads, left, right, y):
-    """영수증 금액 칸(가로 ``left``~``right``, 세로 가운데 ``y``) 위에 겹쳐 찍힌 글자 줄을 아래부터 위아래로 붙은 무리로 묶어, 열 이름
-    (``_receipt_column``)이 되는 첫 무리의 열. 쪼개 인쇄된 머리글('선택진료료'/'이외')은 한 무리라 이어 읽는다. 없으면 None."""
-    above = sorted((line for line in heads if line["bbox"][3] < y and min(line["bbox"][2], right) > max(line["bbox"][0], left)),
-                   key=lambda line: -line["bbox"][3])
-    group = []
-    for line in above + [None]:
-        if group and (line is None or group[-1]["bbox"][1] - line["bbox"][3] > 1.5 * (line["bbox"][3] - line["bbox"][1])):
-            if name := _receipt_column([part["text"] for part in reversed(group)]):
-                return name
-            group = []
-        group += [line] if line else []
+    """영수증 금액 칸(가로 ``left``~``right``, 세로 가운데 ``y``) 바로 위 머리글 줄(가로로 겹치는 가장 아래 글자 줄)의 열 이름(``_head_name``).
+    그 줄이 열 이름이 아니어도(못 읽은 머리글) 더 위 묶음 제목('일부 본인부담'·'급여')으로 건너뛰지 않는다 — 묶음 제목은 여러 열에 걸친다.
+    값 가운데가 머리글 폭 밖이면(옆 칸 항목명이 걸침) 또는 같은 머리글 줄 높이의 다른 줄도 같은 이름으로 읽히면(쪼개진 머리글 한 조각만
+    읽음·오독) 어느 자리가 그 열인지 모르므로 None."""
+    low = max((line for line in heads if line["bbox"][3] < y and min(line["bbox"][2], right) > max(line["bbox"][0], left)),
+              key=lambda line: line["bbox"][3], default=None)
+    name, parts = _head_name(heads, low) if low else (None, [])
+    if (name and min(line["bbox"][0] for line in parts) <= (left + right) / 2 <= max(line["bbox"][2] for line in parts)
+            and not any(line is not low and line["bbox"][1] < low["bbox"][3] and low["bbox"][1] < line["bbox"][3]
+                        and _head_name(heads, line)[0] == name for line in heads)):
+        return name
     return None
+
+
+def _head_name(heads, low):
+    """머리글 줄 ``low``의 열 이름(``_receipt_column``). 바로 위에 붙고 가운데가 서로의 폭 안에 드는 줄은 쪼개 인쇄된 머리글
+    ('선택진료료'/'이외'·'전액'/'본인부담')로 보고 이어 읽어, 윗줄만 읽은 이름과 다르면 그 이름을 쓴다. 여러 열에 걸친 묶음 제목은
+    가운데가 어긋나거나 이어 읽어도 이름이 그대로라 잇지 않는다."""
+    (x0, y0, x1, y1), centre = low["bbox"], lambda line: (line["bbox"][0] + line["bbox"][2]) / 2
+    up = next((line for line in heads if line["bbox"][1] < y0 and -(y1 - y0) / 2 <= y0 - line["bbox"][3] <= 1.5 * (y1 - y0) and x0 <= centre(line) <= x1
+               and line["bbox"][0] <= centre(low) <= line["bbox"][2]), None)
+    joined = up and _receipt_column([up["text"], low["text"]])
+    return (joined, [up, low]) if joined and joined != _receipt_column([up["text"]]) else (_receipt_column([low["text"]]), [low])
 
 
 def _detail_swaps(rows, blocks):
@@ -2063,7 +2109,8 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
         out[ITEM_TABLE] = _swap(out[ITEM_TABLE], sure, totals=True)
         latency.note("column_swaps", {"swapped": [list(pair) for pair in sure], "flagged": [list(pair) for pair in unsure]}, add=False)
     _header_columns(doc_type, out, blocks or [])
-    if doc_type == "진료비영수증":  # 통째로 맞바뀐 이웃 금액 열을 되돌린다(항목 행·합계 행 중 인쇄 머리글이 가리키지 않는 쪽)
+    if doc_type == "진료비영수증":  # 금액을 인쇄된 머리글 열로 옮긴 뒤, 남은 통째로 맞바뀐 이웃 금액 열을 되돌린다
+        out[ITEM_TABLE] = _printed_moves(out[ITEM_TABLE], blocks or [])
         out[ITEM_TABLE] = _swap(out[ITEM_TABLE], _swaps(out[ITEM_TABLE], blocks or []))
     if doc_type == "세부내역서":  # 내원일마다 한 번 찍힌 무리 날짜 줄을 그 무리 행의 시작일자로(날짜 열이 없는 서식, 날짜 하나라 종료일자는 비운다)
         for index, day in list(_group_dates(out[ITEM_TABLE], blocks or [])):

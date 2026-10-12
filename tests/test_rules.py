@@ -1168,17 +1168,25 @@ def test_a_total_row_read_into_the_neighbour_column_is_the_one_turned_back():
 
 
 def test_conflicting_printed_headers_leave_the_swap_to_the_item_rows():
-    blocks = printed(("선택진료료", 590, 100), ("이외", 610, 121), ("비급여", 790, 121),  # 두 값이 다른 열 머리글 아래
-                     values=(("20000", 600, 200), ("15000", 800, 240), ("35000", 600, 400)))
+    blocks = printed(("선택진료료", 590, 100), ("이외", 610, 121), ("비급여", 800, 121),  # 두 값이 다른 열 머리글 아래
+                     values=(("20000", 600, 200), ("15000", 790, 240), ("35000", 600, 400)))
     out = rules.apply("진료비영수증", {"항목내역": BAND_TOTAL}, blocks)["항목내역"]
     assert [row["비급여"] for row in out] == ["20000", "15000", "35000"]  # 항목 행을 바꾼다(기존 동작)
 
 
-def test_receipt_head_reads_a_header_split_over_lines_and_skips_text_that_names_no_column():
-    heads = printed(("영수증번호", 560, 40), ("선택진료료", 590, 100), ("이외", 610, 121), ("메모", 600, 300))[0]["lines"]
-    assert rules._receipt_head(heads, 600, 650, 400) == "선택진료료외"  # '메모'는 열 이름이 아니라 그 위 무리를 본다
+def test_receipt_head_reads_a_header_split_over_lines_and_never_climbs_past_an_unread_header():
+    heads = printed(("영수증번호", 560, 40), ("선택진료료", 590, 100), ("이외", 605, 121))[0]["lines"]
+    assert rules._receipt_head(heads, 600, 650, 400) == "선택진료료외"  # 쪼개 인쇄된 머리글을 이어 읽는다
     assert rules._receipt_head(heads, 600, 650, 110) is None  # 값 위에 머리글이 없다
     assert rules._receipt_head(heads, 900, 950, 400) is None  # 가로로 겹치는 머리글이 없다
+    assert rules._receipt_head(heads, 680, 760, 400) is None  # 겹치지만 값 가운데가 머리글 폭 밖(옆 칸 글자가 걸침)
+    memo = printed(("선택진료료", 590, 100), ("이외", 605, 121), ("메모", 600, 300))[0]["lines"]
+    assert rules._receipt_head(memo, 600, 650, 400) is None  # 바로 위 줄이 열 이름이 아니면 그 위로 건너뛰지 않는다
+    parent = printed(("일부본인부담", 150, 100), ("본인부담금", 100, 121), ("공난부담금", 200, 121))[0]["lines"]
+    assert rules._receipt_head(parent, 100, 160, 400) == "본인부담금"
+    assert rules._receipt_head(parent, 200, 260, 400) is None  # 못 읽은 칸 머리글: 여러 열에 걸친 묶음 제목('본인부담')을 받지 않는다
+    twice = printed(("선택진료료", 400, 121), ("선택진료료이와", 500, 121))[0]["lines"]
+    assert rules._receipt_head(twice, 500, 560, 400) is None  # 같은 머리글 줄 높이에 같은 열 이름이 둘: 어느 자리인지 모른다
 
 
 def test_an_ambiguous_column_swap_is_left_alone():
@@ -1933,3 +1941,60 @@ def test_receipt_total_printed_onto_the_row_above_moves_to_the_total_row(above, 
 def test_receipt_insurer_total_copies_a_printed_zero_and_ignores_subtotal_rows():
     rows = receipt(("진찰료", {"공단부담금": "500"}), ("소계", {"공단부담금": "9"}), ("합계", {"공단부담금": "0"}))
     assert rules.apply("진료비영수증", {"항목내역": rows, "공단부담총액": "500"}, [])["공단부담총액"] == "0"
+
+
+# 칸 단위 열 옮김(``_printed_moves``): 머리글 줄 y=121(쪼개진 머리글 윗조각 y=100), 금액 줄 높이 20·글자당 폭 10.
+RECEIPT_HEADS = (("본인부담금", 100, 121), ("공단부담금", 200, 121), ("전액", 300, 100), ("본인부담", 300, 121),
+                 ("선택진료료", 400, 121), ("선택진료료", 500, 100), ("이외", 515, 121))
+X = {"본인부담금": 100, "공단부담금": 200, "전액본인부담": 300, "선택진료료": 400, "선택진료료외": 500}
+
+
+def at(*values):
+    """(금액, 인쇄된 열, 위 y) → 그 열 머리글 아래 금액 줄을 둔 영수증 OCR 블록."""
+    return printed(*RECEIPT_HEADS, values=[(value, X[column], y) for value, column, y in values])
+
+
+@pytest.mark.parametrize("rows, blocks, column, expected", [
+    # ① '선택진료료 이외' 칸 금액을 선택진료료 열에 적음(항목 행·합계 행 함께, 합계 셈은 그대로 맞다)
+    (receipt(("진찰료", {"본인부담금": "1000"}), ("검사료", {"선택진료료": "535000"}), ("합계", {"본인부담금": "1000", "선택진료료": "535000"})),
+     at(("1000", "본인부담금", 200), ("535000", "선택진료료외", 240), ("535000", "선택진료료외", 400)),
+     "선택진료료외", ["0", "535000", "535000"]),
+    # ② 빈 본인부담금 열로 공단부담금 금액을 당겨 적음(합계 행 없음: 머리글 근거만)
+    (receipt(("진찰료", {"본인부담금": "87090"}), ("입원료", {"본인부담금": "711260"})),
+     at(("87090", "공단부담금", 200), ("711260", "공단부담금", 240)), "공단부담금", ["87090", "711260"]),
+    # ③ 선택진료료외 금액을 전액본인부담 열에 적음
+    (receipt(("초음파진단료", {"전액본인부담": "60000"})), at(("60000", "선택진료료외", 200)), "선택진료료외", ["60000"]),
+])
+def test_an_amount_is_moved_to_the_column_whose_header_it_is_printed_under(rows, blocks, column, expected):
+    out = rules.apply("진료비영수증", {"항목내역": rows}, blocks)["항목내역"]
+    assert [row[column] for row in out] == expected
+    assert sorted(rules._money(value) for row in out for value in row.values() if rules._money(value)) == \
+        sorted(rules._money(value) for row in rows for value in row.values() if rules._money(value))  # 값은 그대로, 자리만
+
+
+def test_a_row_shifted_by_one_column_moves_as_a_chain():
+    """본인부담금 칸에 공단부담금 값, 공단부담금 칸에 전액본인부담 값: 사슬로 함께 옮기고 머리 칸에는 끝 열의 원래 값(0)을 놓는다."""
+    rows = receipt(("진찰료", {"본인부담금": "87090", "공단부담금": "3000"}))
+    out = rules.apply("진료비영수증", {"항목내역": rows}, at(("87090", "공단부담금", 200), ("3000", "전액본인부담", 200)))["항목내역"]
+    assert [out[0][column] for column in ("본인부담금", "공단부담금", "전액본인부담")] == ["0", "87090", "3000"]
+
+
+@pytest.mark.parametrize("rows, blocks", [
+    # 머리글을 못 읽음(바로 위 줄이 '01외'): 그 위 '선택진료료'로 건너뛰지 않는다
+    (receipt(("검사료", {"선택진료료외": "50000"})),
+     printed(("선택진료료", 480, 100), ("01외", 400, 121), values=[("50000", 400, 200)])),
+    # 같은 숫자가 행에 둘(어느 칸 값인지 모른다)
+    (receipt(("검사료", {"본인부담금": "10000", "선택진료료": "10000"})), at(("10000", "선택진료료외", 200))),
+    # 옮길 칸에 다른 값이 있고 그 값은 옮기지 않는다
+    (receipt(("검사료", {"선택진료료": "50000", "선택진료료외": "7000"})), at(("50000", "선택진료료외", 200))),
+    # 한 금액이 OCR에서 두 열 아래 찍힘(모호)
+    (receipt(("검사료", {"선택진료료": "50000"}), ("주사료", {"공단부담금": "50000"})),
+     at(("50000", "선택진료료외", 200), ("50000", "공단부담금", 240))),
+    # 합계 행 금액이 이웃 열 머리글 아래로 비껴 찍힘(기운 사진): 옮기면 맞던 합계 셈이 깨진다
+    (receipt(("진찰료", {"공단부담금": "50000"}), ("검사료", {"공단부담금": "20355"}), ("합계", {"공단부담금": "70355"})),
+     at(("50000", "공단부담금", 200), ("20355", "공단부담금", 240), ("70355", "전액본인부담", 400))),
+    # OCR 없음
+    (receipt(("검사료", {"선택진료료": "50000"})), []),
+])
+def test_an_amount_without_a_certain_printed_column_stays_where_the_model_put_it(rows, blocks):
+    assert rules._printed_moves(rows, blocks) == rows
