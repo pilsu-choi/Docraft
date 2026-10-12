@@ -739,7 +739,7 @@ def _columns(doc_type, out):
     """
     for row in out.get(ITEM_TABLE) or []:
         if doc_type == "진료비영수증":
-            row["항목"] = item(row.get("항목"))
+            row["항목"] = printed_item(row.get("항목"))
             continue
         if doc_type != "세부내역서":
             return
@@ -1063,6 +1063,12 @@ def item(name) -> str | None:
     return name if name in RECEIPT_ITEM_NAMES or name is None or len(name) < 2 else _misread(name)
 
 
+def printed_item(name) -> str | None:
+    """출력용 항목명: 표준 이름과 기호·공백만 다르면 인쇄 원문 그대로(2026-10-12 원문 보존), 글자가 다르면(별칭·오독) 표준 이름."""
+    standard = item(name)
+    return str(name).strip() if standard and _plain(standard) == _plain(str(name)) else standard
+
+
 def _misread(name, near=None):
     """표준 항목명 가운데 name과 가까운 이름이 하나뿐이면 OCR 오독으로 보고 그 이름을, 아니면 name을 돌려준다.
 
@@ -1329,7 +1335,7 @@ def _item_names(doc):
     found = []
     for index, row in enumerate(doc.rows):
         name = item(row.get("항목"))
-        if name and name != re.sub(r"[^0-9A-Za-z가-힣_()-]", "", str(row.get("항목"))):
+        if name and _plain(name) != _plain(str(row.get("항목"))):
             found.append(_flag("item_name", f"AO 표 {index}행 항목명 '{row.get('항목')}'은 '{name}'로 적는다.",
                                row=index, name=name))
     return found
