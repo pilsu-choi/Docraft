@@ -1835,13 +1835,45 @@ def _row_lines(rows, blocks):
             yield index, *lines[hit][1:]
 
 
+HEAD_COLUMNS = ("항목", "시작일자", "종료일자", "EDI명칭")  # 묶음 머리 행에 인쇄되는 칸(제목·날짜·'(보험외래)' 같은 꼬리표)
+_DATE_TEXT = re.compile(r"(?:19|20)\d{2}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{1,2}")
+
+
+def _head_date(row):
+    """묶음 머리 행에 인쇄된 날짜: 시작일자 칸, 없으면 항목·명칭 글자 속 날짜('2022-02-25 (보험외래)')."""
+    return row.get("시작일자") or next((normalize("date", found[0]) for column in ("항목", "EDI명칭")
+                                       if (found := _DATE_TEXT.search(str(row.get(column) or "")))), None)
+
+
+def _group_head(row):
+    """세부내역서 묶음 머리 행: 집계 행이 아니고 코드·수량·금액·급여구분 칸이 모두 비었으며(``HEAD_COLUMNS`` 밖이 빈 행) 항목이나 날짜가
+    인쇄된 행 — 섹션 제목('01.진찰료')과 내원일 머리 줄('2022-02-25 (보험외래)')."""
+    return (not is_total(row) and all(_blank(value) for key, value in row.items() if key not in HEAD_COLUMNS)
+            and (not _blank(row.get("항목")) or _head_date(row) is not None))
+
+
+def _group_name(row):
+    """묶음 머리 행 항목 칸의 분류 이름. 날짜를 적은 칸(날짜는 시작일자로 잇는다)이나 빈 칸이면 None."""
+    return None if _blank(row.get("항목")) or _DATE_TEXT.search(str(row["항목"])) else row["항목"]
+
+
 def _group_dates(rows, blocks):
-    """표에 날짜 열이 없는(어느 행에도 시작일자가 없는) 세부내역서에서 행마다 바로 위 무리 날짜 줄의 날짜 ``(행 번호, 날짜)``."""
-    if any(row.get("시작일자") for row in rows):
+    """표에 날짜 열이 없는(묶음 머리 행 밖 어느 행에도 시작일자가 없는) 세부내역서에서 행마다 무리 날짜 ``(행 번호, 날짜)``. 날짜는 두 곳에서
+    읽는다. (가) 출력에 남은 묶음 머리 행(``_group_head``)에 인쇄된 날짜 — 다음 머리 행 전까지의 행. (나) 그런 행이 없으면 바로 위 OCR 무리
+    날짜 줄. 종료일자는 날짜 하나라 비운다(정답지 관례)."""
+    if any(row.get("시작일자") for row in rows if not _group_head(row)):
         return
-    for index, _, day in _row_lines(rows, blocks):
-        if day:
+    day, heads = None, False
+    for index, row in enumerate(rows):
+        if _group_head(row):
+            day = _head_date(row) or day  # 날짜 없는 섹션 제목은 날짜 무리를 끊지 않는다
+            heads |= _head_date(row) is not None
+        elif day and not is_total(row):
             yield index, day
+    if not heads:
+        for index, _, day in _row_lines(rows, blocks):
+            if day:
+                yield index, day
 
 
 def _section_items(rows, blocks=()):
@@ -1868,16 +1900,16 @@ def _section_items(rows, blocks=()):
 
 
 def drop_group_titles(rows):
-    """세부내역서 항목 행 중 묶음 제목 행(항목 칸만 인쇄되고 다른 칸은 모두 빈 행, 집계 행 제외)을 뺀 행 목록(2026-10-13 결정 A).
-    뒤이은 제목 행들 다음 첫 행이 항목이 인쇄된 데이터 행일 때만 뺀다 — 그 행들이 제 분류를 이미 인쇄했다(이름이 '진찰료'·'01.진찰료'처럼
-    달라도). 다음 행의 항목이 비었거나 집계 행이거나 표 끝이면 제목이 유일한 분류 근거라 남긴다(아래 행을 채우지 않는다). 행 목록만 보는
-    순수 함수라 저장된 결과에도 다시 적용할 수 있다: ``rules.drop_group_titles(rows)``."""
-    def title(row):
-        return not _blank(row.get("항목")) and not is_total(row) and all(_blank(value) for key, value in row.items() if key != "항목")
+    """세부내역서 항목 행 중 묶음 머리 행(``_group_head``: 섹션 제목·내원일 날짜 줄)을 뺀 행 목록(2026-10-13 결정 A).
+    분류 이름 없이 날짜만 적은 머리 행(날짜는 ``_group_dates``가 아래 행 시작일자로 잇는다)은 뺀다. 이름이 있는 제목 행은 뒤이은 머리 행들
+    다음 첫 행이 항목이 인쇄된 데이터 행일 때만 뺀다 — 그 행들이 제 분류를 이미 인쇄했다(이름이 '진찰료'·'01.진찰료'처럼 달라도). 다음 행의
+    항목이 비었거나 집계 행이거나 표 끝이면 제목이 유일한 분류 근거라 남긴다(아래 행을 채우지 않는다). 행 목록만 보는 순수 함수라 저장된
+    결과에도 다시 적용할 수 있다: ``rules.drop_group_titles(rows)``(저장 결과는 진료기간 날짜가 이미 채워졌을 수 있다)."""
     kept = []
     for index, row in enumerate(rows):
-        after = next((other for other in rows[index + 1:] if not title(other)), None)
-        if not (title(row) and after is not None and not is_total(after) and not _blank(after.get("항목"))):
+        after = next((other for other in rows[index + 1:] if not _group_head(other)), None)
+        named = after is None or is_total(after) or _blank(after.get("항목"))  # 아래 행에 분류가 인쇄되지 않았다
+        if not (_group_head(row) and (_group_name(row) is None or not named)):
             kept.append(row)
     return kept
 
@@ -2185,6 +2217,9 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     out = derive(doc_type, out)  # derive는 라벨 정리(verify_label.conform)도 쓰므로 마스터 교정은 그 뒤에 한다
     _master_names(out)
     if doc_type == "세부내역서":  # 무리마다 한 번만 인쇄된 값(섹션 제목·분류·날짜)을 항목 행마다 채운다
+        for row in out[ITEM_TABLE]:  # 머리 행 항목 칸의 날짜 글자는 시작일자로 이었다 — 분류 이름으로 잇지 않는다
+            if _group_head(row):
+                row["항목"] = _group_name(row)
         for index, title in list(_section_items(out[ITEM_TABLE], blocks or [])):
             out[ITEM_TABLE][index]["항목"] = title
         for column in ("항목", "시작일자", "종료일자"):

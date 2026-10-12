@@ -2030,7 +2030,7 @@ def test_a_group_title_is_kept_when_it_is_the_only_item_of_the_rows_below_or_has
     assert [row["항목"] for row in rules.drop_group_titles(stacked)] == ["01.진찰료"]  # 이어진 제목 행들 다음 데이터 행을 본다
 
 
-@pytest.mark.parametrize("cell", [{"총액": "0"}, {"EDI코드": "AA154"}, {"시작일자": "20240105"}, {"급여구분": "급여"}])
+@pytest.mark.parametrize("cell", [{"총액": "0"}, {"EDI코드": "AA154"}, {"투여량": "1"}, {"급여구분": "급여"}])
 def test_a_row_with_any_other_printed_cell_is_not_a_group_title(cell):
     rows = [_detail("진찰료", **cell), _data("01.진찰료", "AA154", "17,610")]
     assert len(rules.drop_group_titles(rows)) == 2
@@ -2095,3 +2095,33 @@ def test_group_title_rows_are_judged_before_the_printed_period_fills_every_row_d
     out = rules.apply("세부내역서", {"항목내역": rows, "환자정보(진료시작일)": "20200716"}, [])["항목내역"]
     assert [row["항목"] for row in out] == ["5.투약및조제료", "5.투약및조제료", "소계", "10.검사료"]
     assert all(row["시작일자"] == "20200716" for row in out if row["항목"] != "소계")
+
+
+# --- 묶음 머리 줄 날짜(2026-10-13 결정): 내원일 날짜 줄을 아래 행 시작일자로 ------------------------------
+
+
+def test_a_visit_date_head_line_dates_the_rows_below_it_and_is_dropped():
+    """날짜 열 없이 표 안 머리 줄('2022-02-25 (보험외래)')에만 날짜가 인쇄된 서식: 다음 머리 줄 전까지 행의 시작일자로 잇고(종료일자는 비움),
+    머리 줄 자체는 뺀다. 모델이 날짜를 항목·명칭·시작일자 칸 어디에 적었든 같다."""
+    rows = [{"항목": "2022-02-25", "EDI명칭": "(보험외래)"}, _data("진찰료", "AA154", "16,970"), _data("투약", "643505741", "242"),
+            {"시작일자": "2022.03.02", "EDI명칭": "(보험외래)"}, _data("진찰료", "AA254", "12,130"),
+            {"항목": "2022-03-07 (보험외래)"}, {"항목": "검사"}, _data(None, "E6660", "9,280"), {"항목": "합계", "총액": "38,622"}]
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
+    assert [(row["항목"], row["시작일자"], row["종료일자"]) for row in out] == [
+        ("진찰료", "20220225", None), ("투약", "20220225", None), ("진찰료", "20220302", None),
+        ("검사", None, None), ("검사", "20220307", None), ("합계", None, None)]
+    # 날짜 머리 줄 아래 섹션 제목('검사')은 날짜 무리를 끊지 않는다. 아래 행 항목이 비어 제목이 유일한 분류라 제목 행은 남고(결정 A),
+    # 항목이 빈 행에는 날짜 글자가 아니라 섹션 제목을 잇는다
+
+
+def test_printed_row_dates_are_never_overwritten_by_a_head_line_date():
+    rows = [{"항목": "2022-02-25"}, {**_data("진찰료", "AA154", "16,970"), "시작일자": "20220226"}, _data("투약", "J1", "242")]
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
+    assert [row["시작일자"] for row in out] == ["20220226", None]  # 행 날짜가 인쇄된 서식(날짜 열 있음)이면 머리 줄 날짜를 잇지 않는다
+    assert rules.drop_group_titles([{"항목": "2022-02-25"}, _data("진찰료", "AA154", "1")]) == [_data("진찰료", "AA154", "1")]
+
+
+def test_a_named_section_title_with_a_date_is_a_head_too():
+    rows = [{"항목": "진찰료", "시작일자": "20240105"}, _data("01.진찰료", "AA154", "17,610")]
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
+    assert [(row["항목"], row["시작일자"]) for row in out] == [("01.진찰료", "20240105")]
