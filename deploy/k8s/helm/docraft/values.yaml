@@ -66,7 +66,7 @@ backend:
   tableRefine: false
   # 표 첫 추출 방식(band | rowmajor | asis)과 rowmajor 세부내역서 asis 재추출 기준 — README 설정 표 참고.
   tableExtract: band
-  tableRecheckRatio: 0.6
+  tableRecheckRatio: 2  # 1보다 크면 표 다시 읽기 끔(기본). 켤 때 0.6
   # 기울어진 페이지(0.3~45도, 그 너머는 90도 회전 몫)를 모델에 보내는 이미지에서만 바로 세운다(OCR 좌표는 그대로).
   pageDeskew: true
   # tableExtract: band 일 때 위치부터 찾아 띠로 읽는 문서 유형(쉼표 목록). 나머지 유형은 rowmajor.
