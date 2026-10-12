@@ -144,7 +144,7 @@ def ai_settings() -> dict:
     # band 읽기 지연 줄이기. prelocate: OCR과 동시에 바로 선 쪽 이미지로 표 위치를 찾고 OCR이 쪽을 돌리지 않았으면 그 답을 쓴다(결과 동일).
     # speculate: 위치 응답을 기다리지 않고 금액산정 키를 뺀 나머지 필드를 먼저 읽고, 금액산정 상자가 없으면 버리고 지금처럼 다시 읽는다(결과 동일).
     # strips: 항목 표를 자르는 띠 수. compact_reply: 띠·금액산정·나머지 필드 응답을 한 줄 JSON·상한 토큰으로 줄인다(응답이 달라질 수 있어 기본 끔).
-    return {"band_prelocate": _flag("BAND_PRELOCATE", "true"), "band_speculate": _flag("BAND_SPECULATE", "true"),
+    return {"band_prelocate": _flag("BAND_PRELOCATE", "false"), "band_speculate": _flag("BAND_SPECULATE", "false"),
             "band_strips": max(1, limit("BAND_STRIPS", 3, 8)), "compact_reply": _flag("COMPACT_REPLY", "false"), "mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
             "integrity_review": integrity_review, "table_extract": table_extract, "band_doc_types": band_doc_types,
             "repetition_penalty": float(penalty) if penalty else None, "table_recheck_ratio": table_recheck_ratio, "print_register": print_register}

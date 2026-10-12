@@ -219,6 +219,7 @@ def test_band_keys_missing_or_unknown_are_counted_as_diagnostics(state):
 
 @pytest.mark.parametrize("locate", [{"item_grid": None}, "no json object", RuntimeError("HTTP 500")])
 def test_an_unusable_locate_reads_the_table_as_rowmajor(state, monkeypatch, locate):
+    monkeypatch.setenv("BAND_SPECULATE", "true")
     state.locate = locate
     with latency.track() as stats:
         result, _ = engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")
@@ -256,8 +257,8 @@ def test_band_needs_one_page_with_an_image(state):
 
 
 def run(state, monkeypatch, blocks=None, schema=None, **env):
-    """state를 처음 응답으로 되돌리고 환경변수를 바꿔 extract한 (결과, 근거, 호출 종류, 단계 값)."""
-    for name, value in env.items():
+    """state를 처음 응답으로 되돌리고 환경변수를 바꿔 extract한 (결과, 근거, 호출 종류, 단계 값). 지연 줄이기 두 갈래는 켠 채로 본다(기본은 끔)."""
+    for name, value in {"BAND_PRELOCATE": "true", "BAND_SPECULATE": "true", **env}.items():
         monkeypatch.setenv(name, value)
     state.calls.clear()
     state.bands = copy.deepcopy(state.first_bands)
@@ -338,6 +339,7 @@ def test_prelocate_starts_only_where_extract_would_locate(state, monkeypatch, tm
 
 
 def test_read_sends_the_locate_call_while_ocr_runs(replay, monkeypatch):
+    monkeypatch.setenv("BAND_PRELOCATE", "true")
     located = threading.Event()
     replay.calls = type("Calls", (list,), {"append": lambda self, call: (list.append(self, call), call.kind == "locate" and located.set())})()
 
