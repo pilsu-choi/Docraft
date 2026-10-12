@@ -61,11 +61,9 @@ def test_clips_cut_three_overlapping_bands_with_a_header_strip_that_leaves_out_t
     assert [s[0] for s in strips[1:]] == [[0.08, 0.29, 0.72, 0.34]] * 2  # 머리글 띠는 첫 데이터 행 위에서 끝난다
 
 
-def test_located_bands_are_cut_in_the_original_frame_of_a_turned_page():
-    upright = engine._clip([0.1, 0.2, 0.5, 0.4], [1, 1], 0)
-    turned = engine._clip([0.1, 0.2, 0.5, 0.4], [1, 1], 90)  # 반시계 90도로 세운 쪽: 위 x → 원본 아래
-    assert upright == [0.1, 0.2, 0.5, 0.4] and turned == pytest.approx([0.6, 0.1, 0.8, 0.5])
-    assert engine._clip([0, 0, 100, 50], [200, 100], 180) == [0.5, 0.5, 1.0, 1.0]
+def test_clip_is_the_share_of_the_turned_page():
+    assert engine._clip([0.1, 0.2, 0.5, 0.4], [1, 1]) == [0.1, 0.2, 0.5, 0.4]
+    assert engine._clip([0, 0, 100, 50], [200, 100]) == [0, 0, 0.5, 0.5]
 
 
 # --- 짧은 키 읽기 -------------------------------------------------------------------

@@ -74,18 +74,20 @@ def _dark(gray, window=31, contrast=20):
     return img < total / window ** 2 - contrast
 
 
-def _skew(dark, step=0.2):
+def _skew(dark, step=0.2, tilt=None):
     """Page tilt in degrees: the angle whose horizontal projection is sharpest.
 
     Rules and text lines pile onto a few rows only when the page is straight. A photographed or photocopied
     page is often tilted by a degree or more, which moves a rule a hundred pixels across a full-page table —
-    far beyond any fixed `SLACK`, so every cell edge then reads as missing and the whole row merges into one cell."""
+    far beyond any fixed `SLACK`, so every cell edge then reads as missing and the whole row merges into one cell.
+    `tilt` (default `TILT`) bounds the angles searched; an answer on that bound is a limit, not a measurement."""
+    tilt = tilt or TILT
     height, width = dark.shape
     stride = max(1, width // 256)  # a few hundred columns are enough to see the tilt
     sample, offsets = dark[:, ::stride], np.arange(0, width, stride)
-    span = round(width * np.tan(np.radians(TILT))) + 1
+    span = round(width * np.tan(np.radians(tilt))) + 1
     best, angle = -1.0, 0.0
-    for candidate in np.arange(-TILT, TILT + step / 2, step):
+    for candidate in np.arange(-tilt, tilt + step / 2, step):
         shifts = np.round(offsets * np.tan(np.radians(candidate))).astype(int)
         profile = np.zeros(height + 2 * span)  # padded, so every angle keeps the same total ink
         for shift in np.unique(shifts):

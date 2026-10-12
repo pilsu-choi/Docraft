@@ -67,6 +67,8 @@ backend:
   # 표 첫 추출 방식(band | rowmajor | asis)과 rowmajor 세부내역서 asis 재추출 기준 — README 설정 표 참고.
   tableExtract: band
   tableRecheckRatio: 0.6
+  # 기울어진 페이지(0.3도 이상, 8도까지)를 모델에 보내는 이미지에서만 바로 세운다(OCR 좌표는 그대로).
+  pageDeskew: true
   # tableExtract: band 일 때 위치부터 찾아 띠로 읽는 문서 유형(쉼표 목록). 나머지 유형은 rowmajor.
   bandDocTypes: 진료비영수증
   # band 로 읽은 영수증의 반 행 인쇄 밀림을 OCR 줄 좌표로 되돌린다(README PRINT_REGISTER).

@@ -349,16 +349,14 @@ def test_no_bands_without_line_boxes_or_when_nothing_needs_cutting(narrow):
     assert engine._bands([{"page": 1, "type": "text", "text": "1,000 " * 100}], 1) == []
 
 
-def test_bands_of_a_turned_page_are_cut_upright_and_clipped_in_the_original_frame(narrow):
+def test_bands_of_a_turned_page_are_cut_upright_and_clipped_on_the_turned_page(narrow):
     upright = dense()
     from backend.parsers import unturn
     turned = unturn([upright], 90)[0]  # 90° 돌아간 쪽에서 읽은 블록(좌표는 원본 기준)
-    want = [[unturn([{"bbox": [c[0] * 100, c[1] * 1000, c[2] * 100, c[3] * 1000], "page_size": [100, 1000]}], 90)[0]["bbox"]
-             for c in band["clips"]] for band in engine._bands([upright], 1)]
-    got = engine._bands([turned], 1)
-    assert [band_rows(band) for band in got] == [band_rows(band) for band in engine._bands([upright], 1)]
-    assert [[[round(v * s, 6) for v, s in zip(c, (1000, 100, 1000, 100))] for c in band["clips"]] for band in got] == \
-        [[[round(v, 6) for v in box] for box in boxes] for boxes in want]
+    want, got = engine._bands([upright], 1), engine._bands([turned], 1)
+    assert [band_rows(band) for band in got] == [band_rows(band) for band in want]
+    flat = lambda bands: [v for band in bands for clip in band["clips"] for v in clip]
+    assert flat(got) == pytest.approx(flat(want))  # 돌린 페이지 기준 비율: 원본으로 되돌리는 건 `_data_url`
     assert all(band["orientation"] == 90 for band in got)
 
 

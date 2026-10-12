@@ -30,6 +30,7 @@ data:
   PRINT_REGISTER: {{ .Values.backend.printRegister | default false | quote }}
   VLM_CONCURRENCY: {{ .Values.backend.vlmConcurrency | default 8 | quote }}
   REPETITION_PENALTY: {{ .Values.backend.repetitionPenalty | default "" | quote }}
+  PAGE_DESKEW: {{ .Values.backend.pageDeskew | quote }}
   TABLE_RECHECK_RATIO: {{ .Values.backend.tableRecheckRatio | default 0.6 | quote }}
   # paddleocrVl 을 껐으면 library 파서(스캔 이미지 OCR 없이 텍스트 레이어만) 로 대체된다.
   PARSE_PROVIDER: {{ ternary "paddle" "library" .Values.paddleocrVl.enabled | quote }}

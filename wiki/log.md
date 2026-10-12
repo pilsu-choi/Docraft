@@ -525,3 +525,4 @@
 - **Creation** (2026-10-12): [이슈 분류에 입력 매체·화질 조건 기록 축 추가](2026-10-12-issue-taxonomy-media-quality-axes.md) — 상위 wiki에서 동기화: 매체·화질 포괄 점검과 축 추가.
 - **Update** (2026-10-12): [Parse와 Extract 이슈 유형 계층 분류](2026-10-03-parse-extract-issue-taxonomy.md) — 상위 wiki에서 동기화: 입력 매체·화질 조건 축, 경계 규칙 3개, 회귀 후보 1행. 노드·ID 변경 없음.
 - **Update** (2026-10-12): [Parse·Extract 이슈 분류 의료비 문서 적용 프로파일](2026-10-03-parse-extract-taxonomy-medical-profile.md) — 상위 wiki에서 동기화: 입력 매체·화질 조건 값.
+- **Creation** (2026-10-12): [페이지 기울기 보정(PAGE_DESKEW)](2026-10-12-page-skew-correction.md) — 방향과 작은 기울기를 한 각도로 합쳐 모델 이미지를 돌리고 띠 상자를 맞춤. 설정 PAGE_DESKEW(기본 켬).
