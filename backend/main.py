@@ -934,7 +934,7 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
                                                               deadline=deadline, auto_reprocess=auto_reprocess,
                                                               row_filter=row_filter)
         schema = verify._restrict(verify.doctypes.schema(doc_type), only)
-        quality = recovered_quality or engine.assess(
+        quality = recovered_quality if recovered_quality is not None else engine.assess(
             fields, verify._restrict(schema, set(schema["properties"]) - set(row_filter)), blocks)
         latency.note("integrity", engine.apply_integrity(quality, fields, schema, groundings, blocks, path), add=False)
         return fields, groundings, quality, recovery

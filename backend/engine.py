@@ -9,6 +9,7 @@ import re
 import time
 from collections import Counter
 from copy import deepcopy
+from functools import lru_cache
 from itertools import groupby
 from pathlib import Path
 
@@ -938,7 +939,15 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
 
 def _normalized(text):
     """Drop whitespace, thousands separators and literal `\\n` so `12,380`, `12380` and `전액\\n본인부담` compare equal."""
-    return re.sub(r"[\s,]+|\\n", "", str(text))
+    return _squeezed(str(text))
+
+
+_SPACING = re.compile(r"[\s,]+|\\n")
+
+
+@lru_cache(maxsize=16384)  # grounding compares every OCR line with every value: the same texts recur per field
+def _squeezed(text):
+    return _SPACING.sub("", text)
 
 
 def _block_rows(block):
@@ -984,6 +993,11 @@ def _rank(cells, needles):
                      for cell in cells for needle in fuzzy) else 0
 
 
+@lru_cache(maxsize=65536)  # every leaf ranks the page's OCR lines; values (0, dates, totals) and lines recur across leaves
+def _line_rank(text, needles):
+    return _rank([text], needles)
+
+
 def _hits(value, sources):
     """Rows holding the value; whole-cell matches win over substring matches."""
     needles, exact, loose = _needles(value), [], []
@@ -1014,8 +1028,8 @@ def _center(bbox):
 
 def _ranked_lines(value, blocks):
     """(block, line) pairs across `blocks` whose OCR line text best matches the value; empty when nothing matches."""
-    needles = _needles(value)
-    ranked = [(_rank([_normalized(line["text"])], needles), block, line) for block in blocks for line in block.get("lines") or []]
+    needles = frozenset(_needles(value))
+    ranked = [(_line_rank(_normalized(line["text"]), needles), block, line) for block in blocks for line in block.get("lines") or []]
     best = max((rank for rank, _, _ in ranked), default=0)
     return [(block, line) for rank, block, line in ranked if rank == best] if best else []
 
