@@ -366,6 +366,18 @@ def _tilt(image):
     return angle if SKEW_MIN <= abs(angle) and sharpness >= SKEW_SURE else 0.0
 
 
+def page_tilt(path):
+    """The `skew` `_upright` puts on an image file's first page (`_tilt`, PAGE_DESKEW), measured before OCR from the same decoded
+    frame; 0 when deskew is off or the file is no image. `_upright` measures it at the OCR page size, so callers compare."""
+    if not ocr_settings().get("page_deskew"):
+        return 0
+    try:
+        with Image.open(path) as source:
+            return _tilt(ImageOps.exif_transpose(source).convert("RGB"))
+    except (OSError, ValueError):
+        return 0
+
+
 @latency.timed("upright_ms")  # read finished 로그의 parse_ms 세부
 def _upright(blocks, path, file_type, deadline=None):
     """Re-read every page whose text is not upright (`orientation`) from an upright copy.

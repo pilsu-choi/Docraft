@@ -701,10 +701,11 @@ def _locate(images, deadline=None, cancel=None, on_call=None):
 
 
 def prelocate(schema, source, table_extract, *, deadline=None, cancel=None, on_call=None):
-    """The band locate call (`_locate`) of a one-page `source` started now on its unturned page image, before OCR, as a Future
-    `extract(prelocated=...)` takes; None when `extract` would not locate it (`_band_page`, `BAND_PRELOCATE`, not one page).
-    `extract` uses its reply only when OCR left the page unturned (`_turns` empty): its image is then the one `extract`
-    would send, so the reply is the same; otherwise it locates again on the turned page."""
+    """The band locate call (`_locate`) of a one-page `source` started now, before OCR, as a Future `extract(prelocated=...)`
+    takes; None when `extract` would not locate it (`_band_page`, `BAND_PRELOCATE`, not one page). The page image is
+    straightened by the tilt OCR will find (`parsers.page_tilt`, pixels only) and the Future gives (that turn, the reply), or
+    None when the image could not be rendered. `extract` uses the reply only when OCR turned the page by exactly that much
+    (no quarter turn): its image is then the one `extract` would send, so the reply is the same; otherwise it locates again."""
     if not (_band_page(schema, table_extract) and ai_settings()["band_prelocate"] and ai_settings()["configured"]):
         return None
     try:
@@ -713,8 +714,13 @@ def prelocate(schema, source, table_extract, *, deadline=None, cancel=None, on_c
                 return None
     except Exception:  # not a page document: OCR reports it
         return None
-    images = _page_images(source, [1])
-    return spawn(_locate, images, deadline, cancel, on_call) if len(images) == 1 else None
+
+    def locate():
+        from .parsers import page_tilt  # parsers → engine 순환을 피한다
+        turns = {1: turn} if (turn := page_tilt(source)) else {}
+        images = _page_images(source, [1], turns)
+        return (turns, _locate(images, deadline, cancel, on_call)) if len(images) == 1 else None
+    return spawn(locate)
 
 
 def _located_bands(found, page, turn):
@@ -853,14 +859,14 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
 
     found = early = None  # band: the one table of a one-page document of a BAND_DOC_TYPES type is located first, then read in strips beside the 금액산정 block
     if _band_page(schema, table_extract) and tables[:1] == whole and len(images) == 1:
-        if prelocated is not None:
-            same = not _turns(blocks) and _pages(blocks) == [1]  # OCR left the page as prelocate saw it: the same image is sent here
-            note("band_prelocate", "used" if same else "turned", add=False)
-            prelocated = prelocated if same else None
         guess = {*tables, *(key for key in bandkit.SUMMARY_KEYS if key in properties)}
         if ai_settings()["band_speculate"] and len(guess) > len(tables) and set(properties) - guess and not (prelocated and prelocated.done()):
             early = (guess, spawn(_read_chunks, narrowed(set(properties) - guess), chunks, source, budget, deadline, cancel, on_call))
-        found = prelocated.result() if prelocated is not None else _locate(images, deadline, cancel, on_call)
+        if prelocated is not None:  # same turn on page 1: the image prelocate sent is the one sent here
+            reply = prelocated.result()
+            same = reply is not None and _pages(blocks) == [1] and reply[0] == _turns(blocks)
+            note("band_prelocate", "used" if same else "turned", add=False)
+        found = reply[1] if prelocated is not None and same else _locate(images, deadline, cancel, on_call)
         if found is None:
             note("band_fallback", "locate", add=False)
         elif located is not None:

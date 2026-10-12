@@ -316,7 +316,7 @@ def test_a_page_ocr_turned_is_located_again_on_its_turned_image(replay, monkeypa
     blocks = [{**replay.blocks[0], **turn}]
     expected = run(replay, monkeypatch, blocks, BAND_PRELOCATE="false")[0]
     result, calls, stats = run(replay, monkeypatch, blocks, BAND_PRELOCATE="true")
-    assert calls.count("locate") == 2 and stats["band_prelocate"] == "turned"
+    assert (calls.count("locate"), stats.get("band_prelocate")) == (2, "turned")
     assert result == expected
 
 
@@ -369,3 +369,25 @@ def test_compact_reply_asks_for_one_line_json_with_capped_tokens(replay, monkeyp
     fields = calls["fields"]
     assert (fields.json_schema is not None) is compact and (fields.max_tokens == 60 * 1 + 100 if compact else fields.max_tokens is None)
     assert calls["summary"].max_tokens == (60 * 2 + 100 if compact else 1500)
+
+
+def test_a_skewed_upright_page_uses_the_straightened_locate_image_sent_before_ocr(replay, monkeypatch, tmp_path):
+    """OCR 전에 픽셀로 잰 기울기(parsers.page_tilt)로 바로 세운 이미지가 OCR 뒤 extract가 보낼 이미지와 바이트까지 같아 그 답을 쓴다."""
+    from PIL import Image, ImageDraw
+    page = Image.new("RGB", (1200, 1600), "white")
+    draw = ImageDraw.Draw(page)
+    for y in range(100, 1500, 40):  # 인쇄 줄 같은 가로 막대
+        draw.rectangle([100, y, 1100, y + 12], fill="black")
+    replay.image = str(tmp_path / "skewed.png")
+    page.rotate(-2, Image.BICUBIC, expand=False, fillcolor="white").save(replay.image)
+    from backend import parsers
+    skew = parsers.page_tilt(replay.image)
+    assert skew  # 2도 남짓 기울어 있다
+    blocks = [{**replay.blocks[0], "skew": skew}]
+    result, calls, stats = run(replay, monkeypatch, blocks)
+    locate = next(call for call in replay.calls if call.kind == "locate")
+    assert calls.count("locate") == 1 and stats["band_prelocate"] == "used"
+    assert locate.image == engine._page_images(replay.image, [1], engine._turns(blocks))[0]
+    assert result == run(replay, monkeypatch, blocks, BAND_PRELOCATE="false")[0]
+    _, calls, stats = run(replay, monkeypatch, [{**replay.blocks[0], "skew": skew, "orientation": 90}], BAND_PRELOCATE="true")  # 90도 돌렸으면 다시 찾는다
+    assert (calls.count("locate"), stats.get("band_prelocate")) == (2, "turned")
