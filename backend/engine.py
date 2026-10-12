@@ -63,16 +63,16 @@ def _covering(box, angle, src, dst):
     return fitz.Rect(min(x for x, _ in corners), min(y for _, y in corners), max(x for x, _ in corners), max(y for _, y in corners))
 
 
-def _data_url(page, clip=None, max_zoom=2.0, turn=0):
+def _data_url(page, clip=None, max_zoom=2.0, turn=0, edge=VISION_MAX_EDGE):
     """One rendered page (or its `clip` region) as a base64 JPEG data URL, scaled so its longest side stays within
-    VISION_MAX_EDGE. The page is turned `turn` degrees counter-clockwise first (`_angle`: the parser's `orientation` plus a
+    `edge` (VISION_MAX_EDGE). The page is turned `turn` degrees counter-clockwise first (`_angle`: the parser's `orientation` plus a
     small `skew`) so the text is upright and straight; `clip` is a region of the turned page, in points. A quarter turn
     is rendered by the page matrix; any other angle rotates the rendered region (bicubic, white corners)."""
     from .parsers import expanded, spin  # parsers → engine 순환을 피한다
     size = [page.rect.width, page.rect.height]
     canvas = expanded(size, turn)
     area = clip or fitz.Rect(0, 0, *canvas)
-    zoom = min(VISION_MAX_EDGE / max(area.width, area.height), max_zoom)
+    zoom = min(edge / max(area.width, area.height), max_zoom)
     source = _covering(area, -turn, canvas, size) & page.rect  # the part of the file page the region shows
     if turn % 90 == 0:
         pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom).prerotate(-turn), clip=source if clip else None, alpha=False)
@@ -98,12 +98,24 @@ def _turns(blocks):
     return {b["page"]: _angle(b) for b in blocks if _angle(b)}
 
 
-def _page_images(source, pages, turns=None, clips=None):
+def _native_zoom(source, page, number):
+    """Pixels per point of page `number` as stored: an image file's own pixels (a TIFF page by its frame), a PDF at 200 dpi."""
+    if Path(source).suffix.lower() == ".pdf":
+        return 200 / 72
+    with Image.open(source) as image:
+        image.seek(number - 1)
+        return max(image.size) / max(page.rect.width, page.rect.height)
+
+
+def _page_images(source, pages, turns=None, clips=None, edge=None):
     """Page images of the document file `source` for the given 1-based page numbers (the same numbering the
     parser puts on blocks), each turned upright by `turns` (page → `_angle`). Empty when vision is off, the
     format has no page image (docx/xlsx/csv/txt/html), or rendering fails — the call then falls back to the OCR text alone.
     `clips` (boxes as fractions [x0, y0, x1, y1] of the turned first page, e.g. a row band of `_bands`) attach those regions
-    of that page instead, at up to twice the whole-page zoom: a strip is smaller than the page."""
+    of that page instead, at up to twice the whole-page zoom: a strip is smaller than the page. `edge` (`BAND_STRIP_EDGE`,
+    세부내역서 OCR row bands) draws those regions at least at the file's own resolution (`_native_zoom`) within a longest side
+    of `edge` px instead of VISION_MAX_EDGE; never smaller than without it, and never upsampled beyond the larger of the two
+    (the zoom without it already upsamples a low-resolution page; more upsampling adds image tokens, not detail)."""
     if not source or not ai_settings()["vision"] or Path(source).suffix.lower() not in VISION_SUFFIXES:
         return []
     pages = list(pages)
@@ -116,8 +128,11 @@ def _page_images(source, pages, turns=None, clips=None):
                 from .parsers import expanded  # parsers → engine 순환을 피한다
                 page, turn = document[pages[0] - 1], (turns or {}).get(pages[0], 0)
                 width, height = expanded([page.rect.width, page.rect.height], turn)
-                return [_data_url(page, fitz.Rect(x0 * width, y0 * height, x1 * width, y1 * height) & fitz.Rect(0, 0, width, height), 4.0, turn)
-                        for x0, y0, x1, y1 in clips]
+                areas = [fitz.Rect(x0 * width, y0 * height, x1 * width, y1 * height) & fitz.Rect(0, 0, width, height) for x0, y0, x1, y1 in clips]
+                if edge:
+                    native = _native_zoom(source, page, pages[0])
+                    return [_data_url(page, area, max(native, min(VISION_MAX_EDGE / max(area.width, area.height), 4.0)), turn, edge) for area in areas]
+                return [_data_url(page, area, 4.0, turn) for area in areas]
             return [_data_url(document[number - 1], turn=(turns or {}).get(number, 0)) for number in pages if 1 <= number <= len(document)]
     except Exception as exc:
         logger.warning("vision: page image rendering failed for %s: %s", Path(source).name, exc, exc_info=True)
@@ -899,7 +914,8 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         # TABLE_REPLY_TOKENS)에 THINK_TOKENS를 더한다 — vLLM은 OpenRouter용 reasoning 끔을 무시해 생각 모드 모델이 AI_REASONING을 꺼도
         # 생각하고 그 토큰이 상한에 든다. OCR 줄로 자를 수 없으면 rowmajor.
         columns = len(properties[tables[0]]["items"]["properties"])
-        strips = [{**strip, "keyed": schema["title"], "cap": min(TABLE_REPLY_TOKENS, _reply_cap(strip["text"], columns)) + THINK_TOKENS}
+        strips = [{**strip, "keyed": schema["title"], "cap": min(TABLE_REPLY_TOKENS, _reply_cap(strip["text"], columns)) + THINK_TOKENS,
+                   "edge": ai_settings()["band_strip_edge"]}
                   for strip in _bands(blocks, columns, per)]
         if not strips:
             note("band_fallback", "rows", add=False)
@@ -923,7 +939,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
 
     def read_group(table, group, index, count):
         pages = _page_range(group)
-        if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group), group[0].get("clips"))):
+        if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group), group[0].get("clips"), group[0].get("edge"))):
             try:
                 if group[0].get("keyed"):
                     keyed = group[0]["keyed"]

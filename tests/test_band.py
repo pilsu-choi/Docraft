@@ -622,3 +622,47 @@ def test_detail_row_bands_have_margin_around_every_row_without_taking_in_a_neigh
         assert not any(box[3] > top and box[1] < bottom for box in (line["bbox"] for line in blocks[0]["lines"]) if box not in inside)  # 이웃 행은 안 든다
     fallback = engine._bands(blocks, len(DPROPS))  # rowmajor 폴백 띠(per 없음)는 그대로: 표 블록 상자에서 자른다
     assert (fallback == []) is (rows <= 20) and (not fallback or fallback[0]["clips"][0][1] * 1000 == pytest.approx(first))
+
+
+# --- BAND_STRIP_EDGE: 세부내역서 OCR 행 띠 크롭을 원본 해상도까지 ---------------------------------------
+
+
+def strip_size(path, edge=None, clip=(0.05, 0.2, 0.95, 0.4)):
+    import base64
+    import io
+    from PIL import Image
+    url = engine._page_images(str(path), [1], {}, [list(clip)], edge)[0]
+    return Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))).size
+
+
+@pytest.fixture
+def scans(tmp_path, monkeypatch):
+    from PIL import Image
+    monkeypatch.setenv("AI_VISION", "true")
+    files = {}
+    for name, size, dpi in (("200dpi.tif", (2352, 1655), 200), ("96dpi.jpg", (1728, 2333), 96), ("72dpi.jpg", (3000, 2000), 72), ("nodpi.jpg", (2221, 3000), None)):
+        files[name] = tmp_path / name
+        Image.new("RGB", size, "white").save(files[name], **({"dpi": (dpi, dpi)} if dpi else {}))
+    return files
+
+
+@pytest.mark.parametrize("name, unset, wide", [("200dpi.tif", 2000, 2117), ("96dpi.jpg", 2000, 2000), ("72dpi.jpg", 2000, 2700), ("nodpi.jpg", 2000, 2000)])
+def test_band_strip_edge_draws_row_strips_at_the_file_resolution_within_the_edge(scans, name, unset, wide):
+    assert abs(strip_size(scans[name])[0] - unset) <= 1  # 끔: 기존 그대로(긴 변 VISION_MAX_EDGE)
+    width = strip_size(scans[name], 3000)[0]
+    assert abs(width - wide) <= 1  # 원본 픽셀까지, 기존보다 작게는 그리지 않는다(96dpi는 기존 배율이 이미 원본보다 크다)
+    assert strip_size(scans[name], 2400)[0] <= max(2400, unset) + 1  # 상한
+
+
+def test_band_strip_edge_is_passed_only_to_detail_row_bands(state, monkeypatch):
+    seen = []
+    images = engine._page_images
+    monkeypatch.setattr(engine, "_page_images", lambda *args: seen.append(args[4] if len(args) > 4 else None) or images(*args))
+    monkeypatch.setenv("BAND_STRIP_EDGE", "3000")
+    monkeypatch.setenv("BAND_DOC_TYPES", "진료비영수증,세부내역서")
+    engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")  # 영수증: 위치 찾기 띠는 그대로
+    assert set(seen) == {None}
+    seen.clear()
+    state.bands = [[], [], []]
+    engine.extract(verify._restrict(doctypes.schema("세부내역서"), {"항목내역"}), detail_blocks(30), state.image, table_extract="band")
+    assert seen.count(3000) == 3 and None in seen  # 띠 셋만, 쪽 이미지는 그대로
