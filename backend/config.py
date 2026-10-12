@@ -141,9 +141,11 @@ def ai_settings() -> dict:
     table_recheck_ratio = float(os.getenv("TABLE_RECHECK_RATIO", "0.6"))
     # 진료비영수증 band 읽기 뒤 금액 층이 양식 칸선에서 통째로 밀려 찍힌 인쇄를 OCR 줄 좌표로 문서 단위에서 되돌린다(print_register).
     print_register = _flag("PRINT_REGISTER", "false")
+    # band 띠 프롬프트에 쪼개 인쇄된 머리글 이어 읽기·비급여 묶음 제목 안내를 붙인다(band.HEADER_NOTE, 실측 전이라 기본 꺼짐).
+    band_header_note = _flag("BAND_HEADER_NOTE", "false")
     return {"mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
             "integrity_review": integrity_review, "table_extract": table_extract, "band_doc_types": band_doc_types,
-            "repetition_penalty": float(penalty) if penalty else None, "table_recheck_ratio": table_recheck_ratio, "print_register": print_register}
+            "repetition_penalty": float(penalty) if penalty else None, "table_recheck_ratio": table_recheck_ratio, "print_register": print_register, "band_header_note": band_header_note}
 
 
 def ocr_settings() -> dict:

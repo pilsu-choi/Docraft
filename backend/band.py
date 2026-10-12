@@ -23,6 +23,10 @@ LOCATE_PROMPT = ("Locate regions of this Korean medical receipt (진료비 계�
                  + "}. Use null for a region that is not present.")
 LAYOUTS = ("(a) 요양급여 | 비급여; (b) 본인부담금 | 공단부담금 | 전액본인부담 | 비급여; (c) 본인부담금 | 공단부담금 | 전액본인부담 | 선택진료료 | 비급여; "
            "(d) 본인부담금 | 공단부담금 | 전액본인부담 | 선택진료료 | 선택진료료외; (e) 본인부담금 | 공단부담금 | 전액본인부담 | 선택진료료외")
+HEADER_NOTE = ("Column headers: a header's characters are often split over lines or spaced out inside one header cell ('선택진료료 / 이외', "
+               "'선택진료 / 료 외', '선 택 진 료 료 외'); join the characters of the same cell before naming its column. A header with 외 or 이외 "
+               "(also numbered ⑤) is 선택진료료외; 선택진료료 without 외 (④) is 선택진료료. When 비급여 is printed above sub-columns "
+               "(선택진료료, 선택진료료외), it is only their group title: put each value under its sub-column key and 0 under 비급여.")
 SUMMARY_PROMPT = ("This image is the 금액산정내용 (payment calculation) block of a Korean medical receipt. Extract these fields only:\nSchema:\n{schema}\n"
                   "Copy the printed digits only, never compute; use null for a field whose label or value is not printed.")
 
@@ -90,8 +94,9 @@ def short_keys(item):
     return {chr(97 + i): key for i, key in enumerate(key for key in item["items"]["properties"] if key != "항목")}
 
 
-def prompt(item, note):
-    """띠 읽기 프롬프트: 모든 행에 이름(n)과 모든 금액 열 키를 스키마 순서로 쓰게 한다. ``note``는 이미지 구성 안내."""
+def prompt(item, note, header_note=False):
+    """띠 읽기 프롬프트: 모든 행에 이름(n)과 모든 금액 열 키를 스키마 순서로 쓰게 한다. ``note``는 이미지 구성 안내.
+    ``header_note``(``BAND_HEADER_NOTE``)면 쪼개 인쇄된 머리글 이어 읽기·비급여 묶음 제목 안내(``HEADER_NOTE``)를 서식 목록 뒤에 붙인다."""
     props, keys = item["items"]["properties"], short_keys(item)
     columns = "\n".join(f'  "{key}" = {column}: {props[column]["description"].removesuffix(doctypes.RECEIPT_HINT).strip()}' for key, column in keys.items())
     example = ", ".join(f'"{key}": "{value}"' for key, value in zip(keys, ["1,200", "4,800"] + [""] * len(keys)))
@@ -103,8 +108,8 @@ def prompt(item, note):
             f"항목 naming rule: {props['항목']['description']}\n"
             "Reading aid: printed names on this statutory form usually come from this list: " + ", ".join(rules.ITEM_ORDER) + ". Use it to read blurred or partial names; "
             "still output only rows actually printed, never add a row because it is in the list; names not in the list are written as printed.\n"
-            f"The form has one of 5 column layouts: {LAYOUTS}.\n"
-            f"Rules (same as the schema): {item['description']}\n"
+            f"The form has one of 5 column layouts: {LAYOUTS}.\n" + (f"{HEADER_NOTE}\n" if header_note else "")
+            + f"Rules (same as the schema): {item['description']}\n"
             "Skip rows whose name is cut off at the top or bottom edge. Include the final 합계 row if visible. Never return header rows. "
             "Copy the printed digits only, never compute or infer a value. A blank cell is 0 (per the schema).")
 
