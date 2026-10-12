@@ -75,27 +75,43 @@ def _dark(gray, window=31, contrast=20):
 
 
 def _skew(dark, step=0.2, tilt=None):
-    """Page tilt in degrees: the angle whose horizontal projection is sharpest.
+    """(page tilt in degrees, sharpness of that angle over the median angle): the angle whose projections are sharpest.
 
     Rules and text lines pile onto a few rows only when the page is straight. A photographed or photocopied
     page is often tilted by a degree or more, which moves a rule a hundred pixels across a full-page table —
     far beyond any fixed `SLACK`, so every cell edge then reads as missing and the whole row merges into one cell.
-    `tilt` (default `TILT`) bounds the angles searched; an answer on that bound is a limit, not a measurement."""
+    `tilt` (default `TILT`) bounds the angles searched; an answer on that bound is a limit, not a measurement.
+    Rows and columns (the transposed ink, whose lines lean the other way) both count, so a page lying on its side
+    shows the same tilt and a ±45 search sees every tilt once — the quarter turn is left to the caller. Wide searches
+    go coarse first (`tilt / 45` steps), then `step` around the best coarse angle; a sharpness near 1 means no angle
+    stood out (blank, noise)."""
     tilt = tilt or TILT
-    height, width = dark.shape
-    stride = max(1, width // 256)  # a few hundred columns are enough to see the tilt
-    sample, offsets = dark[:, ::stride], np.arange(0, width, stride)
-    span = round(width * np.tan(np.radians(tilt))) + 1
-    best, angle = -1.0, 0.0
-    for candidate in np.arange(-tilt, tilt + step / 2, step):
-        shifts = np.round(offsets * np.tan(np.radians(candidate))).astype(int)
-        profile = np.zeros(height + 2 * span)  # padded, so every angle keeps the same total ink
-        for shift in np.unique(shifts):
-            profile[span - shift:span - shift + height] += sample[:, shifts == shift].sum(1)
-        score = float((profile ** 2).sum())
-        if score > best:
-            best, angle = score, float(candidate)
-    return angle
+    ink = []
+    for lines, sign in ((dark, 1), (dark.T, -1)):  # rows, then columns (transposed, leaning the other way)
+        stride = max(1, lines.shape[1] // 256)  # a few hundred samples across are enough to see the tilt
+        along, across = np.nonzero(lines[:, ::stride])
+        ink.append((along, across * stride, sign))
+
+    def score(candidate):
+        total = 0.0
+        for along, across, sign in ink:
+            turn = np.radians(sign * candidate)
+            across_lines = along * np.cos(turn) - across * np.sin(turn)
+            if len(across_lines):  # each pixel split between its two nearest bins, so the pixel grid itself never piles up (as at 45 degrees)
+                low = np.floor(across_lines)
+                part, bins = across_lines - low, (low - low.min()).astype(int)
+                size = bins.max() + 2
+                total += float(((np.bincount(bins, 1 - part, size) + np.bincount(bins + 1, part, size)) ** 2).sum())
+        return total
+
+    coarse = max(step, tilt / 45)
+    grid = np.arange(-tilt, tilt + coarse / 2, coarse)
+    scores = [score(c) for c in grid]
+    best = float(grid[int(np.argmax(scores))])
+    fine = np.arange(best - coarse + step, best + coarse - step / 2, step) if coarse > step else [best]
+    angle = max(fine, key=score)
+    median = float(np.median(scores))
+    return float(angle), score(angle) / median if median else 1.0
 
 
 def _straighten(image, boxes, angle):
@@ -133,7 +149,7 @@ def ruled_table(image, bbox, lines, with_geometry=False):
     crop = image.crop((x0, y0, x1, y1)).convert("L")
     boxes = [[b[0] - x0, b[1] - y0, b[2] - x0, b[3] - y0, str(line["text"]).strip()] for line in lines for b in [line["bbox"]] if str(line["text"]).strip()]
     dark = _dark(np.asarray(crop))
-    angle = _skew(dark)
+    angle, _ = _skew(dark)
     if abs(angle) >= 0.1:  # below the search step the rotation would only add resampling blur
         crop, boxes = _straighten(crop, boxes, angle)
         dark = _dark(np.asarray(crop))
