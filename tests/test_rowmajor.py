@@ -870,3 +870,51 @@ def test_a_printed_paid_amount_column_beside_sub_column_words_is_a_column(paid):
 
     assert printed(blocks, DETAIL) == ["항목", "원내코드", "EDI명칭", "EDI코드", "투여량", "횟수", "일수", "단가", "급여", "전액본인부담",
                                        "선택진료료", "비급여"]
+
+
+# --- 스키마 밖 인쇄 열(보훈감면액 등)은 자리 열로 묻고 버린다 -------------------------------------------------
+
+FULL = [("항목", 0), ("품목코드", 80), ("EDI코드", 200), ("명칭", 320), ("실시일자", 520), ("단가", 640), ("횟수", 720), ("일수", 780),
+        ("총액", 860), ("본인부담금", 960), ("공단부담금", 1120), ("전액본인", 1260), ("비급여", 1380)]
+
+
+@pytest.mark.parametrize("extras, at, expected", [
+    ([("보훈감면액", 1040)], 10, None),  # 가운데: 본인부담금과 공단부담금 사이
+    ([("감면액", 1480)], 13, None),  # 끝
+    ([("보훈감면액", 1040), ("기타감면", 1200)], 10, None),  # 여럿
+])
+def test_a_printed_column_outside_the_schema_keeps_its_place_in_the_plan(extras, at, expected):
+    words = sorted(FULL + extras, key=lambda item: item[1])
+    blocks = header(*[(word, x, 0) for word, x in words])
+    _, columns, _ = table_layout.plan("세부내역서", "항목내역", blocks, "표.", {key: key + " 설명" for key in DETAIL})
+    keys = list(columns)
+    unknown = table_layout.VALUE["unknown"]["key"]
+    assert [key for key in keys if key.startswith(unknown)] == [f"{unknown}{n + 1}" for n in range(len(extras))]
+    assert keys[at] == f"{unknown}1" and f"'{extras[0][0]}' 열이다" in columns[keys[at]] and "저장하지 않는다" in columns[keys[at]]
+    assert [key for key in keys if not key.startswith(unknown)] == ["항목", "원내코드", "EDI코드", "EDI명칭", "시작일자", "단가", "횟수", "일수", "총액",
+                                                                   "본인부담", "공단부담", "전액본인부담", "비급여"]
+
+
+def test_a_split_header_word_outside_the_schema_is_one_column():
+    blocks = header(*[(word, x, 0) for word, x in FULL], ("보훈", 1050, -18), ("감면액", 1040, 0))
+    _, columns, _ = table_layout.plan("세부내역서", "항목내역", blocks, "표.", {key: key + " 설명" for key in DETAIL})
+    assert [key for key in columns if key.startswith(table_layout.VALUE["unknown"]["key"])] == [f"{table_layout.VALUE['unknown']['key']}1"]
+    assert "'보훈감면액' 열이다" in "".join(columns.values())
+
+
+def test_values_under_an_outside_column_are_dropped_and_the_right_columns_keep_their_values(monkeypatch):
+    from backend import band
+    blocks = header(*[(word, x, 0) for word, x in sorted(FULL + [("보훈감면액", 1040)], key=lambda item: item[1])])
+    spec = doctypes.schema("세부내역서")["properties"]["항목내역"]
+    plan = table_layout.plan("세부내역서", "항목내역", blocks, spec["description"], {key: prop["description"] for key, prop in spec["items"]["properties"].items()})
+    keys = {column: key for key, column in band.short_keys(spec, "세부내역서", plan).items()}
+    reply = [{keys["항목"]: "치료재료", keys["본인부담"]: "1,827", keys["미정열1"]: "", keys["공단부담"]: "3,393", keys["전액본인부담"]: "0"}]
+    row = band.expand(reply, spec, "세부내역서", plan)[0][0]
+    assert (row["본인부담"], row["공단부담"], row["전액본인부담"]) == ("1,827", "3,393", "0") and "미정열1" not in row
+    text = band.prompt(spec, "띠", False, "세부내역서", plan)
+    assert f'"{keys["미정열1"]}" = 미정열1:' in text and "보훈감면액" in text  # 띠 프롬프트도 그 자리를 묻는다
+    names = list(plan[1])
+    monkeypatch.setattr(engine, "_provider", lambda *args, **kwargs: {"rows": [["치료재료" if name == "항목" else "1,827" if name == "본인부담" else
+                                                                             "" if name == "미정열1" else "3,393" if name == "공단부담" else None for name in names]]})
+    out = engine._read_rows("항목내역", spec, plan, "1,827 3,393", [], deadline=None)[0]
+    assert (out["본인부담"], out["공단부담"]) == ("1,827", "3,393") and "미정열1" not in out  # rowmajor도 그 자리를 묻고 버린다
