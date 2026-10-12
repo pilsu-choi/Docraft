@@ -48,6 +48,9 @@ services:
 
   paddleocr-vl-api:
     ports: !reset []
+    # 고객(l40s-4)은 레이아웃 API 3개(apiReplicas: 3). L4는 API 하나당 약 1.4GB라 3개까지 들어간다. 기본 1.
+    deploy:
+      replicas: ${PADDLEOCR_API_REPLICAS:-1}
     logging: *logging
 
   paddleocr-lines-api:
