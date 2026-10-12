@@ -16,7 +16,7 @@ from pathlib import Path
 
 import fitz
 import httpx
-from PIL import Image
+from PIL import Image, ImageDraw
 from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit, request_id
@@ -64,11 +64,12 @@ def _covering(box, angle, src, dst):
     return fitz.Rect(min(x for x, _ in corners), min(y for _, y in corners), max(x for x, _ in corners), max(y for _, y in corners))
 
 
-def _data_url(page, clip=None, max_zoom=2.0, turn=0, edge=VISION_MAX_EDGE):
+def _data_url(page, clip=None, max_zoom=2.0, turn=0, edge=VISION_MAX_EDGE, masks=()):
     """One rendered page (or its `clip` region) as a base64 JPEG data URL, scaled so its longest side stays within
     `edge` (VISION_MAX_EDGE). The page is turned `turn` degrees counter-clockwise first (`_angle`: the parser's `orientation` plus a
     small `skew`) so the text is upright and straight; `clip` is a region of the turned page, in points. A quarter turn
-    is rendered by the page matrix; any other angle rotates the rendered region (bicubic, white corners)."""
+    is rendered by the page matrix; any other angle rotates the rendered region (bicubic, white corners). `masks` (polygons
+    in the turned page's points) are painted white on the image."""
     from .parsers import expanded, spin  # parsers → engine 순환을 피한다
     size = [page.rect.width, page.rect.height]
     canvas = expanded(size, turn)
@@ -77,13 +78,19 @@ def _data_url(page, clip=None, max_zoom=2.0, turn=0, edge=VISION_MAX_EDGE):
     source = _covering(area, -turn, canvas, size) & page.rect  # the part of the file page the region shows
     if turn % 90 == 0:
         pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom).prerotate(-turn), clip=source if clip else None, alpha=False)
-        return "data:image/jpeg;base64," + base64.b64encode(pixmap.tobytes("jpeg", jpg_quality=90)).decode()
-    pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=source, alpha=False)
-    image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples).rotate(turn, Image.BICUBIC, expand=True, fillcolor=(255, 255, 255))
-    x, y = spin(((source.x0 + source.x1) / 2, (source.y0 + source.y1) / 2), turn, size, canvas)  # the region's centre pixel is where the rotated piece's centre lands
-    cx, cy = image.width / 2 + ((area.x0 + area.x1) / 2 - x) * zoom, image.height / 2 + ((area.y0 + area.y1) / 2 - y) * zoom
-    image = image.crop((max(0, round(cx - area.width * zoom / 2)), max(0, round(cy - area.height * zoom / 2)),
-                        min(image.width, round(cx + area.width * zoom / 2)), min(image.height, round(cy + area.height * zoom / 2))))
+        if not masks:
+            return "data:image/jpeg;base64," + base64.b64encode(pixmap.tobytes("jpeg", jpg_quality=90)).decode()
+        image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+    else:
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=source, alpha=False)
+        image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples).rotate(turn, Image.BICUBIC, expand=True, fillcolor=(255, 255, 255))
+        x, y = spin(((source.x0 + source.x1) / 2, (source.y0 + source.y1) / 2), turn, size, canvas)  # the region's centre pixel is where the rotated piece's centre lands
+        cx, cy = image.width / 2 + ((area.x0 + area.x1) / 2 - x) * zoom, image.height / 2 + ((area.y0 + area.y1) / 2 - y) * zoom
+        image = image.crop((max(0, round(cx - area.width * zoom / 2)), max(0, round(cy - area.height * zoom / 2)),
+                            min(image.width, round(cx + area.width * zoom / 2)), min(image.height, round(cy + area.height * zoom / 2))))
+    draw = ImageDraw.Draw(image)
+    for polygon in masks:  # 띠 경계 꺾은선 바깥(이웃 띠의 행)을 지운다
+        draw.polygon([((px - area.x0) * zoom, (py - area.y0) * zoom) for px, py in polygon], fill=(255, 255, 255))
     buffer = io.BytesIO()
     image.save(buffer, "JPEG", quality=90)
     return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
@@ -108,7 +115,7 @@ def _native_zoom(source, page, number):
         return max(image.size) / max(page.rect.width, page.rect.height)
 
 
-def _page_images(source, pages, turns=None, clips=None, edge=None):
+def _page_images(source, pages, turns=None, clips=None, edge=None, masks=None):
     """Page images of the document file `source` for the given 1-based page numbers (the same numbering the
     parser puts on blocks), each turned upright by `turns` (page → `_angle`). Empty when vision is off, the
     format has no page image (docx/xlsx/csv/txt/html), or rendering fails — the call then falls back to the OCR text alone.
@@ -116,7 +123,8 @@ def _page_images(source, pages, turns=None, clips=None, edge=None):
     of that page instead, at up to twice the whole-page zoom: a strip is smaller than the page. `edge` (`BAND_STRIP_EDGE`,
     세부내역서 OCR row bands) draws those regions at least at the file's own resolution (`_native_zoom`) within a longest side
     of `edge` px instead of VISION_MAX_EDGE; never smaller than without it, and never upsampled beyond the larger of the two
-    (the zoom without it already upsamples a low-resolution page; more upsampling adds image tokens, not detail)."""
+    (the zoom without it already upsamples a low-resolution page; more upsampling adds image tokens, not detail).
+    `masks` (one list per clip of polygons as page fractions, `_row_bands`) are painted white on those regions."""
     if not source or not ai_settings()["vision"] or Path(source).suffix.lower() not in VISION_SUFFIXES:
         return []
     pages = list(pages)
@@ -130,10 +138,10 @@ def _page_images(source, pages, turns=None, clips=None, edge=None):
                 page, turn = document[pages[0] - 1], (turns or {}).get(pages[0], 0)
                 width, height = expanded([page.rect.width, page.rect.height], turn)
                 areas = [fitz.Rect(x0 * width, y0 * height, x1 * width, y1 * height) & fitz.Rect(0, 0, width, height) for x0, y0, x1, y1 in clips]
-                if edge:
-                    native = _native_zoom(source, page, pages[0])
-                    return [_data_url(page, area, max(native, min(VISION_MAX_EDGE / max(area.width, area.height), 4.0)), turn, edge) for area in areas]
-                return [_data_url(page, area, 4.0, turn) for area in areas]
+                native = _native_zoom(source, page, pages[0]) if edge else None
+                return [_data_url(page, area, max(native, min(VISION_MAX_EDGE / max(area.width, area.height), 4.0)) if edge else 4.0, turn,
+                                  edge or VISION_MAX_EDGE, [[(x * width, y * height) for x, y in polygon] for polygon in (masks or [[]] * len(areas))[number]])
+                        for number, area in enumerate(areas)]
             return [_data_url(document[number - 1], turn=(turns or {}).get(number, 0)) for number in pages if 1 <= number <= len(document)]
     except Exception as exc:
         logger.warning("vision: page image rendering failed for %s: %s", Path(source).name, exc, exc_info=True)
@@ -645,87 +653,192 @@ def _clip(box, size):
     return [box[0] / size[0], box[1] / size[1], box[2] / size[0], box[3] / size[1]]
 
 
-def _bands(page_blocks, columns, per=None):
+def _cuts(amounts, most, clear=None, repeat=True):
+    """Bands of the text rows from the first one carrying an amount (those above are the header), as (start, fresh, end):
+    the fewest bands of about equal amount count with at most `most` amounts each. A cut falls before a row carrying an
+    amount (a printed row's amounts are on its first line; a wrapped name line has none) for which `clear(i)` holds when
+    given, else at the target. With `repeat` the next band starts again at the band's last row carrying an amount (`start`)."""
+    head = next((i for i, count in enumerate(amounts) if count), 0)
+    target = -(-sum(amounts) // -(-sum(amounts) // most)) if sum(amounts) else 0  # 고른 띠 크기
+    start = fresh = head
+    while fresh < len(amounts):
+        end = len(amounts) if sum(amounts[fresh:]) <= most else fresh + 1  # 남은 행이 한 띠에 들면 다 넣는다
+        while end < len(amounts) and sum(amounts[fresh:end + 1]) <= target:
+            end += 1
+        if end < len(amounts):
+            end = next((i for i in range(end, fresh, -1) if amounts[i] and (clear is None or clear(i))), end)
+        yield start, fresh, end
+        start, fresh = next((i for i in range(end - 1, fresh - 1, -1) if amounts[i]), end - 1) if repeat else end, end
+
+
+def _bands(page_blocks, columns):
     """Row bands of one page whose table reply broke (`extract` reads them again band by band). Each table block's OCR text rows (`_line_rows`) from its first row
     carrying an amount (the rows above are its header) are cut into the fewest bands of about equal amount count whose
-    reply cap (`_reply_cap`) stays within TABLE_REPLY_TOKENS. A cut falls in the gap between two text rows, before a row
-    carrying an amount (a printed row's amounts are on its first line; a wrapped name line has none), and the next band
-    repeats the band's last printed row (from its last text row carrying an amount) so a row cut anyway is whole in one
+    reply cap (`_reply_cap`) stays within TABLE_REPLY_TOKENS (`_cuts`). A cut falls in the gap between two text rows, before a row
+    carrying an amount, and the next band repeats the band's last printed row (from its last text row carrying an amount) so a row cut anyway is whole in one
     band (`repeats`); `extract` keeps one of the two reads (`_same_row`). A band is a block with the header rows, its rows and the merged-cell lines it overlaps as text, and
     `clips` (page fractions): the header strip (bands after the first) and the band strip, both table-wide.
     Empty when a table block has no OCR line boxes or runs its text across (most line boxes taller than wide: a page
-    printed sideways without a known turn), or when no block is cut in two: the page is then read whole asis.
-
-    `per` (band path, `bandkit.PROFILES` rows) sizes bands by printed rows instead: text rows carrying an amount, about `per`
-    a band (the fewest bands, at most MAX_STRIPS, of about equal count). Its bands repeat no row — the cut already falls
-    between printed rows, and a repeated row would have to be told apart from a printed row of the same name (진찰료) —
-    and one band is kept too (the whole table as one crop). The prompt then says every row of a band is whole
-    (`bandkit.DETAIL_CLOSING`), and the table's top and bottom get a quarter row height of margin beyond its block box."""
+    printed sideways without a known turn), or when no block is cut in two: the page is then read whole asis."""
     from .parsers import unturn  # parsers → engine 순환을 피한다
     tables = [b for b in page_blocks if b.get("type") == "table"]
     if not tables or not all(b.get("page_size") and any(line.get("bbox") for line in b.get("lines") or []) for b in tables):
         return []
     most = max(1, TABLE_REPLY_TOKENS // (10 * columns + 20) - 20)  # amounts a band's reply cap allows
-    units = [(block, turn, unturn([block], 360 - turn)[0] if turn else block) for block in tables for turn in [_angle(block)]]
-    if per:  # 표 블록을 한 표로: 레이아웃이 항목 표를 행 한가운데에서 둘로 나눠도 블록 경계에서 자르지 않는다(같은 쪽, 같은 돌림)
-        boxes = [upright["bbox"] for *_, upright in units]
-        units = [(units[0][0], units[0][1], {**units[0][2], "lines": [line for *_, upright in units for line in upright["lines"]],
-                                             "bbox": [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)]})]
     bands = []
-    for block, turn, upright in units:
+    for block in tables:
+        turn = _angle(block)
+        upright = unturn([block], 360 - turn)[0] if turn else block
         lines = [line for line in upright["lines"] if line.get("bbox") and str(line["text"]).strip()]
-        if sum(line["bbox"][3] - line["bbox"][1] > line["bbox"][2] - line["bbox"][0] for line in lines) * 2 > len(lines):
+        if _sideways(lines):
             return []
-        # 남은 기울기(사진 휨): 같은 줄 상자쌍 기울기(print_register._deskew)로 줄 y를 x=0 기준으로 되돌려 행을 묶는다. 띠 경계는 쪽 좌표의
-        # 가로선이라, 행 사이 틈이 표 폭에서 기운 만큼(lo~hi)보다 넓은 곳에서만 자른다.
-        slope = print_register._deskew([{"x": (x0 + x1) / 2, "y": (y0 + y1) / 2, "h": y1 - y0} for x0, y0, x1, y1 in
-                                        (line["bbox"] for line in lines)])[1] if per else 0
-        flat = [{**line, "bbox": [b[0], b[1] - slope * (b[0] + b[2]) / 2, b[2], b[3] - slope * (b[0] + b[2]) / 2]}
-                for line in lines for b in [line["bbox"]]] if slope else lines
-        rows, tall = _line_rows(flat)
+        rows, tall = _line_rows(lines)
         amounts = [len(ROW_AMOUNT.findall(row[2])) for row in rows]
-        if per:  # 항목 표만: 머리글 줄(머리글 낱말 개념 넷 이상)부터 마지막 집계 행(없으면 마지막 금액 행)까지 — 위 환자정보 표·아래 서명·안내는 뺀다
-            heads = [i for i, row in enumerate(rows) if len({hits[0] for part in row[2].split(" | ") for word in table_layout._words(part)
-                                                            for hits, _ in [table_layout._concepts(word)] if hits}) >= 4]
-            if not heads or not any(amounts[heads[0]:]):
-                return []
-            last = max([i for i, row in enumerate(rows) if i > heads[0] and any(rules._total_name(part) for part in row[2].split(" | "))]
-                       or [max(i for i, count in enumerate(amounts) if count)])
-            height = sorted(bottom - top for top, bottom, _ in rows)[len(rows) // 2]
-            while last + 1 < len(rows) and not amounts[last + 1] and rows[last + 1][0] - rows[last][1] < height:  # 마지막 행의 이어 쓴 줄
-                last += 1
-            rows, amounts = rows[heads[0]:last + 1], [int(bool(count)) for count in amounts[heads[0]:last + 1]]
-            # 금액 행 하나를 1로 세어 띠당 약 per행, 띠는 많아야 MAX_STRIPS개
-            most = max(1, -(-sum(amounts) // max(1, min(MAX_STRIPS, -(-sum(amounts) // per)))))
         head = next((i for i, count in enumerate(amounts) if count), 0)
-        target = -(-sum(amounts) // -(-sum(amounts) // most)) if sum(amounts) else 0  # 고른 띠 크기
         x0, y0, x1, y1 = upright["bbox"]
-        lo, hi = sorted((slope * x0, slope * x1))
-        if per:  # 머리글 줄 위·마지막 행 아래에서 자르고 행 높이 1/4 여백(행 사이는 가운데에서 잘라 이미 틈의 절반씩 여백)
-            pad = sorted(bottom - top for top, bottom, _ in rows)[len(rows) // 2] / 4
-            y0, y1 = max(0, rows[0][0] + lo - pad), min(upright["page_size"][1], rows[-1][1] + hi + pad)
-            tall = [line for line in tall if rows[0][0] < (line["bbox"][1] + line["bbox"][3]) / 2 < rows[-1][1]]
 
         def cut(i):
-            return y0 if i == 0 else y1 if i == len(rows) else (rows[i - 1][1] + hi + rows[i][0] + lo) / 2
+            return y0 if i == 0 else y1 if i == len(rows) else (rows[i - 1][1] + rows[i][0]) / 2
 
-        def clear(i):  # 쪽 좌표 가로선 하나가 i-1행 아래·i행 위 사이를 표 폭 내내 지난다
-            return not per or rows[i - 1][1] + hi < rows[i][0] + lo
-
-        start = fresh = head
-        while fresh < len(rows):
-            end = len(rows) if sum(amounts[fresh:]) <= most else fresh + 1  # 남은 행이 한 띠에 들면 다 넣는다
-            while end < len(rows) and sum(amounts[fresh:end + 1]) <= target:
-                end += 1
-            if end < len(rows):
-                end = next((i for i in range(end, fresh, -1) if amounts[i] and clear(i)), end)
+        for start, fresh, end in _cuts(amounts, most):
             top, bottom = cut(0 if start == head else start), cut(end)
             text = [row[2] for row in rows[:head] + rows[start:end]] + [line["text"] for line in tall if line["bbox"][1] < bottom and line["bbox"][3] > top]
             bands.append({"page": block.get("page"), "type": "table", "page_size": block["page_size"], **({"orientation": turn} if turn else {}),
                           **({"repeats": True} if start < fresh else {}),
                           "text": "\n".join(text), "clips": [_clip(box, upright["page_size"]) for box in ([[x0, y0, x1, cut(head)], [x0, top, x1, bottom]] if start > head and head else [[x0, top, x1, bottom]])]})
-            start, fresh = end if per else next((i for i in range(end - 1, fresh - 1, -1) if amounts[i]), end - 1), end
-    return bands if per or len(bands) > len(tables) else []
+    return bands if len(bands) > len(tables) else []
+
+
+def _sideways(lines):
+    """Most line boxes taller than wide: a page printed sideways without a known turn, whose text rows cannot be cut."""
+    return sum(line["bbox"][3] - line["bbox"][1] > line["bbox"][2] - line["bbox"][0] for line in lines) * 2 > len(lines)
+
+
+STRIP_BINS = 16  # 띠 경계 꺾은선의 가로 칸 수
+
+
+def _chained_rows(lines):
+    """OCR 줄을 왼쪽에서 오른쪽으로 이어 인쇄 행으로 묶는다(위에서 아래 순서의 줄 목록들)와 병합 칸 줄. 줄은 그 왼쪽에 끝난 행의 마지막 줄을
+    그 행의 기울기(줄 높이 세 배 넘게 떨어진 마지막 두 줄, 아니면 쪽 기울기 ``print_register._deskew``)대로 이어 그은 높이와 줄 높이 절반 안에서 만나면 그 행에 든다 — 기울거나 휜 사진에서도 한 행의 줄들이 한
+    행이다. 이어 쓴 줄처럼 앞 줄 아래에 겹쳐 놓인 줄은 새 행이다. 중앙 줄 높이의 두 배가 넘는 줄(병합 칸)은 행에서 빼고 따로 돌려준다."""
+    heights = sorted(line["bbox"][3] - line["bbox"][1] for line in lines)
+    tall = [line for line in lines if line["bbox"][3] - line["bbox"][1] > 2 * heights[len(heights) // 2]]
+    middle = lambda line: (line["bbox"][1] + line["bbox"][3]) / 2
+    slope = print_register._deskew([{"x": (a + c) / 2, "y": (b + d) / 2, "h": d - b} for a, b, c, d in (line["bbox"] for line in lines)])[1]
+    rows = []
+    for line in sorted((line for line in lines if line not in tall), key=lambda line: line["bbox"][0]):
+        h = line["bbox"][3] - line["bbox"][1]
+
+        def miss(row):
+            last = row[-1]
+            if last["bbox"][2] > line["bbox"][0] + h / 2:
+                return None
+            run = last["bbox"][0] - row[-2]["bbox"][0] if len(row) > 1 else 0
+            tilt = (middle(last) - middle(row[-2])) / run if run > 3 * h else slope  # 가까운 두 줄의 높이 차는 기울기가 아니라 상자 차
+            return abs(middle(last) + tilt * (line["bbox"][0] - last["bbox"][0]) - middle(line))
+        near = [(gap, row) for row in rows if (gap := miss(row)) is not None and gap < max(h, row[-1]["bbox"][3] - row[-1]["bbox"][1]) / 2]
+        if near:
+            min(near, key=lambda item: item[0])[1].append(line)
+        else:
+            rows.append([line])
+    return sorted(rows, key=lambda row: sum(map(middle, row)) / len(row)), tall
+
+
+def _row_bands(page_blocks, columns, per):
+    """세부내역서 band 띠(``bandkit.PROFILES`` rows): 위치 찾기 없이 OCR 행으로 자른 항목 표 띠 블록들. 없으면 [](rowmajor로 읽는다).
+
+    - 쪽의 표 블록 줄을 한 표로 합친다 — 레이아웃이 항목 표를 행 한가운데에서 둘로 나눠도 블록 경계에서 자르지 않는다.
+    - 줄을 왼쪽에서 오른쪽으로 이어 인쇄 행으로 묶는다(``_chained_rows``) — 기울거나 휜 사진에서도 한 행의 줄들이 한 행이다.
+    - 머리글 줄(머리글 낱말 개념 넷 이상)마다 새 항목 표 묶음이다(내원일마다 머리글을 다시 찍는 서식). 묶음은 그 머리글부터 다음 머리글
+      전의 마지막 표 행(집계 행이나 금액 꼴 숫자 둘 이상인 행)과 그 이어 쓴 줄까지 — 위 환자정보 표·묶음 사이·아래 서명·안내 글은 뺀다.
+      소계가 일찍 나오고 계·합계가 다음 쪽인 표도 마지막 표 행까지다. 데이터 행 없이 이어진 머리글 줄은 한 머리글이다.
+    - 묶음마다 금액 행 약 ``per``행씩(띠 수는 쪽 전체 금액 행으로 MAX_STRIPS개까지 고르게) 금액 행 앞에서 자르고(``_cuts``, 행을 되풀이하지
+      않는다), 뒤 띠에는 그 묶음 머리글 띠를 붙인다. 표 위·아래는 행 높이 1/4 여백.
+    - 띠 경계는 행 사이 틈을 따라가는 꺾은선이다: 표 폭을 STRIP_BINS칸으로 나눠 칸마다 위 행 줄 하단 최대와 아래 행 줄 상단 최소의 가운데(한쪽만
+      있는 칸·빈 칸은 이웃 칸에서 이어 긋는다). 어느 칸에서든 틈이 없으면 그 자리에서는 자르지 않는다. 띠 크롭은 꺾은선을 담는 직사각형이고
+      꺾은선 바깥(이웃 띠의 행)은 흰색으로 지운다(``masks``, ``_data_url``). 꺾은선이 곧으면 지울 것이 없다.
+    띠 블록은 ``_bands``와 같은 꼴(머리글 줄·띠 행·걸친 병합 칸 글자 ``text``, ``clips``)에 ``masks``(크롭마다 지울 다각형, 쪽 비율)를 더한다."""
+    from .parsers import unturn  # parsers → engine 순환을 피한다
+    tables = [b for b in page_blocks if b.get("type") == "table"]
+    if not tables or not all(b.get("page_size") and any(line.get("bbox") for line in b.get("lines") or []) for b in tables):
+        return []
+    turn = _angle(tables[0])
+    uprights = [unturn([block], 360 - turn)[0] if turn else block for block in tables]
+    lines = [line for upright in uprights for line in upright["lines"] if line.get("bbox") and str(line["text"]).strip()]
+    if not lines or _sideways(lines):
+        return []
+    size = uprights[0]["page_size"]
+    x0, x1 = min(u["bbox"][0] for u in uprights), max(u["bbox"][2] for u in uprights)
+    members, tall = _chained_rows(lines)
+    texts = [" | ".join(str(line["text"]) for line in row) for row in members]
+    tops, bottoms = [min(line["bbox"][1] for line in row) for row in members], [max(line["bbox"][3] for line in row) for row in members]
+    counts = [len(ROW_AMOUNT.findall(text)) for text in texts]
+    height = sorted(b - t for t, b in zip(tops, bottoms))[len(members) // 2]
+    heads = [i for i, text in enumerate(texts) if len({hits[0] for part in text.split(" | ") for word in table_layout._words(part)
+                                                      for hits, _ in [table_layout._concepts(word)] if hits}) >= 4]
+    groups, first = [], None
+    for k, head in enumerate(heads):
+        after = heads[k + 1] if k + 1 < len(heads) else len(members)
+        first = head if first is None else first
+        table = [i for i in range(head + 1, after) if counts[i] >= 2 or any(rules._total_name(part) for part in texts[i].split(" | "))]
+        if not table or not any(counts[head + 1:after]):
+            continue  # 데이터 행 없는 머리글 줄은 다음 머리글 줄과 한 머리글
+        last = table[-1]
+        while last + 1 < after and not counts[last + 1] and tops[last + 1] - bottoms[last] < height:  # 마지막 행의 이어 쓴 줄
+            last += 1
+        groups.append((first, last + 1))
+        first = None
+    total = sum(1 for a, b in groups for i in range(a, b) if counts[i])
+    if not total:
+        return []
+    most = max(1, -(-total // max(1, min(MAX_STRIPS, -(-total // per)))))  # 금액 행 하나를 1로 세어 띠당 약 per행
+    pad = height / 4
+    bins = [(x0 + (x1 - x0) * k / STRIP_BINS, x0 + (x1 - x0) * (k + 1) / STRIP_BINS) for k in range(STRIP_BINS)]
+
+    def seam(i):
+        """i-1행과 i행 사이 꺾은선 [(x, y)], 쪽 좌표. 어느 칸에 틈이 없으면 None."""
+        near = lambda rows, left, right: [line for r in rows for line in members[r] if line["bbox"][0] < right and line["bbox"][2] > left]
+        sides = [(max((l["bbox"][3] for l in near(range(max(0, i - 2), i), *span)), default=None),
+                  min((l["bbox"][1] for l in near(range(i, min(len(members), i + 2)), *span)), default=None)) for span in bins]
+        if any(lower is not None and upper is not None and lower >= upper for lower, upper in sides):
+            return None
+        known = [(k, (lower + upper) / 2) for k, (lower, upper) in enumerate(sides) if lower is not None and upper is not None]
+        if not known:
+            known = [(0, (bottoms[i - 1] + tops[i]) / 2)]
+        ys = []
+        for k, (lower, upper) in enumerate(sides):  # 양쪽 줄이 없는 칸은 가까운 칸 사이를 곧게 잇고, 한쪽 줄만 있으면 그 줄 밖으로
+            left = max(((j, y) for j, y in known if j <= k), default=known[0])
+            right = min(((j, y) for j, y in known if j >= k), default=known[-1])
+            y = left[1] if left[0] == right[0] else left[1] + (right[1] - left[1]) * (k - left[0]) / (right[0] - left[0])
+            ys.append(max(y, lower + pad) if lower is not None and upper is None else min(y, upper - pad) if upper is not None and lower is None else y)
+        return [(x0, ys[0]), *(((a + b) / 2, y) for (a, b), y in zip(bins, ys)), (x1, ys[-1])]
+
+    def line_at(i):  # 틈이 없어 자르지 않으려 했지만 고를 데가 없었다: 두 행 사이 곧은 선
+        return seam(i) or [(x, (bottoms[i - 1] + tops[i]) / 2) for x in (x0, x1)]
+
+    def strip(top, bottom):
+        """위·아래 꺾은선 사이 띠: (크롭 상자, 지울 다각형들), 쪽 비율."""
+        y_top, y_bottom = min(y for _, y in top), max(y for _, y in bottom)
+        masks = ([[(x0, y_top), (x1, y_top), *reversed(top)]] if max(y for _, y in top) > y_top else []) + \
+                ([[*bottom, (x1, y_bottom), (x0, y_bottom)]] if min(y for _, y in bottom) < y_bottom else [])
+        return _clip([x0, y_top, x1, y_bottom], size), [[[x / size[0], y / size[1]] for x, y in polygon] for polygon in masks]
+
+    bands = []
+    for a, b in groups:
+        amounts = [int(bool(count)) for count in counts[a:b]]
+        head = a + next(i for i, count in enumerate(amounts) if count)
+        roof = [(x, max(0, tops[a] - pad)) for x in (x0, x1)]  # 머리글 줄 위
+        floor = [(x, min(size[1], bottoms[b - 1] + pad)) for x in (x0, x1)]  # 마지막 행 아래
+        for start, _, end in _cuts(amounts, most, lambda i: seam(a + i) is not None, repeat=False):
+            start, end = a + start, a + end
+            top, bottom = roof if start == head else line_at(start), floor if end == b else line_at(end)
+            parts = ([strip(roof, line_at(head))] if start > head > a else []) + [strip(top, bottom)]  # 뒤 띠: 그 묶음 머리글 띠 + 띠
+            clips, masks = [clip for clip, _ in parts], [mask for _, mask in parts]
+            low, high = min(y for _, y in top), max(y for _, y in bottom)
+            text = texts[a:head] + texts[start:end] + [line["text"] for line in tall if line["bbox"][1] < high and line["bbox"][3] > low]
+            bands.append({"page": tables[0].get("page"), "type": "table", "page_size": tables[0]["page_size"], **({"orientation": turn} if turn else {}),
+                          "text": "\n".join(text), "clips": clips, **({"masks": masks} if any(masks) else {})})
+    return bands
 
 
 def _fields_cap(schema):
@@ -962,7 +1075,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         columns = len(properties[tables[0]]["items"]["properties"])
         strips = [{**strip, "keyed": schema["title"], "cap": min(TABLE_REPLY_TOKENS, _reply_cap(strip["text"], columns)) + THINK_TOKENS,
                    "edge": ai_settings()["band_strip_edge"]}
-                  for strip in _bands(blocks, columns, per)]
+                  for strip in _row_bands(blocks, columns, per)]
         if not strips:
             note("band_fallback", "rows", add=False)
     elif banded:  # 진료비영수증: 표·금액산정 블록 위치를 먼저 찾아 BAND_STRIPS개 띠와 금액산정 블록으로 읽는다
@@ -985,7 +1098,8 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
 
     def read_group(table, group, index, count):
         pages = _page_range(group)
-        if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group), group[0].get("clips"), group[0].get("edge"))):
+        if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group), group[0].get("clips"), group[0].get("edge"),
+                                                      group[0].get("masks"))):
             try:
                 if group[0].get("keyed"):
                     keyed = group[0]["keyed"]
