@@ -643,7 +643,8 @@ def _bands(page_blocks, columns, per=None):
     `per` (band path, `bandkit.PROFILES` rows) sizes bands by printed rows instead: text rows carrying an amount, about `per`
     a band (the fewest bands, at most MAX_STRIPS, of about equal count). Its bands repeat no row — the cut already falls
     between printed rows, and a repeated row would have to be told apart from a printed row of the same name (진찰료) —
-    and one band is kept too (the whole table as one crop)."""
+    and one band is kept too (the whole table as one crop). The prompt then says every row of a band is whole
+    (`bandkit.DETAIL_CLOSING`), and the table's top and bottom get a quarter row height of margin beyond its block box."""
     from .parsers import unturn  # parsers → engine 순환을 피한다
     tables = [b for b in page_blocks if b.get("type") == "table"]
     if not tables or not all(b.get("page_size") and any(line.get("bbox") for line in b.get("lines") or []) for b in tables):
@@ -664,6 +665,9 @@ def _bands(page_blocks, columns, per=None):
         head = next((i for i, count in enumerate(amounts) if count), 0)
         target = -(-sum(amounts) // -(-sum(amounts) // most)) if sum(amounts) else 0  # 고른 띠 크기
         x0, y0, x1, y1 = upright["bbox"]
+        if per and rows:  # 표 블록 상자가 맨 위·아래 줄에 붙어 있어도 행 높이 1/4 여백(행 사이는 가운데에서 잘라 이미 틈의 절반씩 여백)
+            pad = sorted(bottom - top for top, bottom, _ in rows)[len(rows) // 2] / 4
+            y0, y1 = max(0, min(y0, rows[0][0] - pad)), min(upright["page_size"][1], max(y1, rows[-1][1] + pad))
 
         def cut(i):
             return y0 if i == 0 else y1 if i == len(rows) else (rows[i - 1][1] + rows[i][0]) / 2

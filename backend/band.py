@@ -28,7 +28,8 @@ HEADER_NOTE = ("Column headers: a header's characters are often split over lines
                "'선택진료 / 료 외', '선 택 진 료 료 외'); join the characters of the same cell before naming its column. A header with 외 or 이외 "
                "(also numbered ⑤) is 선택진료료외; 선택진료료 without 외 (④) is 선택진료료. When 비급여 is printed above sub-columns "
                "(선택진료료, 선택진료료외), it is only their group title: put each value under its sub-column key and 0 under 비급여.")
-DETAIL_CLOSING = ("Skip rows cut off at the top or bottom edge. Include the printed 소계·계·합계·끝수처리 조정금액 rows where they are printed, their "
+DETAIL_CLOSING = ("Every row in the strip is whole: the strip is cut in the blank space between printed rows, so transcribe every row, also the "  # 겹침 없는 OCR 행 띠
+                  "first and last rows touching the top or bottom edge. Include the printed 소계·계·합계·끝수처리 조정금액 rows where they are printed, their "
                   "label in the 항목 key. Never return header rows. Copy the printed digits only, never compute or infer a value. "
                   "A blank cell is null (per the schema): write it as \"\".")
 SUMMARY_PROMPT = ("This image is the 금액산정내용 (payment calculation) block of a Korean medical receipt. Extract these fields only:\nSchema:\n{schema}\n"

@@ -456,16 +456,21 @@ def detail_row(**cols):
 
 
 def detail_blocks(rows, wrapped=(), lines=True):
-    """1쪽 세부내역서 표 블록(쪽 1000×1000): 머리글 줄 아래 금액이 찍힌 인쇄 행 ``rows``개(행 간격 20), ``wrapped`` 번호 행은 명칭이
-    다음 줄로 이어진다(금액 없는 줄)."""
-    text = [{"text": "항목 | 코드 | 명칭 | 금액 | 본인부담", "bbox": [60, 205, 940, 220]}]
+    """1쪽 세부내역서 표 블록(쪽 1000×1000): 머리글 줄 아래 금액이 찍힌 인쇄 행 ``rows``개(행 간격 STEP, 줄 높이 0.4 STEP), ``wrapped`` 번호
+    행은 명칭이 다음 줄로 이어진다(금액 없는 줄)."""
+    step = STEP(rows)
+    text = [{"text": "항목 | 코드 | 명칭 | 금액 | 본인부담", "bbox": [60, 240 - step, 940, 240 - 0.6 * step]}]
     for i in range(rows):
-        y = 240 + i * 20
-        text.append({"text": f"진찰료 | AA154 | 초진진찰료 | {10000 + i:,}", "bbox": [60, y, 940, y + 8]})
+        y = 240 + i * step
+        text.append({"text": f"진찰료 | AA154 | 초진진찰료 | {10000 + i:,}", "bbox": [60, y, 940, y + 0.4 * step]})
         if i in wrapped:
-            text.append({"text": "(이어 쓴 명칭)", "bbox": [300, y + 9, 500, y + 16]})
+            text.append({"text": "(이어 쓴 명칭)", "bbox": [300, y + 0.45 * step, 500, y + 0.8 * step]})
     return [{"page": 1, "type": "table", "text": "\n".join(line["text"] for line in text), "page_size": [1000, 1000],
-             "bbox": [50, 200, 950, 245 + rows * 20], **({"lines": text} if lines else {})}]
+             "bbox": [50, 200, 950, 245 + rows * step], **({"lines": text} if lines else {})}]
+
+
+def STEP(rows):
+    return min(20, 700 / rows)  # 표가 쪽 안에 든다
 
 
 def body(strip):
@@ -486,7 +491,7 @@ def test_detail_bands_cut_between_printed_rows_about_twelve_rows_a_band(rows, co
     sizes = [sum(top <= (line["bbox"][1] + line["bbox"][3]) / 2 <= bottom for line in lines if "," in line["text"]) for top, bottom in map(body, bands)]
     assert sum(sizes) == rows and max(sizes) <= -(-rows // count) and (max(sizes) <= 12 or count == engine.MAX_STRIPS)
     assert [len(b["clips"]) for b in bands] == [1] + [2] * (count - 1)  # 뒤 띠에는 머리글 띠가 첫 이미지로 붙는다
-    assert all(b["clips"][0] == [0.05, 0.2, 0.95, pytest.approx(0.23)] for b in bands[1:])  # 머리글 줄과 첫 행 사이에서 끝나는 머리글 띠
+    assert all(b["clips"][0] == [0.05, 0.2, 0.95, pytest.approx((240 - 0.3 * STEP(rows)) / 1000)] for b in bands[1:])  # 머리글 줄과 첫 행 사이에서 끝나는 머리글 띠
     assert bands[0]["clips"][0][1] == 0.2 and "항목 | 코드" in bands[-1]["text"]  # 첫 띠는 머리글째, 띠 글자에는 머리글 줄
 
 
@@ -592,3 +597,28 @@ def test_receipt_band_strips_ignore_the_rowmajor_plan(detail):
     assert kinds(detail).count("locate") == 1 and len(texts) == 3
     assert all(text == band.prompt(ITEM, engine.BAND_NOTE[i > 0], True) for i, text in enumerate(texts))
     assert {call.max_tokens for call in detail.calls if call.kind == "band"} == {engine.KEYED_CAP}
+
+
+def test_detail_row_band_prompt_says_every_row_is_whole_and_the_receipt_prompt_still_skips_cut_rows():
+    text = band.prompt(DETAIL, engine.BAND_NOTE[1], True, "세부내역서", PLAN)
+    assert "Skip rows" not in text and "cut off" not in text
+    assert "Every row in the strip is whole" in text and "touching the top or bottom edge" in text
+    assert "Skip rows whose name is cut off at the top or bottom edge." in band.prompt(ITEM, engine.BAND_NOTE[1])  # 영수증(겹친 띠)은 그대로
+
+
+@pytest.mark.parametrize("rows", [5, 30, 61, 100])
+def test_detail_row_bands_have_margin_around_every_row_without_taking_in_a_neighbour(rows):
+    blocks = detail_blocks(rows, wrapped={3})
+    last = max(line["bbox"][3] for line in blocks[0]["lines"])
+    first = blocks[0]["lines"][0]["bbox"][1]
+    blocks[0]["bbox"] = [50, first, 950, last]  # 표 블록 상자가 머리글 줄 위·마지막 줄 아래에 딱 붙었다
+    bands = engine._bands(blocks, len(DPROPS), 12)
+    pad = 0.4 * STEP(rows) / 4  # 행 높이의 1/4
+    assert bands[0]["clips"][0][1] * 1000 == pytest.approx(first - pad) and bands[-1]["clips"][-1][3] * 1000 == pytest.approx(last + pad)
+    for strip in bands:
+        top, bottom = body(strip)
+        inside = [line["bbox"] for line in blocks[0]["lines"] if top <= (line["bbox"][1] + line["bbox"][3]) / 2 <= bottom]
+        assert all(box[1] - top >= pad - 1e-9 and bottom - box[3] >= pad - 1e-9 for box in inside)  # 경계 행도 여백째 담는다
+        assert not any(box[3] > top and box[1] < bottom for box in (line["bbox"] for line in blocks[0]["lines"]) if box not in inside)  # 이웃 행은 안 든다
+    fallback = engine._bands(blocks, len(DPROPS))  # rowmajor 폴백 띠(per 없음)는 그대로: 표 블록 상자에서 자른다
+    assert (fallback == []) is (rows <= 20) and (not fallback or fallback[0]["clips"][0][1] * 1000 == pytest.approx(first))
