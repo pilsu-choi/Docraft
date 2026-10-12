@@ -1,4 +1,6 @@
 import math
+import threading
+import time
 
 import httpx
 import fitz
@@ -82,7 +84,7 @@ def test_ocr_lines_join_the_smallest_block_containing_them(tmp_path, monkeypatch
 
     _, blocks = parse(path, path.name, "image/png")
 
-    assert calls == ["http://layout.invalid/layout-parsing", "http://lines.invalid/ocr"]
+    assert sorted(calls) == ["http://layout.invalid/layout-parsing", "http://lines.invalid/ocr"]
     # The table box is nested in the page-wide text box, so the 진찰료 line belongs to the table.
     assert blocks[0]["lines"] == [{"text": "머리글", "bbox": [10.0, 5.0, 40.0, 20.0]}]
     assert blocks[1]["lines"] == [{"text": "진찰료", "bbox": [10.0, 50.0, 40.0, 70.0]}]
@@ -98,6 +100,44 @@ def test_line_ocr_failure_keeps_parsing_without_lines(tmp_path, monkeypatch):
     _, blocks = parse(path, path.name, "image/png")
 
     assert [b["text"] for b in blocks] == ["머리글", "<table><tr><td>진찰료</td></tr></table>"]
+    assert all("lines" not in block for block in blocks)
+
+
+def test_line_ocr_request_overlaps_the_layout_request(tmp_path, monkeypatch):
+    """The line OCR needs only the file, not the layout answer: it is sent while the layout request is still running."""
+    path = tmp_path / "scan.png"
+    path.write_bytes(b"fake-image-bytes")
+    monkeypatch.setenv("PADDLEOCR_BASE_URL", "http://layout.invalid")
+    monkeypatch.setenv("PADDLEOCR_LINES_URL", "http://lines.invalid")
+    lines_sent = threading.Event()
+
+    def post(url, **kwargs):
+        if url.endswith("/ocr"):
+            lines_sent.set()
+            return httpx.Response(200, json=LINES_RESPONSE, request=httpx.Request("POST", url))
+        assert lines_sent.wait(5), "layout finished before the line OCR request went out"
+        return httpx.Response(200, json=LAYOUT_RESPONSE, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(parsers.httpx, "post", post)
+    with parsers.latency.track() as stats:
+        blocks = parsers._remote_paddle(path, 1, expected_pages=1)
+    assert blocks[1]["lines"] == [{"text": "진찰료", "bbox": [10.0, 50.0, 40.0, 70.0]}]
+    assert "lines_ms" in stats and "ocr_ms" in stats  # the line OCR's own time shows in the request diagnostics
+
+
+def test_line_ocr_answer_is_dropped_once_the_deadline_passed_during_layout(tmp_path, monkeypatch):
+    path = tmp_path / "scan.png"
+    path.write_bytes(b"fake-image-bytes")
+    monkeypatch.setenv("PADDLEOCR_BASE_URL", "http://layout.invalid")
+    monkeypatch.setenv("PADDLEOCR_LINES_URL", "http://lines.invalid")
+
+    def post(url, **kwargs):
+        if not url.endswith("/ocr"):
+            time.sleep(0.3)  # the deadline passes while the layout request runs
+        return httpx.Response(200, json=LINES_RESPONSE if url.endswith("/ocr") else LAYOUT_RESPONSE, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(parsers.httpx, "post", post)
+    blocks = parsers._remote_paddle(path, 1, expected_pages=1, deadline=time.monotonic() + 0.2)
     assert all("lines" not in block for block in blocks)
 
 
