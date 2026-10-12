@@ -570,8 +570,7 @@ def test_a_one_page_detail_statement_is_read_in_row_bands_without_a_locate_call(
     assert [call.images for call in calls] == [1, 2, 2]
     bands = engine._bands(detail.blocks, len(DPROPS), 12)
     assert [call.max_tokens for call in calls] == [min(engine.TABLE_REPLY_TOKENS, engine._reply_cap(b["text"], len(DPROPS))) + engine.THINK_TOKENS for b in bands]
-    assert all(call.text == band.prompt(DETAIL, engine.BAND_NOTE[i > 0], True, "세부내역서", PLAN, b["printed"]) for i, (call, b) in enumerate(zip(calls, bands)))
-    assert "1. 진찰료 | AA154 | 초진진찰료 | 10,000\n" in calls[0].text and "1. 진찰료 | AA154 | 초진진찰료 | 10,010\n" in calls[1].text
+    assert all(call.text == band.prompt(DETAIL, engine.BAND_NOTE[i > 0], True, "세부내역서", PLAN) for i, call in enumerate(calls))
     rows = result["항목내역"]  # 되풀이되는 같은 행도 겹침으로 지우지 않는다(띠가 겹치지 않는다), 인쇄된 집계 행은 그대로
     assert [(row["항목"], row["총액"]) for row in rows] == [("진찰료", "17,610"), ("진찰료", "17,610"), ("합계", "30,140"),
                                                          ("끝수처리 조정금액", "-40"), ("합계", "30,100")]
@@ -623,31 +622,3 @@ def test_detail_row_bands_have_margin_around_every_row_without_taking_in_a_neigh
         assert not any(box[3] > top and box[1] < bottom for box in (line["bbox"] for line in blocks[0]["lines"]) if box not in inside)  # 이웃 행은 안 든다
     fallback = engine._bands(blocks, len(DPROPS))  # rowmajor 폴백 띠(per 없음)는 그대로: 표 블록 상자에서 자른다
     assert (fallback == []) is (rows <= 20) and (not fallback or fallback[0]["clips"][0][1] * 1000 == pytest.approx(first))
-
-
-def test_detail_row_bands_list_their_own_printed_ocr_rows_in_order():
-    blocks = detail_blocks(30, wrapped={3, 9, 10})
-    blocks[0]["lines"].insert(3, {"text": "진찰료 | AA154 | 초진진찰료 | 10,001", "bbox": [60, 240 + 2 * 20, 940, 240 + 2 * 20 + 8]})  # 같은 글자 두 번 인쇄
-    for line in blocks[0]["lines"][4:]:  # 끼워 넣은 행 아래로 한 칸씩 내린다
-        line["bbox"] = [line["bbox"][0], line["bbox"][1] + 20, line["bbox"][2], line["bbox"][3] + 20]
-    blocks[0]["bbox"][3] += 20
-    bands = engine._bands(blocks, len(DPROPS), 12)
-    listed = [text for b in bands for text in b["printed"]]
-    assert len(listed) == 31 and not any("항목 | 코드" in text for text in listed)  # 머리글 제외, 띠마다 제 행만(이어 붙이면 표 행 전부 한 번씩)
-    assert listed[1] == "진찰료 | AA154 | 초진진찰료 | 10,001" == listed[2]  # 같은 내용 두 줄은 두 항목
-    assert listed[3] == "진찰료 | AA154 | 초진진찰료 | 10,002" and listed[4] == "진찰료 | AA154 | 초진진찰료 | 10,003 (이어 쓴 명칭)"  # 여러 줄 행은 공백으로 잇는다
-    for b in bands:  # 띠 목록의 행은 그 띠 본문 안에 있다
-        top, bottom = body(b)
-        inside = [line["text"] for line in blocks[0]["lines"] if "," in line["text"] and top <= (line["bbox"][1] + line["bbox"][3]) / 2 <= bottom]
-        assert [text.split(" (")[0] for text in b["printed"]] == inside
-    assert all("printed" not in b for b in engine._bands(detail_blocks(200), len(DPROPS)))  # rowmajor 폴백 띠는 그대로
-
-
-def test_detail_prompt_lists_the_ocr_rows_for_reference_and_the_receipt_prompt_does_not():
-    rows = ["진찰료 | AA154 | 초진진찰료 | 10,000", "검사료 | GB031 | 일반혈액 | 1,580", "검사료 | GB031 | 일반혈액 | 790"]
-    text = band.prompt(DETAIL, engine.BAND_NOTE[1], True, "세부내역서", PLAN, rows)
-    assert band.OCR_ROWS_NOTE + "1. 진찰료 | AA154 | 초진진찰료 | 10,000\n2. 검사료 | GB031 | 일반혈액 | 1,580\n3. 검사료 | GB031 | 일반혈액 | 790\n" in text
-    assert "read every value from the image" in text and "never merge them" in text and "missing from this list, output it too" in text
-    assert text.index("Example reply") < text.index("OCR rows:") < text.index("Rules (same as the schema)")
-    assert band.prompt(DETAIL, engine.BAND_NOTE[1], True, "세부내역서", PLAN, []) == band.prompt(DETAIL, engine.BAND_NOTE[1], True, "세부내역서", PLAN)
-    assert "OCR rows" not in band.prompt(ITEM, engine.BAND_NOTE[1], True)  # 영수증은 그대로(SHA 테스트도 위에서 본다)
