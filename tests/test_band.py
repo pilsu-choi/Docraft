@@ -110,13 +110,13 @@ def test_header_note_is_only_added_when_switched_on_and_off_keeps_the_dev_prompt
     assert "묶는 제목이면 0" in ITEM["items"]["properties"]["비급여"]["description"]
 
 
-def test_band_reads_strips_with_the_header_note_only_when_the_setting_is_on(monkeypatch):
+def test_band_reads_strips_with_the_header_note_by_default_and_without_it_when_switched_off(monkeypatch):
     seen = []
     monkeypatch.setattr(engine, "_provider", lambda messages, **kw: seen.append(messages[-1]["content"][-1]["text"]) or {"rows": []})
-    for value in ("", "true"):
+    for value in ("false", "", "true"):
         monkeypatch.setenv("BAND_HEADER_NOTE", value) if value else monkeypatch.delenv("BAND_HEADER_NOTE", raising=False)
         engine._read_keyed(ITEM, ["data:image/jpeg;base64,"], engine.BAND_NOTE[0])
-    assert band.HEADER_NOTE not in seen[0] and band.HEADER_NOTE in seen[1]
+    assert band.HEADER_NOTE not in seen[0] and band.HEADER_NOTE in seen[1] and band.HEADER_NOTE in seen[2]
 
 
 def test_expand_fills_blank_and_missing_amount_columns_with_zero_and_counts_odd_keys():
