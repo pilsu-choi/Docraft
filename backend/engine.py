@@ -1,5 +1,6 @@
 import base64
 import difflib
+import hashlib
 import html
 import io
 import json
@@ -18,7 +19,7 @@ import httpx
 from PIL import Image
 from jsonschema import Draft202012Validator
 
-from .config import ai_settings, limit
+from .config import ai_settings, limit, request_id
 from . import band as bandkit, doctypes, table_layout
 from .latency import note, parallel, provider_slot, remaining, spawn, timed
 
@@ -777,15 +778,35 @@ def _located_bands(found, page, turn):
              "clips": [_clip(box, [1, 1]) for box in strips]} for strips in bandkit.clips(found, ai_settings()["band_strips"])]
 
 
-def _read_keyed(spec, images, strip, doc_type=bandkit.RECEIPT, cap=KEYED_CAP, plan=None, deadline=None, cancel=None, on_call=None):
+def _band_dump(source, index, images, messages, reply):
+    """`BAND_DUMP_DIR`(진단용): 띠 읽기 하나에 보낸 이미지·프롬프트와 응답을 ``{dir}/{요청 id 또는 문서 해시}/{띠}_{이미지}.jpg``·
+    ``{띠}.prompt.txt``·``{띠}.reply.json``으로 남긴다. 요청 id는 로그의 [rid](``config.request_id``), 요청 밖이면 원본 파일 SHA-1 앞 12자.
+    저장 실패는 읽기를 막지 않는다(경고만)."""
+    rid = request_id()
+    try:
+        folder = Path(ai_settings()["band_dump_dir"]) / (re.sub(r"[^A-Za-z0-9._=-]", "_", rid) if rid != "-" else
+                                                        hashlib.sha1(Path(source).read_bytes()).hexdigest()[:12] if source else "local")
+        folder.mkdir(parents=True, exist_ok=True)
+        for number, url in enumerate(images):
+            (folder / f"{index}_{number}.jpg").write_bytes(base64.b64decode(url.split(",", 1)[1]))
+        (folder / f"{index}.prompt.txt").write_text("\n\n".join(_message_text(m["content"]) for m in messages), encoding="utf-8")
+        (folder / f"{index}.reply.json").write_text(json.dumps(reply, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("band dump failed: %s", exc)
+
+
+def _read_keyed(spec, images, strip, doc_type=bandkit.RECEIPT, cap=KEYED_CAP, plan=None, dump=None, deadline=None, cancel=None, on_call=None):
     """One strip of a located `doc_type` table as keyed rows (`bandkit.prompt`): short keys per column, all present in every
     row, expanded back to the schema's columns; the reply capped at `cap` tokens. `plan` (`_table_plan`, profiles with `plan`)
-    asks only its printed columns in printed order, as rowmajor does. Raises RuntimeError when the reply has no row list."""
+    asks only its printed columns in printed order, as rowmajor does. `dump` (source, strip number) saves the call
+    (`_band_dump`) when `BAND_DUMP_DIR` is set. Raises RuntimeError when the reply has no row list."""
     _begin_call(cancel, on_call)
     compact = COMPACT_NOTE if ai_settings()["compact_reply"] else ""
-    reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE + compact},
-                       _user(bandkit.prompt(spec, strip, ai_settings()["band_header_note"], doc_type, plan), images)],
-                      timeout_cap=remaining(deadline), max_tokens=cap)
+    messages = [{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE + compact},
+                _user(bandkit.prompt(spec, strip, ai_settings()["band_header_note"], doc_type, plan), images)]
+    reply = _provider(messages, timeout_cap=remaining(deadline), max_tokens=cap)
+    if dump and ai_settings()["band_dump_dir"]:
+        _band_dump(*dump, images, messages, reply)
     if not isinstance(reply, dict) or not isinstance(reply.get("rows"), list):
         raise RuntimeError("band 응답에 행 목록이 없습니다.")
     rows, unknown, missing = bandkit.expand(reply["rows"], spec, doc_type, plan)
@@ -945,7 +966,7 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
                 if group[0].get("keyed"):
                     keyed = group[0]["keyed"]
                     return _read_keyed(properties[table], group_images, BAND_NOTE[len(group_images) > 1], keyed, group[0]["cap"],
-                                       None if bandkit.PROFILES[keyed]["statutory"] else plans[table], deadline, cancel, on_call)
+                                       None if bandkit.PROFILES[keyed]["statutory"] else plans[table], (source, index), deadline, cancel, on_call)
                 return _read_rows(table, properties[table], plans[table], _chunk_text(group, budget), group_images,
                                   PAGES_NOTE.format(pages=pages, span=_page_range(blocks))
                                   + (BAND_NOTE[len(group_images) > 1] if "clips" in group[0] else ""), deadline, cancel, on_call)

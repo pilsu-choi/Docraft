@@ -666,3 +666,31 @@ def test_band_strip_edge_is_passed_only_to_detail_row_bands(state, monkeypatch):
     state.bands = [[], [], []]
     engine.extract(verify._restrict(doctypes.schema("세부내역서"), {"항목내역"}), detail_blocks(30), state.image, table_extract="band")
     assert seen.count(3000) == 3 and None in seen  # 띠 셋만, 쪽 이미지는 그대로
+
+
+# --- BAND_DUMP_DIR: 띠 읽기 진단 저장 ------------------------------------------------------------------
+
+
+def test_band_dump_saves_each_strip_image_prompt_and_reply_under_the_request(state, monkeypatch, tmp_path):
+    import hashlib
+    import json
+    from backend.config import bind_request
+    dump = tmp_path / "dump"
+    monkeypatch.setenv("BAND_DUMP_DIR", str(dump))
+    engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")  # 요청 밖: 원본 파일 해시 폴더
+    folder = dump / hashlib.sha1(open(state.image, "rb").read()).hexdigest()[:12]
+    assert sorted(path.name for path in folder.iterdir()) == ["0.prompt.txt", "0.reply.json", "0_0.jpg", "1.prompt.txt", "1.reply.json",
+                                                             "1_0.jpg", "1_1.jpg", "2.prompt.txt", "2.reply.json", "2_0.jpg", "2_1.jpg"]
+    assert (folder / "0_0.jpg").read_bytes()[:2] == b"\xff\xd8" and "Short keys" in (folder / "0.prompt.txt").read_text(encoding="utf-8")
+    assert json.loads((folder / "0.reply.json").read_text(encoding="utf-8"))["rows"][0]["n"] == "진찰료"
+    state.bands = [[], [], []]
+    with bind_request("job-1/doc:2"):
+        engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")
+    assert (dump / "job-1_doc_2" / "2.reply.json").exists()
+
+
+def test_band_dump_off_writes_nothing(state, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(engine, "_band_dump", lambda *args: pytest.fail("BAND_DUMP_DIR 없이 저장했다"))
+    engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")
+    assert [path for path in tmp_path.iterdir() if path.name != "page.png"] == []
