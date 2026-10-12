@@ -11,6 +11,8 @@ from PIL import Image
 
 from backend import engine, latency, parsers, reprocess
 
+pytestmark = pytest.mark.usefixtures("reprocess_on")  # 재처리 기본 끔 — 이 모듈은 재처리를 거치는 흐름을 본다
+
 
 @pytest.fixture
 def cache(monkeypatch):

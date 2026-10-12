@@ -4,6 +4,8 @@ import pytest
 
 from backend import reprocess
 
+pytestmark = pytest.mark.usefixtures("reprocess_on")  # 재처리 기본 끔 — 이 모듈은 재처리를 거치는 흐름을 본다
+
 
 def test_medical_row_identity_allows_another_amount_to_change():
     old = {"항목내역": [{"항목": "검사료", "공단부담금": "10", "본인부담금": "20"}]}

@@ -4,6 +4,8 @@ import pytest
 
 from backend import doctypes, engine, reprocess, verify
 
+pytestmark = pytest.mark.usefixtures("reprocess_on")  # 재처리 기본 끔 — 이 모듈은 재처리를 거치는 흐름을 본다
+
 
 def block(text, bbox=None):
     bbox = bbox or [10, 10, 180, 30]

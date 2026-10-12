@@ -23,7 +23,7 @@ _MISSING = object()
 
 
 def settings():
-    return {"enabled": os.getenv("REPROCESS_ENABLED", "true").lower() not in {"0", "false", "no"},
+    return {"enabled": os.getenv("REPROCESS_ENABLED", "false").lower() not in {"0", "false", "no"},
             "max_ms": limit("REPROCESS_MAX_MS", 60000, 180000),
             "max_attempts": limit("REPROCESS_MAX_ATTEMPTS", 4, 8),
             "max_model_calls": limit("REPROCESS_MAX_MODEL_CALLS", 2, 4),

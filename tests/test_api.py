@@ -6,6 +6,9 @@ from fastapi.testclient import TestClient
 
 from backend.db import connect
 from backend.main import app, table_rows
+import pytest
+
+pytestmark = pytest.mark.usefixtures("reprocess_on")  # 재처리 기본 끔 — 이 모듈은 재처리를 거치는 흐름을 본다
 
 
 client = TestClient(app)
