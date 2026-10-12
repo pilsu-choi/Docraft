@@ -216,3 +216,32 @@ def test_provider_keep_alive_cannot_outlive_the_deadline(monkeypatch):
     with pytest.raises(TimeoutError):
         engine._provider([{"role": "user", "content": "JSON"}], timeout_cap=0.2)
     assert time.monotonic() - started < 1
+
+
+@pytest.mark.parametrize("workers, size, peak", [("2", "4", 2), ("3", "2", 1), ("1", "3", 3)])
+def test_slots_are_a_server_wide_limit_shared_by_uvicorn_workers(monkeypatch, workers, size, peak):
+    """``WEB_CONCURRENCY`` 프로세스가 각자 ``size // workers``(최소 1)만 쥐어 서버 전체로 상한을 넘지 않는다."""
+    monkeypatch.setenv("WEB_CONCURRENCY", workers)
+    monkeypatch.setenv("VLM_CONCURRENCY", size)
+    monkeypatch.setattr(latency, "_gates", {})
+    running, seen, lock = [0], [0], threading.Lock()
+
+    def call():
+        with latency.provider_slot():
+            with lock:
+                running[0] += 1
+                seen[0] = max(seen[0], running[0])
+            time.sleep(0.05)
+            with lock:
+                running[0] -= 1
+    threads = [threading.Thread(target=call) for _ in range(6)]
+    [thread.start() for thread in threads]
+    [thread.join() for thread in threads]
+    assert seen[0] == peak
+
+
+def test_spawned_work_reports_its_stages_to_the_request_that_started_it():
+    with latency.track() as stats:
+        future = latency.spawn(lambda: latency.note("vlm_ms", 5) or "done")
+        assert future.result() == "done"
+    assert stats == {"vlm_ms": 5}

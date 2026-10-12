@@ -557,12 +557,6 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
     """
     if deadline is not None and time.monotonic() >= deadline:
         raise TimeoutError("read deadline exceeded")
-    _, blocks = parse(image, Path(image).name, "", {"provider": "paddle",
-                                                   **({"timeout": max(0.1, deadline - time.monotonic()), "deadline": deadline}
-                                                      if deadline is not None else {})})
-    _check(cancel)
-    if deadline is not None and time.monotonic() >= deadline:
-        raise TimeoutError("read deadline exceeded")
     schema = _restrict(doctypes.schema(doc_type), only)
     row_filter = row_filter or {}
     extract_schema = _narrow_rows(schema, doc_type, row_filter) if row_filter else schema
@@ -573,24 +567,35 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
         initial_calls += 1
     options = {} if deadline is None else {"deadline": deadline, "cancel": cancel, "on_call": count_initial}
     settings = engine.ai_settings()
-    located = {} if settings.get("print_register") and doc_type == "진료비영수증" else None
-    with latency.timed("extract_ms"):
-        result, groundings = engine.extract(extract_schema, blocks, source=image, table_extract=settings["table_extract"], **options,
-                                            **({"located": located} if located is not None else {}))
+    # 표 위치 찾기는 쪽 이미지만 보므로 OCR을 기다리지 않고 보낸다(extract가 OCR이 쪽을 돌리지 않았을 때만 그 답을 쓴다)
+    early = engine.prelocate(extract_schema, image, settings["table_extract"], **options)
+    with latency.timed("parse_ms"):
+        _, blocks = parse(image, Path(image).name, "", {"provider": "paddle",
+                                                       **({"timeout": max(0.1, deadline - time.monotonic()), "deadline": deadline}
+                                                          if deadline is not None else {})})
     _check(cancel)
     if deadline is not None and time.monotonic() >= deadline:
         raise TimeoutError("read deadline exceeded")
-    if located and isinstance(rows := result.get(rules.ITEM_TABLE), list) and all(isinstance(r, dict) for r in rows) and engine._pages(blocks) == [1] and not engine._turns(blocks).get(1):
-        # 좌표가 필요해 rules.apply(재처리·Judge 정규화에서도 불린다) 밖, 위치 상자와 OCR 줄이 같은 쪽 좌표계인 바로 선 1쪽 문서에만 둔다
-        rows, info = print_register.register(rows, blocks, located)
-        latency.note("print_register", info, add=False)
-        if info["reason"] == "적용":
-            result = {**result, rules.ITEM_TABLE: rows}
-            groundings = engine.ground(result, extract_schema, blocks)
-    fields = rules.apply(doc_type, result, blocks)
-    rowmajor = settings["table_extract"] in ("rowmajor", "band") and rules.ITEM_TABLE in extract_schema.get("properties", {})
-    if rowmajor:
-        _note_table(blocks, misses := rules.table_misses(doc_type, result.get(rules.ITEM_TABLE), fields), misses >= settings["table_recheck_ratio"])
+    located = {} if settings.get("print_register") and doc_type == "진료비영수증" else None
+    with latency.timed("extract_ms"):
+        result, groundings = engine.extract(extract_schema, blocks, source=image, table_extract=settings["table_extract"], **options,
+                                            **({"located": located} if located is not None else {}),
+                                            **({"prelocated": early} if early is not None else {}))
+    _check(cancel)
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("read deadline exceeded")
+    with latency.timed("post_ms"):  # 추출 뒤 CPU(인쇄 밀림 되돌리기·근거·규칙). 표를 다시 읽는 호출은 extract_ms
+        if located and isinstance(rows := result.get(rules.ITEM_TABLE), list) and all(isinstance(r, dict) for r in rows) and engine._pages(blocks) == [1] and not engine._turns(blocks).get(1):
+            # 좌표가 필요해 rules.apply(재처리·Judge 정규화에서도 불린다) 밖, 위치 상자와 OCR 줄이 같은 쪽 좌표계인 바로 선 1쪽 문서에만 둔다
+            rows, info = print_register.register(rows, blocks, located)
+            latency.note("print_register", info, add=False)
+            if info["reason"] == "적용":
+                result = {**result, rules.ITEM_TABLE: rows}
+                groundings = engine.ground(result, extract_schema, blocks)
+        fields = rules.apply(doc_type, result, blocks)
+        rowmajor = settings["table_extract"] in ("rowmajor", "band") and rules.ITEM_TABLE in extract_schema.get("properties", {})
+        if rowmajor:
+            _note_table(blocks, misses := rules.table_misses(doc_type, result.get(rules.ITEM_TABLE), fields), misses >= settings["table_recheck_ratio"])
     if rowmajor and misses >= settings["table_recheck_ratio"]:
         # 행 산술이 크게 어긋나거나 금액을 비웠거나 행이 무너졌으면 rowmajor 열 배치가 틀린 것이다: 그 표만 asis로 다시 읽는다
         logger.info("verify: %s 표 이상 비율 %.2f >= %.2f, asis로 다시 읽는다", rules.ITEM_TABLE, misses, settings["table_recheck_ratio"])
@@ -600,8 +605,9 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
         if deadline is not None and time.monotonic() >= deadline:
             raise TimeoutError("read deadline exceeded")
         result = {**result, **again}
-        groundings = engine.ground(result, extract_schema, blocks)
-        fields = rules.apply(doc_type, result, blocks)
+        with latency.timed("post_ms"):
+            groundings = engine.ground(result, extract_schema, blocks)
+            fields = rules.apply(doc_type, result, blocks)
     for table, names in row_filter.items():  # 모델이 목록 밖 행을 내도 걸러 낸다
         column = _row_column(doc_type, table)
         fields[table] = [row for row in fields.get(table) or [] if row.get(column) in names]
@@ -623,21 +629,22 @@ def read(image: str, doc_type: str, only: set[str] | None = None, cancel=None,
         recovered["initial_extract_model_calls"] = initial_calls if deadline is not None else None
         recovered["extra_model_calls"] = recovered["model_calls"]
     if with_groundings:
-        final_groundings = _read_groundings(doc_type, result or {}, fields, groundings or {})
-        if recovered and any(item.get("adopted") for item in recovered["trace"]):
-            final_groundings = _merge_recovered_groundings(final_groundings, recovery_groundings,
-                                                            recovered["trace"], fields)
-        source_groundings = recovery_groundings
-        if source_groundings is None:
-            source_groundings = engine.ground(fields, schema, blocks)
-            if with_reprocess and reprocess_schema is schema:
-                # 재처리를 거치지 않은 품질 판정은 같은 입력의 근거를 다시 대지 않고 이 근거로 한다(``engine.assess``가 내부에서 대는 것과 같다)
-                recovered_quality = engine.assess(fields, schema, blocks, deepcopy(source_groundings))
-        for key, value in fields.items():
-            source = source_groundings.get(key, {}) if isinstance(source_groundings, dict) else {}
-            if not isinstance(value, (dict, list)) and reprocess._typed(source, value):
-                final_groundings[key] = _exposed_grounding(source, value)
-        return (doc_type, fields, blocks, final_groundings, recovered_quality, recovered) if with_reprocess else (doc_type, fields, blocks, final_groundings)
+        with latency.timed("finish_ms"):  # 응답 좌표(재처리가 바꾼 칸 포함)
+            final_groundings = _read_groundings(doc_type, result or {}, fields, groundings or {})
+            if recovered and any(item.get("adopted") for item in recovered["trace"]):
+                final_groundings = _merge_recovered_groundings(final_groundings, recovery_groundings,
+                                                                recovered["trace"], fields)
+            source_groundings = recovery_groundings
+            if source_groundings is None:
+                source_groundings = engine.ground(fields, schema, blocks)
+                if with_reprocess and reprocess_schema is schema:
+                    # 재처리를 거치지 않은 품질 판정은 같은 입력의 근거를 다시 대지 않고 이 근거로 한다(``engine.assess``가 내부에서 대는 것과 같다)
+                    recovered_quality = engine.assess(fields, schema, blocks, deepcopy(source_groundings))
+            for key, value in fields.items():
+                source = source_groundings.get(key, {}) if isinstance(source_groundings, dict) else {}
+                if not isinstance(value, (dict, list)) and reprocess._typed(source, value):
+                    final_groundings[key] = _exposed_grounding(source, value)
+            return (doc_type, fields, blocks, final_groundings, recovered_quality, recovered) if with_reprocess else (doc_type, fields, blocks, final_groundings)
     if with_reprocess:
         return doc_type, fields, blocks, recovered
     return doc_type, fields, blocks

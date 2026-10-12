@@ -1,12 +1,13 @@
 """Docraft 순수 읽기(`backend.verify.read`)와 `POST /api/read`. `test_verify.py`의 스텁을 재사용한다."""
 
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
-from backend import engine, rules, verify
+from backend import engine, main, rules, verify
 from backend.main import app
 from test_verify import DOCRAFT, _image, hinted_stub, stub
 
@@ -177,6 +178,24 @@ def test_read_route_returns_the_contract_shape_with_all_fields_when_keys_is_omit
     assert isinstance(body["elapsed_ms"], int)
     assert body["fields"] == DOCRAFT  # 스텁의 고정 docraft(전체 필드), AO 비교·판정 정보 없음
     assert body["groundings"] == {"병명내역": [{}, {}]}
+
+
+def test_read_route_stages_add_up_to_the_elapsed_time(monkeypatch, tmp_path, caplog):
+    hinted_stub(monkeypatch)
+    real = verify.read
+
+    def slow(*args, **kwargs):  # 단계 밖에서 쓴 시간은 gap_ms로 드러난다
+        time.sleep(0.05)
+        return real(*args, **kwargs)
+    monkeypatch.setattr(verify, "read", slow)
+
+    with caplog.at_level("INFO", logger="backend.main"):
+        body = post_read(_image(tmp_path)).json()
+
+    stages = body["diagnostics"]
+    assert {"upload_ms", "queue_ms", "parse_ms", "extract_ms", "post_ms", "finish_ms", "gap_ms"} <= set(stages)
+    assert stages["gap_ms"] == body["elapsed_ms"] - sum(stages.get(name, 0) for name in main.READ_STAGES) and stages["gap_ms"] >= 40
+    assert "gap_ms=" in caplog.text and "lines_ms=" in caplog.text
 
 
 def test_read_route_returns_verified_grounding_for_requested_key(monkeypatch, tmp_path):

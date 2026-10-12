@@ -1,7 +1,10 @@
 """TABLE_EXTRACT=band: 위치 응답 후처리·띠 자르기·짧은 키 읽기·띠 합치기(band), 금액산정 블록 병합(engine.extract).
 합성 이미지와 가짜 provider만 쓴다."""
 
+import concurrent.futures
+import copy
 import threading
+import time
 from types import SimpleNamespace
 
 import fitz
@@ -115,18 +118,23 @@ def state(monkeypatch, tmp_path):
                         bands=[[row("진찰료", a="100", b="900"), row("입원료", a="200")],
                                [row("입원료", a="200"), row("투약료", b="50"), row("합계", a="300", b="950")],
                                [row("검사료", a="7"), row("합계", a="307", b="950")]],
-                        blocks=[{"page": 1, "type": "table", "text": "", "rows": [["항목", "요양급여(①+②)", "비급여"]]}])
+                        blocks=[{"page": 1, "type": "table", "text": "", "rows": [["항목", "요양급여(①+②)", "비급여"]]}],
+                        locate_delay=0, spawned=[])
 
     def provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_tokens=None):
         content = messages[-1]["content"]
         text, images = (content[-1]["text"], len(content) - 1) if isinstance(content, list) else (content, 0)
         kind = ("locate" if text.startswith("Locate regions") else "summary" if "payment calculation) block" in text
-                else "band" if "Short keys" in text else "rows" if json_schema else "fields")
+                else "band" if "Short keys" in text else "rows" if "Extract this table now" in text else "fields")
         with s.lock:
-            s.calls.append(SimpleNamespace(kind=kind, text=text, images=images, system=messages[0]["content"] if len(messages) > 1 else ""))
+            s.calls.append(SimpleNamespace(kind=kind, text=text, images=images, system=messages[0]["content"] if len(messages) > 1 else "",
+                                           json_schema=json_schema, max_tokens=max_tokens, image=content[0]["image_url"]["url"] if images else None))
             if kind == "band":
                 return {"rows": s.bands.pop(0)}
         if kind == "locate":
+            time.sleep(s.locate_delay)
+            if isinstance(s.locate, Exception):
+                raise s.locate
             return s.locate
         if kind == "summary":
             if isinstance(s.summary, Exception):
@@ -134,7 +142,10 @@ def state(monkeypatch, tmp_path):
             return s.summary
         return {"rows": s.fallback_rows} if kind == "rows" else s.fields
     monkeypatch.setattr(engine, "_provider", provider)
-    return s
+    spawn = latency.spawn  # 먼저 보낸 호출이 테스트 뒤(가짜 provider를 걷은 뒤)까지 남지 않게 끝을 기다린다
+    monkeypatch.setattr(engine, "spawn", lambda *args: s.spawned.append(spawn(*args)) or s.spawned[-1])
+    yield s
+    concurrent.futures.wait(s.spawned)
 
 
 def receipt_schema(*keys):
@@ -186,12 +197,16 @@ def test_a_summary_block_that_cannot_be_read_falls_back_to_the_page_read(state, 
     assert result["진료비총액"] == "9,999" and stats["band_fallback"] == "summary"
 
 
-def test_without_a_summary_box_its_keys_come_from_the_page_read(state):
+@pytest.mark.parametrize("speculate", [False, True])
+def test_without_a_summary_box_its_keys_come_from_the_page_read(state, monkeypatch, speculate):
+    monkeypatch.setenv("BAND_SPECULATE", str(speculate))
     state.locate = {**GRID, "summary": None}
-    result, _ = engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")
+    with latency.track() as stats:
+        result, _ = engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")
 
-    assert kinds(state) == ["band"] * 3 + ["fields", "locate"]
-    assert result["진료비총액"] == "9,999" and "진료비총액" in next(c for c in state.calls if c.kind == "fields").text
+    assert kinds(state) == ["band"] * 3 + ["fields"] * (1 + speculate) + ["locate"]  # 먼저 읽은 나머지 필드는 버리고 다시 읽는다
+    assert stats.get("band_speculate") == ("reread" if speculate else None)
+    assert result["진료비총액"] == "9,999" and any("진료비총액" in c.text for c in state.calls if c.kind == "fields")
 
 
 def test_band_keys_missing_or_unknown_are_counted_as_diagnostics(state):
@@ -208,7 +223,7 @@ def test_an_unusable_locate_reads_the_table_as_rowmajor(state, monkeypatch, loca
     with latency.track() as stats:
         result, _ = engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")
 
-    assert kinds(state) == ["fields", "locate", "rows"] and stats["band_fallback"] == "locate"
+    assert kinds(state) == ["fields", "fields", "locate", "rows"] and stats["band_fallback"] == "locate"  # 먼저 읽은 것 + 다시 읽은 것
     assert result["항목내역"][0]["항목"] == "진찰료" and result["진료비총액"] == "9,999"
 
 
@@ -235,3 +250,144 @@ def test_band_applies_only_to_the_listed_doc_types(state, monkeypatch, types, do
 def test_band_needs_one_page_with_an_image(state):
     engine.extract(receipt_schema(), state.blocks, None, table_extract="band")
     assert "locate" not in kinds(state)
+
+
+# --- 지연 줄이기: 위치 먼저 찾기(BAND_PRELOCATE)·나머지 필드 먼저 읽기(BAND_SPECULATE)·띠 수·짧은 응답 ----------
+
+
+def run(state, monkeypatch, blocks=None, schema=None, **env):
+    """state를 처음 응답으로 되돌리고 환경변수를 바꿔 extract한 (결과, 근거, 호출 종류, 단계 값)."""
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    state.calls.clear()
+    state.bands = copy.deepcopy(state.first_bands)
+    with latency.track() as stats:
+        prelocated = engine.prelocate(schema or receipt_schema(), state.image, "band")
+        result = engine.extract(schema or receipt_schema(), blocks or state.blocks, state.image, table_extract="band",
+                                **({"prelocated": prelocated} if prelocated else {}))
+    return result, kinds(state), stats
+
+
+@pytest.fixture
+def replay(state):
+    state.first_bands = copy.deepcopy(state.bands)
+    return state
+
+
+@pytest.mark.parametrize("locate, summary", [(GRID, None), ({**GRID, "summary": None}, None), ({"item_grid": None}, None),
+                                             (GRID, RuntimeError("HTTP 500")), (TimeoutError("deadline"), None)])
+def test_reading_early_gives_the_same_result_in_every_branch(replay, monkeypatch, locate, summary):
+    """위치 먼저 찾기·나머지 필드 먼저 읽기를 켜도 켜지 않은 읽기와 결과가 같다: 금액산정 상자를 찾음·못 찾음·위치 실패·
+    블록 읽기 실패·위치 호출 예외 모두. 가짜 provider는 같은 요청에 같은 답을 낸다."""
+    replay.locate, replay.summary, replay.locate_delay = locate, summary, 0.05
+    outcomes = []
+    for on in ("false", "true"):
+        try:
+            outcomes.append(run(replay, monkeypatch, BAND_PRELOCATE=on, BAND_SPECULATE=on)[:2])
+        except TimeoutError as exc:
+            outcomes.append((repr(exc), kinds(replay)))
+    (before, before_calls), (after, after_calls) = outcomes
+    assert after == before
+    if locate is GRID and summary is None:
+        assert after_calls == before_calls  # 금액산정 상자를 찾으면 호출이 늘지 않는다
+
+
+def test_the_other_fields_are_read_while_the_locate_reply_is_pending(replay, monkeypatch):
+    replay.locate_delay = 0.2
+    run(replay, monkeypatch, BAND_PRELOCATE="false")
+    order = [call.kind for call in replay.calls]
+    assert order.index("fields") < order.index("band")  # 띠는 위치 응답 뒤에만 시작한다
+
+
+def test_speculation_off_reads_the_other_fields_after_the_locate_reply(replay, monkeypatch):
+    replay.locate_delay = 0.1
+    run(replay, monkeypatch, BAND_PRELOCATE="false", BAND_SPECULATE="false")
+    order = [call.kind for call in replay.calls]
+    assert order[0] == "locate" and "fields" in order[1:]
+
+
+def test_an_unturned_page_uses_the_locate_reply_sent_before_ocr(replay, monkeypatch):
+    _, calls, stats = run(replay, monkeypatch)
+    assert calls.count("locate") == 1 and stats["band_prelocate"] == "used"
+
+
+@pytest.mark.parametrize("turn", [{"skew": 0.4}, {"orientation": 90}])
+def test_a_page_ocr_turned_is_located_again_on_its_turned_image(replay, monkeypatch, turn):
+    blocks = [{**replay.blocks[0], **turn}]
+    expected = run(replay, monkeypatch, blocks, BAND_PRELOCATE="false")[0]
+    result, calls, stats = run(replay, monkeypatch, blocks, BAND_PRELOCATE="true")
+    assert (calls.count("locate"), stats.get("band_prelocate")) == (2, "turned")
+    assert result == expected
+
+
+@pytest.mark.parametrize("env, doc_type, mode, pages", [({"BAND_PRELOCATE": "false"}, "진료비영수증", "band", 1),
+                                                       ({}, "세부내역서", "band", 1), ({}, "진료비영수증", "rowmajor", 1),
+                                                       ({}, "진료비영수증", "band", 2), ({"AI_API_KEY": ""}, "진료비영수증", "band", 1),
+                                                       ({"AI_VISION": "false"}, "진료비영수증", "band", 1)])
+def test_prelocate_starts_only_where_extract_would_locate(state, monkeypatch, tmp_path, env, doc_type, mode, pages):
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    source = tmp_path / "doc.pdf"
+    document = fitz.open()
+    for _ in range(pages):
+        document.new_page(width=200, height=200)
+    document.save(source)
+    schema = verify._restrict(doctypes.schema(doc_type), {"항목내역"})
+    assert engine.prelocate(schema, str(source), mode) is None and state.calls == []
+    assert engine.prelocate(receipt_schema(), str(tmp_path / "missing.png"), "band") is None
+
+
+def test_read_sends_the_locate_call_while_ocr_runs(replay, monkeypatch):
+    located = threading.Event()
+    replay.calls = type("Calls", (list,), {"append": lambda self, call: (list.append(self, call), call.kind == "locate" and located.set())})()
+
+    def parse(*args):  # OCR이 끝나기 전에 위치 호출이 와야 돌아온다
+        assert located.wait(5)
+        return "", copy.deepcopy(replay.blocks)
+    monkeypatch.setattr(verify, "parse", parse)
+    replay.bands = copy.deepcopy(replay.first_bands)
+    with latency.track() as stats:
+        verify.read(replay.image, "진료비영수증", {"항목내역", "환자정보-성명", "진료비총액", "납부할금액"}, auto_reprocess=False)
+    assert kinds(replay).count("locate") == 1 and stats["band_prelocate"] == "used"
+    assert {"parse_ms", "extract_ms", "post_ms"} <= set(stats)
+
+
+@pytest.mark.parametrize("count", [2, 4])
+def test_band_strips_sets_the_number_of_strips(replay, monkeypatch, count):
+    replay.first_bands = (replay.first_bands * 2)[:count]
+    _, calls, _ = run(replay, monkeypatch, BAND_STRIPS=str(count))
+    assert calls.count("band") == count
+    strips = band.clips(band.boxes(GRID), count)
+    assert len(strips) == count and strips[-1][-1][3] == pytest.approx(0.815)
+
+
+@pytest.mark.parametrize("compact", [False, True])
+def test_compact_reply_asks_for_one_line_json_with_capped_tokens(replay, monkeypatch, compact):
+    run(replay, monkeypatch, COMPACT_REPLY=str(compact))
+    calls = {call.kind: call for call in replay.calls}
+    assert all(call.system.endswith(engine.COMPACT_NOTE) is compact for kind, call in calls.items() if kind != "locate")
+    fields = calls["fields"]
+    assert (fields.json_schema is not None) is compact and (fields.max_tokens == 60 * 1 + 100 if compact else fields.max_tokens is None)
+    assert calls["summary"].max_tokens == (60 * 2 + 100 if compact else 1500)
+
+
+def test_a_skewed_upright_page_uses_the_straightened_locate_image_sent_before_ocr(replay, monkeypatch, tmp_path):
+    """OCR 전에 픽셀로 잰 기울기(parsers.page_tilt)로 바로 세운 이미지가 OCR 뒤 extract가 보낼 이미지와 바이트까지 같아 그 답을 쓴다."""
+    from PIL import Image, ImageDraw
+    page = Image.new("RGB", (1200, 1600), "white")
+    draw = ImageDraw.Draw(page)
+    for y in range(100, 1500, 40):  # 인쇄 줄 같은 가로 막대
+        draw.rectangle([100, y, 1100, y + 12], fill="black")
+    replay.image = str(tmp_path / "skewed.png")
+    page.rotate(-2, Image.BICUBIC, expand=False, fillcolor="white").save(replay.image)
+    from backend import parsers
+    skew = parsers.page_tilt(replay.image)
+    assert skew  # 2도 남짓 기울어 있다
+    blocks = [{**replay.blocks[0], "skew": skew}]
+    result, calls, stats = run(replay, monkeypatch, blocks)
+    locate = next(call for call in replay.calls if call.kind == "locate")
+    assert calls.count("locate") == 1 and stats["band_prelocate"] == "used"
+    assert locate.image == engine._page_images(replay.image, [1], engine._turns(blocks))[0]
+    assert result == run(replay, monkeypatch, blocks, BAND_PRELOCATE="false")[0]
+    _, calls, stats = run(replay, monkeypatch, [{**replay.blocks[0], "skew": skew, "orientation": 90}], BAND_PRELOCATE="true")  # 90도 돌렸으면 다시 찾는다
+    assert (calls.count("locate"), stats.get("band_prelocate")) == (2, "turned")
