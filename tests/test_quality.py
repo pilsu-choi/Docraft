@@ -98,6 +98,6 @@ def test_incomplete_remote_page_response_fails_instead_of_silently_shifting_page
     source.write_bytes(b"synthetic")
     monkeypatch.setenv("PADDLEOCR_BASE_URL", "https://ocr.example")
     reply = {"result": {"layoutParsingResults": [{"markdown": {"text": "first"}}]}}
-    monkeypatch.setattr(parsers.httpx, "post", lambda url, **_: httpx.Response(200, json=reply, request=httpx.Request("POST", url)))
+    monkeypatch.setattr(httpx.Client, "post", lambda _self, *a, **k: (lambda url, **_: httpx.Response(200, json=reply, request=httpx.Request("POST", url)))(*a, **k))
     with pytest.raises(parsers.ParseError, match="2페이지 중 1페이지"):
         parsers._remote_paddle(source, 0, expected_pages=2)

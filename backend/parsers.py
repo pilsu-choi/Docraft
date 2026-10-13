@@ -113,7 +113,7 @@ def parse_image(path, provider="auto", timeout=None, deadline=None):
     try:
         with Image.open(path) as source, tempfile.NamedTemporaryFile(suffix=".pdf" if getattr(source, "n_frames", 1) > 1 else ".png") as normalized:
             frames = [ImageOps.exif_transpose(frame).convert("RGB") for frame in ImageSequence.Iterator(source)]
-            frames[0].save(normalized, format="PDF" if len(frames) > 1 else "PNG", save_all=True, append_images=frames[1:], resolution=72.0)
+            frames[0].save(normalized, format="PDF" if len(frames) > 1 else "PNG", compress_level=1, save_all=True, append_images=frames[1:], resolution=72.0)
             normalized.flush()
             file_type = 0 if len(frames) > 1 else 1
             blocks = _remote_paddle(normalized.name, file_type, expected_pages=len(frames), timeout=timeout, deadline=deadline)
@@ -141,7 +141,7 @@ def _read_lines(encoded, file_type, settings, deadline=None):
     headers = {"Authorization": f"Bearer {settings['token']}"} if settings["token"] else {}
     try:
         with latency.timed("lines_ms"):  # 줄 OCR 시간(진단 값) — 레이아웃 ocr_ms와 겹쳐 흐른다
-            response = httpx.post(f"{settings['lines_url']}/ocr", json={"file": encoded, "fileType": file_type, "visualize": False}, headers=headers, timeout=latency.capped(settings["timeout"], deadline))
+            response = latency.http_client().post(f"{settings['lines_url']}/ocr", json={"file": encoded, "fileType": file_type, "visualize": False}, headers=headers, timeout=latency.capped(settings["timeout"], deadline))
         response.raise_for_status()
         pages = response.json()["result"]["ocrResults"]
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
@@ -293,7 +293,7 @@ def _read_turned(image, turn, deadline):
 
     Ruled table grids are left to `_upright`, which builds them only for the turn it keeps."""
     with tempfile.NamedTemporaryFile(suffix=".png") as turned:
-        image.rotate(turn, expand=True).save(turned, format="PNG")
+        image.rotate(turn, expand=True).save(turned, format="PNG", compress_level=1)
         turned.flush()
         remaining = deadline - time.monotonic() if deadline is not None else None
         if remaining is not None and remaining <= 0:
@@ -453,7 +453,7 @@ def _remote_paddle(path, file_type, page_map=None, expected_pages=None, timeout=
     try:
         with latency.ocr_slot(deadline):  # GPU 레이아웃 모델은 동시 2건에서 포화된다 — 몰리면 줄을 세운다
             budget = min(settings["timeout"], timeout) if timeout is not None else settings["timeout"]
-            response = httpx.post(endpoint, json=payload, headers=headers, timeout=latency.capped(budget, deadline))
+            response = latency.http_client().post(endpoint, json=payload, headers=headers, timeout=latency.capped(budget, deadline))
         response.raise_for_status()
         pages = response.json()["result"]["layoutParsingResults"]
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:

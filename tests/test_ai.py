@@ -90,7 +90,7 @@ def test_remote_paddle_layout_contract(monkeypatch, tmp_path):
             request=httpx.Request("POST", url),
         )
 
-    monkeypatch.setattr(parsers.httpx, "post", post)
+    monkeypatch.setattr(httpx.Client, "post", lambda _self, *a, **k: (post)(*a, **k))
     blocks = parsers.parse_image(source)
     assert seen["url"] == "https://ocr.example/layout-parsing"
     assert seen["json"]["fileType"] == 1
@@ -112,7 +112,7 @@ def test_image_named_tif_with_gif_bytes_is_sent_as_png(monkeypatch, tmp_path):
         return httpx.Response(200, json={"result": {"layoutParsingResults": [
             {"markdown": {"text": "문서"}}]}}, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(parsers.httpx, "post", post)
+    monkeypatch.setattr(httpx.Client, "post", lambda _self, *a, **k: (post)(*a, **k))
     assert parsers.parse_image(source)[0]["text"] == "문서"
     assert seen["file_type"] == 1
     assert seen["bytes"].startswith(b"\x89PNG\r\n\x1a\n")
@@ -131,7 +131,7 @@ def test_remote_paddle_region_bboxes(monkeypatch, tmp_path):
         {"block_label": "image", "block_content": "", "block_bbox": [0, 0, 1, 1]},
     ]}
     response = {"result": {"layoutParsingResults": [{"prunedResult": pruned, "markdown": {"text": "ignored"}}]}}
-    monkeypatch.setattr(parsers.httpx, "post", lambda url, **_: httpx.Response(200, json=response, request=httpx.Request("POST", url)))
+    monkeypatch.setattr(httpx.Client, "post", lambda _self, *a, **k: (lambda url, **_: httpx.Response(200, json=response, request=httpx.Request("POST", url)))(*a, **k))
     blocks = parsers._remote_paddle(source, 0)
     assert [(b["type"], b["text"], b["bbox"], b["page_size"]) for b in blocks] == [
         ("text", "환자명: 홍길동", [10, 20, 300, 60], [1000, 1400]),
@@ -155,7 +155,7 @@ def test_remote_paddle_label_mapping_and_html_table_rows(monkeypatch, tmp_path):
         {"block_label": "table", "block_content": "<table><tr><td>A</td><td>B</td></tr></table>"},
     ]}
     response = {"result": {"layoutParsingResults": [{"prunedResult": pruned}]}}
-    monkeypatch.setattr(parsers.httpx, "post", lambda url, **_: httpx.Response(200, json=response, request=httpx.Request("POST", url)))
+    monkeypatch.setattr(httpx.Client, "post", lambda _self, *a, **k: (lambda url, **_: httpx.Response(200, json=response, request=httpx.Request("POST", url)))(*a, **k))
     blocks = parsers._remote_paddle(source, 0)
     assert {b["label"]: b["type"] for b in blocks} == {
         "doc_title": "heading", "paragraph_title": "heading", "image": "figure", "chart": "figure",
@@ -182,7 +182,7 @@ def test_remote_paddle_page_range_sends_only_selected_pages_and_maps_back(monkey
         results = [{"markdown": {"text": f"page-{i}"}} for i in range(seen["page_count"])]
         return httpx.Response(200, json={"result": {"layoutParsingResults": results}}, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(parsers.httpx, "post", post)
+    monkeypatch.setattr(httpx.Client, "post", lambda _self, *a, **k: (post)(*a, **k))
     blocks = parsers.parse_pdf(source, provider="paddle", pages="1,3")
     assert seen["page_count"] == 2
     assert [b["page"] for b in blocks] == [1, 3]

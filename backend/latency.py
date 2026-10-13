@@ -12,6 +12,9 @@ from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from copy import deepcopy
+from functools import lru_cache
+
+import httpx
 
 from .config import limit
 
@@ -21,6 +24,13 @@ _cache: OrderedDict = OrderedDict()  # key -> (만료 시각, 값)
 _flights: dict = {}  # 계산 중인 key -> 끝나면 세워지는 Event
 _gates: dict[str, threading.BoundedSemaphore] = {}  # 환경변수 이름 -> 자리(첫 호출 때 크기 고정)
 _background = ThreadPoolExecutor(32, thread_name_prefix="docraft-early")  # ``spawn``: 기다리는 동안 먼저 보내 두는 원격 호출
+
+
+@lru_cache
+def http_client(retries=0):
+    """프로세스 공용 HTTP 클라이언트(스레드 안전): 호출마다 연결·TLS를 새로 맺지 않는다. 연결 수는 제한하지 않아(동시성은 슬롯이 정한다)
+    VLM·OCR 동시 호출이 풀에서 기다리지 않는다. 시한은 호출마다 `timeout=`으로 준다."""
+    return httpx.Client(transport=httpx.HTTPTransport(retries=retries, limits=httpx.Limits(max_connections=None, max_keepalive_connections=32)))
 
 
 def remaining(deadline):

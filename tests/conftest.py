@@ -53,3 +53,10 @@ init_db()
 def reprocess_on(monkeypatch):
     """재처리는 기본 끔(REPROCESS_ENABLED=false)이다. 재처리나 재처리를 거치는 작업 흐름을 보는 테스트가 켠다."""
     monkeypatch.setenv("REPROCESS_ENABLED", "true")
+
+
+@pytest.fixture(autouse=True)
+def fresh_http_client():
+    """공용 HTTP 클라이언트는 프로세스 캐시라, 테스트마다 비워 monkeypatch한 httpx.Client가 새로 쓰이게 한다."""
+    from backend import latency
+    latency.http_client.cache_clear()

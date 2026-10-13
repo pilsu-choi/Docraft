@@ -73,7 +73,7 @@ def _paddle(monkeypatch, lines_response, lines_url="http://lines.invalid"):
             raise body
         return httpx.Response(200, json=body, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(parsers.httpx, "post", post)
+    monkeypatch.setattr(httpx.Client, "post", lambda _self, *a, **k: (post)(*a, **k))
     return calls
 
 
@@ -118,7 +118,7 @@ def test_line_ocr_request_overlaps_the_layout_request(tmp_path, monkeypatch):
         assert lines_sent.wait(5), "layout finished before the line OCR request went out"
         return httpx.Response(200, json=LAYOUT_RESPONSE, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(parsers.httpx, "post", post)
+    monkeypatch.setattr(httpx.Client, "post", lambda _self, *a, **k: (post)(*a, **k))
     with parsers.latency.track() as stats:
         blocks = parsers._remote_paddle(path, 1, expected_pages=1)
     assert blocks[1]["lines"] == [{"text": "진찰료", "bbox": [10.0, 50.0, 40.0, 70.0]}]
@@ -136,7 +136,7 @@ def test_line_ocr_answer_is_dropped_once_the_deadline_passed_during_layout(tmp_p
             time.sleep(0.3)  # the deadline passes while the layout request runs
         return httpx.Response(200, json=LINES_RESPONSE if url.endswith("/ocr") else LAYOUT_RESPONSE, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(parsers.httpx, "post", post)
+    monkeypatch.setattr(httpx.Client, "post", lambda _self, *a, **k: (post)(*a, **k))
     blocks = parsers._remote_paddle(path, 1, expected_pages=1, deadline=time.monotonic() + 0.2)
     assert all("lines" not in block for block in blocks)
 
@@ -281,7 +281,7 @@ def _paddle_form(tmp_path, monkeypatch, vlm_html):
     monkeypatch.setenv("PARSE_PROVIDER", "paddle")
     monkeypatch.setenv("PADDLEOCR_BASE_URL", "http://layout.invalid")
     monkeypatch.setenv("PADDLEOCR_LINES_URL", "http://lines.invalid")
-    monkeypatch.setattr(parsers.httpx, "post", lambda url, **_: httpx.Response(
+    monkeypatch.setattr(httpx.Client, "post", lambda _self, url, **_: httpx.Response(
         200, json=lines if url.endswith("/ocr") else layout, request=httpx.Request("POST", url)))
     return parse(path, path.name, "image/png")[1][0]
 
@@ -309,7 +309,7 @@ def test_paddle_table_keeps_merged_cell_spans(tmp_path, monkeypatch):
     response = {"result": {"layoutParsingResults": [{"prunedResult": {"parsing_res_list": [{"block_label": "table",
         "block_content": "<table><tr><td colspan=\"2\">급여</td></tr><tr><td>본인</td><td>공단</td></tr></table>"}]}}]}}
     _paddle(monkeypatch, None, lines_url="")
-    monkeypatch.setattr(parsers.httpx, "post", lambda url, **_: httpx.Response(200, json=response, request=httpx.Request("POST", url)))
+    monkeypatch.setattr(httpx.Client, "post", lambda _self, *a, **k: (lambda url, **_: httpx.Response(200, json=response, request=httpx.Request("POST", url)))(*a, **k))
     _, blocks = parse(path, path.name, "image/png")
     assert blocks[0]["rows"] == [["급여", "급여"], ["본인", "공단"]] and blocks[0]["spans"] == [[0, 0, 1, 2]]
     assert "cells" not in blocks[0]  # HTML td만으로는 셀 좌표나 빈칸 증거를 만들지 않는다.
