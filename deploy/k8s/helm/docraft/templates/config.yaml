@@ -29,6 +29,10 @@ data:
   BAND_DOC_TYPES: {{ .Values.backend.bandDocTypes | default "진료비영수증,세부내역서" | quote }}
   PRINT_REGISTER: {{ .Values.backend.printRegister | default false | quote }}
   VLM_CONCURRENCY: {{ .Values.backend.vlmConcurrency | default 8 | quote }}
+  OCR_CONCURRENCY: {{ .Values.backend.ocrConcurrency | default 2 | quote }}
+  TABLE_PAGE_CONCURRENCY: {{ .Values.backend.tablePageConcurrency | default 4 | quote }}
+  BAND_PRELOCATE: {{ .Values.backend.bandPrelocate | quote }}
+  BAND_SPECULATE: {{ .Values.backend.bandSpeculate | quote }}
   # uvicorn 프로세스 수(uvicorn 이 직접 읽는다). OCR·VLM 동시 호출 상한은 프로세스마다 나눈다(README WEB_CONCURRENCY).
   WEB_CONCURRENCY: {{ .Values.backend.webConcurrency | default 1 | quote }}
   REPETITION_PENALTY: {{ .Values.backend.repetitionPenalty | default "" | quote }}

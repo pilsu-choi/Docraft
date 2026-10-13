@@ -76,6 +76,12 @@ backend:
   # provider 동시 호출 수(0이면 제한 없음), repetition_penalty(빈 값이면 보내지 않음)
   # vLLM --max-num-seqs 에서 같은 vLLM 을 쓰는 harness 몫을 뺀 값에 맞춘다(README VLM_CONCURRENCY).
   vlmConcurrency: 8
+  # OCR(레이아웃) 동시 호출 수, 여러 쪽 표의 쪽 묶음 동시 호출 수
+  ocrConcurrency: 2
+  tablePageConcurrency: 4
+  # band 지연 줄이기(README BAND_PRELOCATE·BAND_SPECULATE, 결과 동일)
+  bandPrelocate: true
+  bandSpeculate: true
   repetitionPenalty: ""
   # uvicorn 프로세스 수. 2 이상이면 같은 페이지 OCR 공유·cancel-all 이 프로세스마다 따로이고 메모리가 그만큼 는다
   # (resources.limits.memory 도 함께 늘린다). 기본 1.
