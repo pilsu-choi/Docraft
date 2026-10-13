@@ -93,7 +93,7 @@ def test_a_clip_of_the_turned_page_shows_the_same_place_for_any_angle(angle, tmp
     half = 8 * size[0] / 600
     on = [(cx - half) / canvas[0], (cy - half) / canvas[1], (cx + half) / canvas[0], (cy + half) / canvas[1]]
     off = [1 - on[2], 1 - on[3], 1 - on[0], 1 - on[1]]  # 돌린 페이지 한가운데를 지나 맞은편: 원본의 흰 곳
-    hit, miss = (np.asarray(_decode(url)).reshape(-1, 3) for url in engine._page_images(str(path), [1], {1: angle}, [on, off]))
+    hit, miss = (np.asarray(_decode(engine._page_images(str(path), [1], {1: angle}, [clip])[0])).reshape(-1, 3) for clip in (on, off))
     assert (hit[:, 0] > 200).mean() > 0.9 and (hit[:, 1] < 80).mean() > 0.9
     assert (miss[:, 1] < 80).mean() < 0.1
 

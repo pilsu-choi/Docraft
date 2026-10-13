@@ -101,6 +101,20 @@ def _angle(block):
     return block.get("orientation", 0) + block.get("skew", 0)
 
 
+def _stacked(urls):
+    """띠 크롭들(머리글 띠 + 띠, 같은 표 폭)을 위에서 아래로 이어 붙인 JPEG 한 장. 머리글과 띠를 따로 보내면 모델은 빈 칸이 어느 열인지
+    이미지 사이 가로 위치로 맞춰야 하고, 못 맞추면 순서대로 채워 빈 칸 뒤 값을 옆 열로 당긴다 — 한 장이면 칸 바로 위가 그 열 머리글이다."""
+    images = [Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))).convert("RGB") for url in urls]
+    width = images[-1].width
+    images = [image if image.width == width else image.resize((width, round(image.height * width / image.width)), Image.BICUBIC) for image in images]
+    canvas = Image.new("RGB", (width, sum(image.height for image in images)), (255, 255, 255))
+    for number, image in enumerate(images):
+        canvas.paste(image, (0, sum(above.height for above in images[:number])))
+    buffer = io.BytesIO()
+    canvas.save(buffer, "JPEG", quality=90)
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
+
+
 def _turns(blocks):
     """page → `_angle` of the blocks the parser read from a turned or tilted page."""
     return {b["page"]: _angle(b) for b in blocks if _angle(b)}
@@ -120,7 +134,8 @@ def _page_images(source, pages, turns=None, clips=None, edge=None, masks=None):
     parser puts on blocks), each turned upright by `turns` (page → `_angle`). Empty when vision is off, the
     format has no page image (docx/xlsx/csv/txt/html), or rendering fails — the call then falls back to the OCR text alone.
     `clips` (boxes as fractions [x0, y0, x1, y1] of the turned first page, e.g. a row band of `_bands`) attach those regions
-    of that page instead, at up to twice the whole-page zoom: a strip is smaller than the page. `edge` (`BAND_STRIP_EDGE`,
+    of that page instead, at up to twice the whole-page zoom: a strip is smaller than the page. Several clips (a header strip and
+    its strip) come back as one image, stacked top to bottom (`_stacked`). `edge` (`BAND_STRIP_EDGE`,
     세부내역서 OCR row bands) draws those regions at least at the file's own resolution (`_native_zoom`) within a longest side
     of `edge` px instead of VISION_MAX_EDGE; never smaller than without it, and never upsampled beyond the larger of the two
     (the zoom without it already upsamples a low-resolution page; more upsampling adds image tokens, not detail).
@@ -139,9 +154,10 @@ def _page_images(source, pages, turns=None, clips=None, edge=None, masks=None):
                 width, height = expanded([page.rect.width, page.rect.height], turn)
                 areas = [fitz.Rect(x0 * width, y0 * height, x1 * width, y1 * height) & fitz.Rect(0, 0, width, height) for x0, y0, x1, y1 in clips]
                 native = _native_zoom(source, page, pages[0]) if edge else None
-                return [_data_url(page, area, max(native, min(VISION_MAX_EDGE / max(area.width, area.height), 4.0)) if edge else 4.0, turn,
+                urls = [_data_url(page, area, max(native, min(VISION_MAX_EDGE / max(area.width, area.height), 4.0)) if edge else 4.0, turn,
                                   edge or VISION_MAX_EDGE, [[(x * width, y * height) for x, y in polygon] for polygon in (masks or [[]] * len(areas))[number]])
                         for number, area in enumerate(areas)]
+                return [_stacked(urls)] if len(urls) > 1 else urls
             return [_data_url(document[number - 1], turn=(turns or {}).get(number, 0)) for number in pages if 1 <= number <= len(document)]
     except Exception as exc:
         logger.warning("vision: page image rendering failed for %s: %s", Path(source).name, exc, exc_info=True)
@@ -548,9 +564,9 @@ SUMMARY = object()  # `extract` part key of the 금액산정 block read beside t
 TABLE_REPLY_TOKENS = 16000  # Reply cap a page group of one table aims under: half the provider output limit (32k).
 PAGES_NOTE = (" These are page(s) {pages} of a table printed over page(s) {span}: read only the rows printed on these pages. "
               "A continuation page may have no header row; the fields above still give its columns in printed order.")
-BAND_NOTE = (" The image shows only a horizontal strip of this table: transcribe only the rows in it.",
-             " The first image is only the table's header (no rows to output); the second image is a horizontal strip of "
-             "this table: transcribe only the rows in it.")
+BAND_NOTE = (" The image shows only a horizontal strip of this table: transcribe only the rows in it.",  # [머리글 띠를 위에 붙인 한 장인가]
+             " The image shows the table's printed header at the top (no rows to output) and, directly below it in the same column "
+             "positions, a horizontal strip of this table: transcribe only the rows below the header.")
 COMPACT_NOTE = " Write the JSON reply minified on one line: no indentation, line breaks or spaces between tokens."  # COMPACT_REPLY
 ROW_AMOUNT = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?![\d,])|(?<![\d.,])\d{3,}(?![\d.,])")  # 금액 꼴 숫자('12,300'·'4500')
 
@@ -1129,14 +1145,15 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
         pages = _page_range(group)
         if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group), group[0].get("clips"), group[0].get("edge"),
                                                       group[0].get("masks"))):
+            headed = len(group[0].get("clips") or []) > 1  # 띠 위에 머리글 띠를 이어 붙인 한 장(_stacked)
             try:
                 if group[0].get("keyed"):
                     keyed = group[0]["keyed"]
-                    return _read_keyed(properties[table], group_images, BAND_NOTE[len(group_images) > 1], keyed, group[0]["cap"],
+                    return _read_keyed(properties[table], group_images, BAND_NOTE[headed], keyed, group[0]["cap"],
                                        None if bandkit.PROFILES[keyed]["statutory"] else plans[table], (source, index), deadline, cancel, on_call)
                 return _read_rows(table, properties[table], plans[table], _chunk_text(group, budget), group_images,
                                   PAGES_NOTE.format(pages=pages, span=_page_range(blocks))
-                                  + (BAND_NOTE[len(group_images) > 1] if "clips" in group[0] else ""), deadline, cancel, on_call)
+                                  + (BAND_NOTE[headed] if "clips" in group[0] else ""), deadline, cancel, on_call)
             except (RuntimeError, ValueError) as exc:  # a reply that broke the row contract: read these pages by bands or asis
                 if cancel is not None and cancel.is_set():
                     raise

@@ -103,7 +103,7 @@ def summary_clip(found):
 
 def clips(found, count=BANDS):
     """띠 읽기용 크롭 목록(쪽 비율). 표 머리글 위쪽부터 마지막 합계 행까지를 ``count``(``BAND_STRIPS``, 기본 BANDS) 등분해
-    OVERLAP 만큼 겹치게 자른다. 첫 띠는 머리글째, 나머지 띠는 머리글 띠(첫 데이터 행 제외)가 첫 이미지로 붙는다."""
+    OVERLAP 만큼 겹치게 자른다. 첫 띠는 머리글째, 나머지 띠는 머리글 띠(첫 데이터 행 제외)를 앞에 둔다(읽을 때 위에 이어 붙여 한 장, ``engine._stacked``)."""
     x1, x2 = max(0, found["grid"][0] - 20), min(1000, found["grid"][2] + 20)
     head, first = max(0, found["header"][1] - 10), found["first_row"][1]
     top, bottom = first, min(1000, found["total"][3] + 15)

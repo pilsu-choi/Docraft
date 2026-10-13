@@ -398,7 +398,7 @@ def test_a_page_whose_reply_breaks_is_read_again_band_by_band_and_a_failed_band_
     asis = [call for call in provider.calls if call["json_schema"] is None]
     assert len(whole) == 1 and whole[0]["json_schema"]  # 쪽 전체는 rowmajor로 한 번만, asis로 다시 읽지 않는다
     assert len(asis) == 1 and asis[0]["names"] == ["R8", "R9", "R10", "R11", "R12"]  # 깨진 띠 하나만 asis
-    assert all(call["images"] == 2 for call in provider.calls if call["names"][:1] not in (["R1"], ["R31"]) and len(call["names"]) < 30)
+    assert all(call["images"] == 1 for call in provider.calls if call["names"][:1] not in (["R1"], ["R31"]) and len(call["names"]) < 30)  # 머리글 띠 + 띠 한 장
     assert all("horizontal strip" in call["text"] for call in provider.calls if call["json_schema"] and len(call["names"]) < 30 and "R31" not in call["names"])
     assert completeness["partial"] is False
 

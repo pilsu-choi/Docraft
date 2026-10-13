@@ -199,7 +199,7 @@ def test_band_reads_the_located_table_in_three_strips_and_the_summary_block_apar
     result, groundings = engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")
 
     assert kinds(state) == ["band"] * 3 + ["fields", "locate", "summary"]
-    assert [call.images for call in state.calls if call.kind == "band"] == [1, 2, 2]  # 첫 띠는 머리글째, 나머지는 머리글 띠 + 띠
+    assert [call.images for call in state.calls if call.kind == "band"] == [1, 1, 1]  # 첫 띠는 머리글째, 나머지는 머리글 띠를 위에 이어 붙인 한 장
     assert all(engine.TABLE_NOTE in call.system for call in state.calls if call.kind == "band")
     assert "항목내역" in groundings and result["환자정보-성명"] == "홍길동"
 
@@ -596,14 +596,34 @@ def test_a_one_page_detail_statement_is_read_in_row_bands_without_a_locate_call(
 
     assert kinds(detail) == ["band"] * 3 + ["fields"] and "band_fallback" not in stats  # 위치 찾기·금액산정 블록 읽기 없음
     calls = [call for call in detail.calls if call.kind == "band"]
-    assert [call.images for call in calls] == [1, 2, 2]
+    assert [call.images for call in calls] == [1, 1, 1]
     bands = engine._row_bands(detail.blocks, len(DPROPS), 12)
+    heads = [engine._page_images(detail.image, [1], {}, b["clips"], b.get("edge"), b.get("masks")) for b in bands]
+    assert [call.image for call in calls] == [urls[0] if len(urls) == 1 else engine._stacked(urls) for urls in heads]  # 뒤 띠: 머리글 띠 + 띠 한 장
     assert [call.max_tokens for call in calls] == [min(engine.TABLE_REPLY_TOKENS, engine._reply_cap(b["text"], len(DPROPS))) + engine.THINK_TOKENS for b in bands]
     assert all(call.text == band.prompt(DETAIL, engine.BAND_NOTE[i > 0], True, "세부내역서", PLAN) for i, call in enumerate(calls))
     rows = result["항목내역"]  # 되풀이되는 같은 행도 겹침으로 지우지 않는다(띠가 겹치지 않는다), 인쇄된 집계 행은 그대로
     assert [(row["항목"], row["총액"]) for row in rows] == [("진찰료", "17,610"), ("진찰료", "17,610"), ("합계", "30,140"),
                                                          ("끝수처리 조정금액", "-40"), ("합계", "30,100")]
     assert rows[0]["EDI코드"] == "AA154" and rows[0]["본인부담"] is None and rows[0]["급여구분"] is None
+
+
+def test_a_header_strip_is_stacked_above_its_strip_in_one_image_at_the_strip_width():
+    import base64
+    import io
+    from PIL import Image
+
+    def url(color, size):
+        buffer = io.BytesIO()
+        Image.new("RGB", size, color).save(buffer, "JPEG")
+        return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
+    def image(data):
+        return Image.open(io.BytesIO(base64.b64decode(data.split(",", 1)[1]))).convert("RGB")
+
+    same = image(engine._stacked([url((0, 0, 255), (200, 20)), url((255, 0, 0), (200, 60))]))
+    assert same.size == (200, 80) and same.getpixel((100, 10))[2] > 200 and same.getpixel((100, 50))[0] > 200  # 머리글이 위, 띠가 아래
+    wider = image(engine._stacked([url((0, 0, 255), (400, 40)), url((255, 0, 0), (200, 60))]))
+    assert wider.size == (200, 80)  # 폭이 다른 머리글 띠는 띠 폭으로 맞춘다(열 자리가 같은 배율)
 
 
 def test_a_detail_statement_whose_ocr_lines_cannot_cut_it_is_read_as_rowmajor(detail):
@@ -709,7 +729,7 @@ def test_band_dump_saves_each_strip_image_prompt_and_reply_under_the_request(sta
     engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")  # 요청 밖: 원본 파일 해시 폴더
     folder = dump / hashlib.sha1(open(state.image, "rb").read()).hexdigest()[:12]
     assert sorted(path.name for path in folder.iterdir()) == ["0.prompt.txt", "0.reply.json", "0_0.jpg", "1.prompt.txt", "1.reply.json",
-                                                             "1_0.jpg", "1_1.jpg", "2.prompt.txt", "2.reply.json", "2_0.jpg", "2_1.jpg"]
+                                                             "1_0.jpg", "2.prompt.txt", "2.reply.json", "2_0.jpg"]
     assert (folder / "0_0.jpg").read_bytes()[:2] == b"\xff\xd8" and "Short keys" in (folder / "0.prompt.txt").read_text(encoding="utf-8")
     assert json.loads((folder / "0.reply.json").read_text(encoding="utf-8"))["rows"][0]["n"] == "진찰료"
     state.bands = [[], [], []]
