@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-13 속도 개선·L40S 동시 처리 상향
+
+- **Creation** (2026-10-13): [harness·Docraft 속도 개선과 L40S 동시 처리 상향](2026-10-13-speed-opt-gpu-concurrency.md) — 상위 wiki에서 동기화
+
 ## 2026-10-13 세부내역서 band v12·v13
 
 - **Update**: [세부내역서 band 읽기](2026-10-12-detail-band-ocr-rows.md) — 이어지는 쪽·머리 행 날짜·스키마 밖 열, 97.0%.
