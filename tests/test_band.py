@@ -275,6 +275,11 @@ def test_all_strips_failing_reads_the_table_as_rowmajor(state):
     assert stats["band_fallback"] == "read" and result["항목내역"][0]["항목"] == "진찰료"
 
 
+def test_band_reads_receipts_and_detail_statements_by_default(monkeypatch):
+    monkeypatch.delenv("BAND_DOC_TYPES", raising=False)
+    assert engine.ai_settings()["band_doc_types"] == ("진료비영수증", "세부내역서")
+
+
 @pytest.mark.parametrize("types, doc_type, mode, located", [
     (None, "진료비영수증", "band", True), ("세부내역서", "진료비영수증", "band", False),
     (None, "세부내역서", "band", False), (None, "진료비영수증", "rowmajor", False)])

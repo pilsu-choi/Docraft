@@ -138,8 +138,8 @@ def ai_settings() -> dict:
     table_extract = os.getenv("TABLE_EXTRACT", "band").strip().lower()
     # band: 한 쪽에 긴 항목 표가 있는 유형만(BAND_DOC_TYPES, band.PROFILES에 설정이 있는 진료비영수증·세부내역서) 1쪽 문서의 표를 가로 띠로
     # 잘라 읽는다. 진료비영수증은 표 위치를 먼저 찾아 BAND_STRIPS개로, 세부내역서는 위치 찾기 없이 OCR 행 경계에서 약 12행씩 자른다.
-    # 기본은 진료비영수증만, 세부내역서는 "진료비영수증,세부내역서"로 켠다. 목록 밖 유형·여러 쪽 문서는 rowmajor.
-    band_doc_types = tuple(name.strip() for name in os.getenv("BAND_DOC_TYPES", "진료비영수증").split(",") if name.strip())
+    # 기본은 둘 다(세부내역서 30건 band 97.0%, 하네스 기존 rowmajor보다 높음 — 2026-10-13 결정). 목록 밖 유형·여러 쪽 문서는 rowmajor.
+    band_doc_types = tuple(name.strip() for name in os.getenv("BAND_DOC_TYPES", "진료비영수증,세부내역서").split(",") if name.strip())
     # 비우면 보내지 않는다. 표를 띠로 읽을 때 같은 행이 반복되는 것을 줄이려 1.05 정도를 쓴다.
     penalty = os.getenv("REPETITION_PENALTY", "").strip()
     # 1보다 크면 다시 읽지 않는다(기본 — 2026-10-12, 다시 읽기가 VLM 호출 1회를 순차로 더해 지연을 늘린다). 켤 때는 0.6을 쓴다.
