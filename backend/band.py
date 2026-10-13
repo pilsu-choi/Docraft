@@ -1,7 +1,8 @@
-"""``TABLE_EXTRACT=band``: 긴 항목 표(진료비영수증)를 위치부터 찾아 가로 띠로 잘라 읽는 데 쓰는 순수 함수.
+"""``TABLE_EXTRACT=band``: 1쪽 문서의 긴 항목 표를 가로 띠로 잘라 읽는 데 쓰는 순수 함수.
 
-모델 호출은 ``engine``이 한다. 여기는 위치 응답 후처리(``boxes``), 띠 자르기(``clips``), 금액산정 블록 크롭(``summary_clip``),
-짧은 키 읽기 형식(``prompt``·``expand``), 띠 겹침 판정(``overlap``)만 둔다. 좌표는 모두 쪽 크기를 1000으로 본 값이다."""
+모델 호출과 OCR 행 경계로 띠 자르기(세부내역서, ``engine._bands``)는 ``engine``이 한다. 여기는 문서 유형별 설정(``PROFILES``),
+진료비영수증 위치 응답 후처리(``boxes``)·띠 자르기(``clips``)·금액산정 블록 크롭(``summary_clip``)·띠 겹침 판정(``overlap``), 짧은 키 읽기
+형식(``prompt``·``expand``)만 둔다. 좌표는 모두 쪽 크기를 1000으로 본 값이다."""
 
 import difflib
 import re
@@ -27,8 +28,33 @@ HEADER_NOTE = ("Column headers: a header's characters are often split over lines
                "'선택진료 / 료 외', '선 택 진 료 료 외'); join the characters of the same cell before naming its column. A header with 외 or 이외 "
                "(also numbered ⑤) is 선택진료료외; 선택진료료 without 외 (④) is 선택진료료. When 비급여 is printed above sub-columns "
                "(선택진료료, 선택진료료외), it is only their group title: put each value under its sub-column key and 0 under 비급여.")
+DETAIL_CLOSING = ("Every row in the strip is whole: the strip is cut in the blank space between printed rows, so transcribe every row, also the "  # 겹침 없는 OCR 행 띠
+                  "first and last rows touching the top or bottom edge. Include the printed 소계·계·합계·끝수처리 조정금액 rows where they are printed, their "
+                  "label in the 항목 key. Never return header rows. Copy the printed digits only, never compute or infer a value. "
+                  "A blank cell is null (per the schema): write it as \"\".")
 SUMMARY_PROMPT = ("This image is the 금액산정내용 (payment calculation) block of a Korean medical receipt. Extract these fields only:\nSchema:\n{schema}\n"
                   "Copy the printed digits only, never compute; use null for a field whose label or value is not printed.")
+
+
+# 문서 유형별 band 설정. rows: None이면 VLM으로 표 위치를 찾아(LOCATE_PROMPT, boxes) BAND_STRIPS개로 겹쳐 자르고, 수이면 위치 찾기 없이
+# OCR 행 경계에서 띠당 그만큼의 금액 행으로 자른다(engine._bands). hint: 열 설명에서 뗄 표 공통 힌트, name: 짧은 키 "n"으로 따로 받는 행 이름 열
+# (None이면 모든 열이 짧은 키), zero: 빈칸을 "0"으로 채우는 열 종류(doctypes.kind, 나머지 빈칸은 None), sample: 응답 예시 값, statutory: 법정
+# 서식 안내(항목 목록·열 배치 5종·머리글 안내)와 마지막 합계 행 하나만 남기기, 아니면 rowmajor 열 배치(table_layout.plan)로 인쇄된 열만 인쇄
+# 순서로 묻는다. closing: 프롬프트 끝 규칙.
+PROFILES = {
+    "진료비영수증": {"rows": None, "hint": doctypes.RECEIPT_HINT, "name": "항목", "zero": ("amount",), "statutory": True,
+                "sample": {"항목": "검사료", "본인부담금": "1,200", "공단부담금": "4,800"},
+                "closing": "Skip rows whose name is cut off at the top or bottom edge. Include the final 합계 row if visible. Never return header rows. "
+                           "Copy the printed digits only, never compute or infer a value. A blank cell is 0 (per the schema)."},
+    # 세부내역서 항목 열(진찰료 등 구분명)은 같은 이름이 여러 행에 되풀이되고 섹션 제목 행에만 인쇄되기도 해 행 이름이 아니라 열 하나로 받는다.
+    # 칸은 인쇄된 값만(DETAIL_HINT: 인쇄되지 않은 칸은 null) — 빈칸을 0으로 채우지 않는다. 미인쇄 급여 열의 0은 하네스 출력 단계 몫(2026-10-12).
+    # 띠는 행 사이에서 잘라 겹치지 않으므로 같은 이름(진찰료)이 되풀이되는 행을 견줄 겹침 판정이 없다.
+    "세부내역서": {"rows": 12, "hint": doctypes.DETAIL_HINT, "name": None, "zero": (), "statutory": False,
+              "sample": {"항목": "진찰료", "시작일자": "20240105", "EDI코드": "AA154", "EDI명칭": "초진진찰료", "단가": "17,610", "횟수": "1", "일수": "1",
+                         "총액": "17,610", "본인부담": "5,280", "공단부담": "12,330"},
+              "closing": DETAIL_CLOSING},
+}
+RECEIPT = "진료비영수증"
 
 
 def _box(value):
@@ -77,7 +103,7 @@ def summary_clip(found):
 
 def clips(found, count=BANDS):
     """띠 읽기용 크롭 목록(쪽 비율). 표 머리글 위쪽부터 마지막 합계 행까지를 ``count``(``BAND_STRIPS``, 기본 BANDS) 등분해
-    OVERLAP 만큼 겹치게 자른다. 첫 띠는 머리글째, 나머지 띠는 머리글 띠(첫 데이터 행 제외)가 첫 이미지로 붙는다."""
+    OVERLAP 만큼 겹치게 자른다. 첫 띠는 머리글째, 나머지 띠는 머리글 띠(첫 데이터 행 제외)를 앞에 둔다(읽을 때 위에 이어 붙여 한 장, ``engine._stacked``)."""
     x1, x2 = max(0, found["grid"][0] - 20), min(1000, found["grid"][2] + 20)
     head, first = max(0, found["header"][1] - 10), found["first_row"][1]
     top, bottom = first, min(1000, found["total"][3] + 15)
@@ -89,39 +115,50 @@ def clips(found, count=BANDS):
     return result
 
 
-def short_keys(item):
-    """스키마 항목내역 속성(항목 제외)을 순서대로 a, b, c… 에 대응한 {짧은 키: 열 이름}. 출력 토큰을 줄인다."""
-    return {chr(97 + i): key for i, key in enumerate(key for key in item["items"]["properties"] if key != "항목")}
+def short_keys(item, doc_type=RECEIPT, plan=None):
+    """항목내역 열(행 이름 열 ``name`` 제외)을 순서대로 a, b, c… 에 대응한 {짧은 키: 열 이름}. 출력 토큰을 줄인다. 열은 ``plan``(rowmajor
+    열 배치 ``table_layout.plan``: 인쇄된 열만 인쇄 순서로)이 있으면 그 열, 없으면 스키마 순서의 모든 열."""
+    name = PROFILES[doc_type]["name"]
+    return {chr(97 + i): key for i, key in enumerate(key for key in (plan[1] if plan else item["items"]["properties"]) if key != name)}
 
 
-def prompt(item, note, header_note=False):
-    """띠 읽기 프롬프트: 모든 행에 이름(n)과 모든 금액 열 키를 스키마 순서로 쓰게 한다. ``note``는 이미지 구성 안내.
-    ``header_note``(``BAND_HEADER_NOTE``)면 쪼개 인쇄된 머리글 이어 읽기·비급여 묶음 제목 안내(``HEADER_NOTE``)를 서식 목록 뒤에 붙인다."""
-    props, keys = item["items"]["properties"], short_keys(item)
-    columns = "\n".join(f'  "{key}" = {column}: {props[column]["description"].removesuffix(doctypes.RECEIPT_HINT).strip()}' for key, column in keys.items())
-    example = ", ".join(f'"{key}": "{value}"' for key, value in zip(keys, ["1,200", "4,800"] + [""] * len(keys)))
-    return (f"{note.strip()}\nReturn {{\"rows\": [...]}} with every table row whose item-name cell is fully visible, in printed order, one object per printed row: "
-            "{\"n\": \"<항목 name as printed>\", \"<key>\": \"<printed value>\", ...}.\nShort keys for the amount columns:\n" + columns + "\n"
-            "Every row object must contain ALL keys: \"n\" and every amount key (" + ", ".join(keys) + ") in this order. Write an empty string \"\" for a blank or '-' cell, "
-            "\"0\" only if a 0 is printed; never skip a key and never write null. Never compute.\n"
-            f"Example reply: {{\"rows\": [{{\"n\": \"검사료\", {example}}}]}}\n"
-            f"항목 naming rule: {props['항목']['description']}\n"
-            "Reading aid: printed names on this statutory form usually come from this list: " + ", ".join(rules.ITEM_ORDER) + ". Use it to read blurred or partial names; "
-            "still output only rows actually printed, never add a row because it is in the list; names not in the list are written as printed.\n"
-            f"The form has one of 5 column layouts: {LAYOUTS}.\n" + (f"{HEADER_NOTE}\n" if header_note else "")
-            + f"Rules (same as the schema): {item['description']}\n"
-            "Skip rows whose name is cut off at the top or bottom edge. Include the final 합계 row if visible. Never return header rows. "
-            "Copy the printed digits only, never compute or infer a value. A blank cell is 0 (per the schema).")
+def prompt(item, note, header_note=False, doc_type=RECEIPT, plan=None):
+    """띠 읽기 프롬프트: 모든 행에 (행 이름 열이 있는 유형은 이름 n과) 모든 짧은 키 열을 스키마 순서로 쓰게 한다. ``note``는 이미지 구성 안내.
+    법정 서식(``statutory``, 진료비영수증)만 항목명 규칙·항목 목록·열 배치 5종을 붙이고, ``header_note``(``BAND_HEADER_NOTE``)면 쪼개 인쇄된
+    머리글 이어 읽기·비급여 묶음 제목 안내(``HEADER_NOTE``)를 서식 목록 뒤에 붙인다. ``plan``이 있으면 열과 열 설명·표 설명은 rowmajor와 같은
+    그 배치의 것(인쇄된 열만, 인쇄 순서, '이 문서에서는 … 열이다' 안내와 열 배치 안내 포함)."""
+    profile, props, keys = PROFILES[doc_type], item["items"]["properties"], short_keys(item, doc_type, plan)
+    name, sample = profile["name"], profile["sample"]
+    texts = plan[1] if plan else {column: prop["description"] for column, prop in props.items()}
+    columns = "\n".join(f'  "{key}" = {column}: ' + (re.sub(" +", " ", texts[column].replace(profile["hint"], "")) if plan
+                                                      else texts[column].removesuffix(profile["hint"])).strip() for key, column in keys.items())
+    example = ", ".join(f'"{key}": "{sample.get(column, "")}"' for key, column in (({"n": name} if name else {}) | keys).items())
+    statutory = (f"항목 naming rule: {props['항목']['description']}\n"
+                 "Reading aid: printed names on this statutory form usually come from this list: " + ", ".join(rules.ITEM_ORDER) + ". Use it to read blurred or partial names; "
+                 "still output only rows actually printed, never add a row because it is in the list; names not in the list are written as printed.\n"
+                 f"The form has one of 5 column layouts: {LAYOUTS}.\n" + (f"{HEADER_NOTE}\n" if header_note else "")) if profile["statutory"] else ""
+    return (f"{note.strip()}\nReturn {{\"rows\": [...]}} with every table row " + ("whose item-name cell is fully visible" if name else "that is fully visible")
+            + ", in printed order, one object per printed row: {" + (f'"n": "<{name} name as printed>", ' if name else "") + "\"<key>\": \"<printed value>\", ...}.\n"
+            "Short keys for the " + ("amount " if name else "") + "columns:\n" + columns + "\n"
+            "Every row object must contain ALL keys: " + ("\"n\" and every amount key (" if name else "every key (") + ", ".join(keys) + ") in this order. "
+            "Write an empty string \"\" for a blank or '-' cell, \"0\" only if a 0 is printed; never skip a key and never write null. Never compute.\n"
+            f"Example reply: {{\"rows\": [{{{example}}}]}}\n" + statutory
+            + f"Rules (same as the schema): {plan[0] if plan else item['description']}\n" + profile["closing"])
 
 
-def expand(rows, item):
-    """짧은 키 행 → 스키마 열 행: 빈칸·빠진 금액 열은 "0"(빈칸=0 규칙). (행 목록, 모르는 키 수, 키가 빠진 행 수)."""
-    keys, unknown, missing, result = short_keys(item), 0, 0, []
+def expand(rows, item, doc_type=RECEIPT, plan=None):
+    """짧은 키 행 → 스키마 열 행(스키마 순서): 묻은 열의 빈칸·빠진 키는 열 종류가 ``zero``면 "0"(영수증 금액 열: 빈칸=0 규칙), 아니면
+    None(세부내역서: 인쇄된 값만). ``plan``에 없어 묻지 않은 열은 그 배치의 채움 값(rowmajor ``_read_rows``와 같다), 스키마 밖 배치 열은 버린다.
+    (행 목록, 모르는 키 수, 키가 빠진 행 수)."""
+    profile, keys, unknown, missing, result = PROFILES[doc_type], short_keys(item, doc_type, plan), 0, 0, []
+    asked = set(keys.values())
+    blank = {column: ("0" if doctypes.kind(doc_type, column, rules.ITEM_TABLE) in profile["zero"] else None) if column in asked else plan[2]
+             for column in item["items"]["properties"] if column != profile["name"]}
     for row in (row for row in rows if isinstance(row, dict)):
         missing += not set(keys) <= set(row)
-        expanded = {"항목": row.get("n"), **dict.fromkeys(keys.values(), "0")}
+        expanded = {**({profile["name"]: row.get("n")} if profile["name"] else {}), **blank}
         for key, value in row.items():
-            if key in keys and str(value if value is not None else "").strip():
+            if key in keys and keys[key] in blank and str(value if value is not None else "").strip():
                 expanded[keys[key]] = str(value).strip()
             unknown += key not in keys and key != "n"
         result.append(expanded)

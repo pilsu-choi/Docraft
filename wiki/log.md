@@ -1,5 +1,25 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-13 세부내역서 band v12·v13
+
+- **Update**: [세부내역서 band 읽기](2026-10-12-detail-band-ocr-rows.md) — 이어지는 쪽·머리 행 날짜·스키마 밖 열, 97.0%.
+
+## 2026-10-13 세부내역서 band 띠 자르기 구조 수정
+
+- **Update**: [...](2026-10-12-detail-band-ocr-rows.md) — v8~v11, 96.1%.
+
+## 2026-10-13 세부내역서 band 추가 실험
+
+- **Update**: [세부내역서 band 읽기](2026-10-12-detail-band-ocr-rows.md) — v5 OCR 행 목록 되돌림, 열추출 제외·기간복제 동치 채점(95.1%), 해상도·띠 6행 미채택.
+
+## 2026-10-13 세부내역서 묶음 제목 행 제거
+
+- **Update**: [세부내역서 band 읽기](2026-10-12-detail-band-ocr-rows.md) — 결정 A(제목 행 제거) 반영, 재채점 92.3→93.2%.
+
+## 2026-10-12 세부내역서 band 읽기
+
+- **Creation**: [세부내역서 band 읽기 v1~v4](2026-10-12-detail-band-ocr-rows.md) — OCR 행 경계 띠, 30건 92.3%, rowmajor 행 누락 원인 3가지(상위 wiki와 동기화).
+
 ## 2026-10-12 BAND_HEADER_NOTE 기본 켬
 
 - **Update**: [BAND_HEADER_NOTE](2026-10-12-band-header-note.md) — AWS 끔/켬 실측(30건·10건 +1칸씩, 깨짐 0) 후 기본값 켬.
@@ -540,3 +560,4 @@
 - **Creation** (2026-10-12): [영수증 금액 칸 단위 열 옮김 — OCR 인쇄 머리글 열로](2026-10-12-receipt-cell-column-move.md) — rules._printed_moves·_receipt_head 엄격화, 197건 재생 고침 12·깨뜨림 0, 짧은 키 셋 20/0, g25 0/0.
 - **Update** (2026-10-12): index.md에 연결.
 - **Creation** (2026-10-13): [사고 모드 끄기](2026-10-13-thinking-off-vllm.md) — AI_REASONING=off가 모든 호출에 reasoning + enable_thinking=false. 상위 wiki와 동기화.
+- **Update** (2026-10-13): [세부내역서 band 읽기](2026-10-12-detail-band-ocr-rows.md) — v14: 머리글 띠 이어 붙이기(세부만), 범례 줄·묶음 여백, 기호 동치, EDI명칭 OCR 대조.

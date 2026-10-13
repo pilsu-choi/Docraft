@@ -340,9 +340,32 @@ def _header(blocks, union, min_columns=4):
                 columns.insert(i, key)
             elif any(hint for _, _, hint in found):
                 flags.append(("column_unplaced", key))
+    # 스키마 밖 인쇄 열: 머리글 줄들에서 어느 열 낱말도 아니고 읽은 머리글 자리(reach)에도 없는 글자 칸('보훈감면액')은 그 x 자리에 읽고 버리는
+    # 열(VALUE.unknown 키)로 둔다 — 빼면 자리로 읽는 모델이 그 오른쪽 값을 한 칸씩 당겨 적는다. 위아래로 쪼개 찍힌 글자는 한 칸으로 잇는다.
+    # 열 낱말과 가까운 글자(오독)는 위 근거(evidence)의 몫이라 두지 않고, 인쇄된 필수 열(columns: 머리글로 읽었거나 본문 근거로 넣은 열)을
+    # 머리글에서 다 읽었을 때만 둔다 — 본문 근거로만 넣은 열이 있으면 읽지 못한 글자는 그 열의 오독일 수 있다('을지' = 일자). 서식에 없는
+    # 필수 열(일자·비급여 없는 서식)은 막지 않는다.
+    roof = min(t["y"] for t in picked) - height * 0.6
+    sure = not flags and all(key in read for key in columns if key not in OPTIONAL)
+    loose = sorted((t for t in unread if sure and roof - height <= t["y"] <= bottom and all(abs(t["x"] - x) > reach for x in at.values())),
+                   key=lambda t: t["x"])  # 한 줄 위 글자는 머리글 줄 글자에 쌓일 때만(아래 조각과 한 칸)
+    groups, extras = [], {}
+    for t in loose:
+        if groups and abs(t["x"] - groups[-1][-1]["x"]) < reach:
+            groups[-1].append(t)
+        else:
+            groups.append([t])
+    for group in groups:
+        word = "".join(t["text"] for t in sorted(group, key=lambda t: t["y"]))
+        if (all(t["y"] < roof for t in group) or len(re.findall(r"[가-힣A-Za-z]", word)) < 2
+                or any(_near(re.sub(r"\W", "", word), known) for known in WORDS)):
+            continue
+        x = sum(t["x"] for t in group) / len(group)
+        extras[key := f"{VALUE['unknown']['key']}{len(extras) + 1}"], at[key] = word, x
+        columns.insert(max((j + 1 for j, other in enumerate(columns) if other in at and at[other] < x), default=0), key)
     named = None not in words.values() and len(set(words.values())) == len(words)  # 오독했거나 같은 글자('금액'·'금액')면 못 가른다
-    return ({key: words.get(key) if named else None for key in columns}, at, None, {key for key in columns if at.get(key) in stacked},
-            flags)
+    return ({key: extras.get(key, words.get(key) if named else None) for key in columns}, at, None,
+            {key for key in columns if at.get(key) in stacked}, flags)
 
 
 def _near(text, word):
@@ -516,7 +539,8 @@ def planned(doc_type, table, blocks, description, columns):
         return None, "union", None, []
     printed, _, reason, _, flags = _header(blocks, list(columns))
     if printed:
-        return (description + NOTE, {key: columns[key] + (f" 이 문서에서는 '{word}' 열이다." if word else "") for key, word in printed.items()},
+        return (description + NOTE, {key: columns.get(key, VALUE["unknown"]["description"]) + (f" 이 문서에서는 '{word}' 열이다." if word else "")
+                                     for key, word in printed.items()},
                 None), "header", None, flags
     if shaped := shaped_columns(blocks, list(columns)):
         return ((description + NOTE, {key: columns.get(key, VALUE["unknown"]["description"]) for key in shaped[0]}, None), "value", reason,

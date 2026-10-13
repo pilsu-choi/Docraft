@@ -682,7 +682,7 @@ def test_header_order_is_read_on_the_upright_page_of_a_turned_block(turn):
 
 def test_rowmajor_page_image_is_turned_upright(provider, monkeypatch):
     turns = []
-    monkeypatch.setattr(engine, "_page_images", lambda source, pages, turns_=None, clips=None: turns.append(turns_) or ["data:x"])
+    monkeypatch.setattr(engine, "_page_images", lambda source, pages, turns_=None, clips=None, **kw: turns.append(turns_) or ["data:x"])
     provider.objects = [{"환자성명": "홍길동"}]
     blocks = [{**BLOCKS[0], "orientation": 90}]
 
@@ -862,3 +862,82 @@ def test_asis_detail_asks_for_summary_rows_and_keeps_them(provider):
     sent = provider.calls[0]["messages"][1]["content"][-1]["text"]
     assert doctypes.DETAIL_HINT.split(".")[0] in sent and "'소계' 행과 머리글 행은 넣지 않는다" not in sent
     assert_summary_kept(rules.apply("세부내역서", result, [])["항목내역"])
+
+
+@pytest.mark.parametrize("paid", ["급여액", "급 여 액"])
+def test_a_printed_paid_amount_column_beside_sub_column_words_is_a_column(paid):
+    """'급여액'은 값 열이다: 옆에 하위 열 낱말('전액본인')이 같은 줄에 나란히 인쇄돼도 묶음 제목으로 빼지 않는다(코드 2열·수량 서식)."""
+    blocks = header(("항목", 0, 0), ("수가코드", 80, 0), ("수가명", 200, 0), ("표준코드", 450, 0), ("수량", 560, 0), ("횟수", 620, 0),
+                    ("일수", 680, 0), ("단가", 760, 0), (paid, 860, 0), ("전액본인", 960, 0), ("선택진료", 1060, 0), ("비급여", 1160, 0))
+
+    assert printed(blocks, DETAIL) == ["항목", "원내코드", "EDI명칭", "EDI코드", "투여량", "횟수", "일수", "단가", "급여", "전액본인부담",
+                                       "선택진료료", "비급여"]
+
+
+# --- 스키마 밖 인쇄 열(보훈감면액 등)은 자리 열로 묻고 버린다 -------------------------------------------------
+
+FULL = [("항목", 0), ("품목코드", 80), ("EDI코드", 200), ("명칭", 320), ("실시일자", 520), ("단가", 640), ("횟수", 720), ("일수", 780),
+        ("총액", 860), ("본인부담금", 960), ("공단부담금", 1120), ("전액본인", 1260), ("비급여", 1380)]
+
+
+@pytest.mark.parametrize("extras, at, expected", [
+    ([("보훈감면액", 1040)], 10, None),  # 가운데: 본인부담금과 공단부담금 사이
+    ([("감면액", 1480)], 13, None),  # 끝
+    ([("보훈감면액", 1040), ("기타감면", 1200)], 10, None),  # 여럿
+])
+def test_a_printed_column_outside_the_schema_keeps_its_place_in_the_plan(extras, at, expected):
+    words = sorted(FULL + extras, key=lambda item: item[1])
+    blocks = header(*[(word, x, 0) for word, x in words])
+    _, columns, _ = table_layout.plan("세부내역서", "항목내역", blocks, "표.", {key: key + " 설명" for key in DETAIL})
+    keys = list(columns)
+    unknown = table_layout.VALUE["unknown"]["key"]
+    assert [key for key in keys if key.startswith(unknown)] == [f"{unknown}{n + 1}" for n in range(len(extras))]
+    assert keys[at] == f"{unknown}1" and f"'{extras[0][0]}' 열이다" in columns[keys[at]] and "저장하지 않는다" in columns[keys[at]]
+    assert [key for key in keys if not key.startswith(unknown)] == ["항목", "원내코드", "EDI코드", "EDI명칭", "시작일자", "단가", "횟수", "일수", "총액",
+                                                                   "본인부담", "공단부담", "전액본인부담", "비급여"]
+
+
+@pytest.mark.parametrize("dropped", [("실시일자",), ("비급여",), ("실시일자", "비급여")])
+def test_an_outside_column_keeps_its_place_when_the_form_has_no_date_or_uncovered_column(dropped):
+    # 일자·비급여 열이 원래 없는 서식: 인쇄된 열은 다 읽었으니 보훈감면액은 자리 열이고 그 x도 머리글 위치에 있다
+    words = sorted([item for item in FULL if item[0] not in dropped] + [("보훈감면액", 1040)], key=lambda item: item[1])
+    blocks = header(*[(word, x, 0) for word, x in words])
+    _, columns, _ = table_layout.plan("세부내역서", "항목내역", blocks, "표.", {key: key + " 설명" for key in DETAIL})
+    keys, unknown = list(columns), f"{table_layout.VALUE['unknown']['key']}1"
+    assert keys[keys.index("본인부담") + 1] == unknown and keys[keys.index(unknown) + 1] == "공단부담"
+    at = table_layout.header_positions(blocks, list(DETAIL))[0]
+    assert at["본인부담"] < at[unknown] < at["공단부담"]
+
+
+def test_an_unread_header_word_is_no_outside_column_while_a_printed_column_was_placed_only_by_its_values():
+    # '일자'를 '을지'로 오독하고 본문 날짜로만 일자 열을 넣은 표: 머리글의 다른 낱말도 오독일 수 있어 자리 열을 두지 않는다
+    rows = [(text, x, 40 + 30 * r) for r in range(4) for text, x in (("진찰료", -10), ("20191225", 60), ("AA157", 200))]
+    blocks = header(("항목", 0, 0), ("을지", 100, 0), ("코드", 200, 0), ("명칭", 300, 0), ("단가", 400, 0), ("횟수", 500, 0), ("총액", 600, 0),
+                    ("보훈감면액", 700, 0), *rows)
+    assert "시작일자" in printed(blocks, DETAIL)
+    assert not [key for key in printed(blocks, DETAIL) if key.startswith(table_layout.VALUE["unknown"]["key"])]
+
+
+def test_a_split_header_word_outside_the_schema_is_one_column():
+    blocks = header(*[(word, x, 0) for word, x in FULL], ("보훈", 1050, -18), ("감면액", 1040, 0))
+    _, columns, _ = table_layout.plan("세부내역서", "항목내역", blocks, "표.", {key: key + " 설명" for key in DETAIL})
+    assert [key for key in columns if key.startswith(table_layout.VALUE["unknown"]["key"])] == [f"{table_layout.VALUE['unknown']['key']}1"]
+    assert "'보훈감면액' 열이다" in "".join(columns.values())
+
+
+def test_values_under_an_outside_column_are_dropped_and_the_right_columns_keep_their_values(monkeypatch):
+    from backend import band
+    blocks = header(*[(word, x, 0) for word, x in sorted(FULL + [("보훈감면액", 1040)], key=lambda item: item[1])])
+    spec = doctypes.schema("세부내역서")["properties"]["항목내역"]
+    plan = table_layout.plan("세부내역서", "항목내역", blocks, spec["description"], {key: prop["description"] for key, prop in spec["items"]["properties"].items()})
+    keys = {column: key for key, column in band.short_keys(spec, "세부내역서", plan).items()}
+    reply = [{keys["항목"]: "치료재료", keys["본인부담"]: "1,827", keys["미정열1"]: "", keys["공단부담"]: "3,393", keys["전액본인부담"]: "0"}]
+    row = band.expand(reply, spec, "세부내역서", plan)[0][0]
+    assert (row["본인부담"], row["공단부담"], row["전액본인부담"]) == ("1,827", "3,393", "0") and "미정열1" not in row
+    text = band.prompt(spec, "띠", False, "세부내역서", plan)
+    assert f'"{keys["미정열1"]}" = 미정열1:' in text and "보훈감면액" in text  # 띠 프롬프트도 그 자리를 묻는다
+    names = list(plan[1])
+    monkeypatch.setattr(engine, "_provider", lambda *args, **kwargs: {"rows": [["치료재료" if name == "항목" else "1,827" if name == "본인부담" else
+                                                                             "" if name == "미정열1" else "3,393" if name == "공단부담" else None for name in names]]})
+    out = engine._read_rows("항목내역", spec, plan, "1,827 3,393", [], deadline=None)[0]
+    assert (out["본인부담"], out["공단부담"]) == ("1,827", "3,393") and "미정열1" not in out  # rowmajor도 그 자리를 묻고 버린다

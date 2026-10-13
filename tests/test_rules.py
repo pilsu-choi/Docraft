@@ -1998,3 +1998,186 @@ def test_a_row_shifted_by_one_column_moves_as_a_chain():
 ])
 def test_an_amount_without_a_certain_printed_column_stays_where_the_model_put_it(rows, blocks):
     assert rules._printed_moves(rows, blocks) == rows
+
+
+# --- 세부내역서 묶음 제목 행 빼기(2026-10-13 결정 A) ------------------------------------------------
+
+
+def _detail(항목, **cols):
+    return {"항목": 항목, **cols}
+
+
+def _data(항목, code, total):
+    return _detail(항목, EDI코드=code, EDI명칭="명칭" + code, 총액=total, 본인부담=total)
+
+
+def test_group_title_rows_are_dropped_when_the_rows_below_print_their_item():
+    rows = [_detail("진찰료"), _data("01.진찰료", "AA154", "17,610"), _data("01.진찰료", "AA254", "12,530"),
+            _detail("소계", 총액="30,140"), _detail("투약료"), _data("03.투약료", "J1234", "1,200"),
+            _detail("계", 총액="31,340"), _detail("합계", 총액="31,340"), _detail("끝수처리 조정금액"), _detail("소계")]
+    result = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
+    kept = ["01.진찰료", "01.진찰료", "소계", "03.투약료", "계", "합계", "끝수처리 조정금액", "소계"]  # 집계 행은 금액 없어도 둔다
+    assert [row["항목"].replace(" ", "") for row in result] == [name.replace(" ", "") for name in kept]
+    assert [row["항목"] for row in rules.drop_group_titles(rows)] == kept  # 저장된 행 목록에 그대로 다시 적용
+
+
+def test_a_group_title_is_kept_when_it_is_the_only_item_of_the_rows_below_or_has_no_rows():
+    blank_below = [_detail("진찰료"), _data(None, "AA154", "17,610"), _data("", "AA254", "12,530")]
+    assert rules.drop_group_titles(blank_below) == blank_below  # 아래 행에 항목이 인쇄되지 않았다: 제목이 유일한 분류
+    assert rules.drop_group_titles([_data("01.진찰료", "AA154", "17,610"), _detail("주사료")])[-1]["항목"] == "주사료"  # 표 끝
+    assert len(rules.drop_group_titles([_detail("진찰료"), _detail("소계", 총액="100")])) == 2  # 아래가 집계 행
+    stacked = [_detail("기본진료료"), _detail("진찰료"), _data("01.진찰료", "AA154", "17,610")]
+    assert [row["항목"] for row in rules.drop_group_titles(stacked)] == ["01.진찰료"]  # 이어진 제목 행들 다음 데이터 행을 본다
+
+
+@pytest.mark.parametrize("cell", [{"총액": "0"}, {"EDI코드": "AA154"}, {"투여량": "1"}, {"급여구분": "급여"}])
+def test_a_row_with_any_other_printed_cell_is_not_a_group_title(cell):
+    rows = [_detail("진찰료", **cell), _data("01.진찰료", "AA154", "17,610")]
+    assert len(rules.drop_group_titles(rows)) == 2
+    assert len(rules.drop_group_titles([_detail("진찰료", 본인부담="  "), rows[1]])) == 1  # 공백만 있는 칸은 빈 칸
+
+
+def test_receipt_rows_are_not_touched_by_group_title_dropping():
+    rows = [{"항목": "진찰료"}, {"항목": "입원료", "본인부담금": "1,000"}]
+    assert [row["항목"] for row in rules.apply("진료비영수증", {"항목내역": rows}, [])["항목내역"]] == ["진찰료", "입원료"]
+
+
+# --- 세부내역서 열 배치·코드 칸(2026-10-13) ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("paid", ["급여액", "급 여 액"])
+def test_a_printed_paid_amount_column_beside_sub_column_words_keeps_its_values(paid):
+    """'급여액'은 값 열이라 같은 머리글 줄의 '전액본인'(하위 열 낱말)이 있어도 급여 칸을 비우지 않는다."""
+    blocks = [{"rows": [["항목", "수가코드", "수가명", "표준코드", "수량", "횟수", "일수", "단가", paid, "전액본인", "선택진료", "비급여"],
+                        ["AL200", "외래환자의약품관리료", "AL200", "1.00", "1", "1", "50", "50", "0", "0", "0"]]}]
+    rows = [{"항목": "투약및조제료", "원내코드": "AL200", "EDI코드": "AL200", "단가": "50", "급여": "50", "전액본인부담": "0"}]
+    assert rules.apply("세부내역서", {"항목내역": rows}, blocks)["항목내역"][0]["급여"] == "50"
+    assert rules._grouped({"급여액", "전액본인"}, *rules.GROUPED["급여"]) is False
+
+
+def test_a_paid_group_title_over_sub_columns_is_still_cleared():
+    grouped = [{"rows": [["항목", "코드", "명칭", "총액", "급여", "급여구분"], ["", "", "", "", "본인부담금", "공단부담금"]]}]
+    rows = [{"항목": "진찰료", "EDI코드": "AA154", "총액": "100", "급여": "100", "본인부담": "30", "공단부담": "70"}]
+    assert rules.apply("세부내역서", {"항목내역": rows}, grouped)["항목내역"][0]["급여"] is None  # '급여구분'은 값 열 근거가 아니다
+
+
+@pytest.mark.parametrize("code, edi, own", [
+    ("AU401 / W-IC-EVA", "AU401", "WICEVA"),  # 코드 한 칸에 EDI·원내 코드
+    ("W-IC-EVA/AU401", "AU401", "WICEVA"),  # 순서가 바뀌어도 EDI 꼴이 EDI코드
+    ("650100422 | DBENO", "650100422", "DBENO"),
+    ("AU401, WICMAT", "AU401", "WICMAT"),
+])
+def test_two_codes_printed_in_one_code_cell_are_split_into_the_two_code_columns(code, edi, own):
+    row = rules.apply("세부내역서", {"항목내역": [{"항목": "관리료", "EDI코드": code, "EDI명칭": "의료질평가지원금", "총액": "3220"}]}, [])["항목내역"][0]
+    assert (row["EDI코드"], row["원내코드"]) == (edi, own)
+    saved = {"EDI코드": "AU401/WICEVA", "원내코드": None}  # 저장된 결과(정규화된 값)에 다시 적용
+    rules.split_code(saved)
+    assert (saved["EDI코드"], saved["원내코드"]) == ("AU401", "WICEVA")
+
+
+@pytest.mark.parametrize("row", [{"EDI코드": "AA154/AA254"}, {"EDI코드": "DBENO/WICEVA"}, {"EDI코드": "AU401/WICEVA", "원내코드": "X1"},
+                                 {"EDI코드": "AU401/W/X"}, {"원내코드": "AU401"}])
+def test_a_code_cell_is_left_alone_unless_it_splits_into_one_edi_and_one_other_code(row):
+    before = dict(row)
+    rules.split_code(row)
+    assert row == before
+
+
+def test_receipt_codes_are_not_split():
+    rows = [{"항목": "진찰료", "본인부담금": "1,000"}]
+    assert rules.apply("진료비영수증", {"항목내역": rows}, [])["항목내역"][0]["항목"] == "진찰료"
+
+
+def test_group_title_rows_are_judged_before_the_printed_period_fills_every_row_date():
+    """날짜 열 없는 서식: 진료기간 날짜(_period)가 모든 행(제목 행 포함)에 채워져도 제목 행은 인쇄된 값으로 가려 뺀다."""
+    rows = [{"항목": "5.투약및조제료"}, _data("5.투약및조제료", "AL200", "50"), _data("5.투약및조제료", "J1234", "500"),
+            {"항목": "소계", "총액": "550"}, {"항목": "10.검사료"}, _data("10.검사료", "L6711", "870")]
+    out = rules.apply("세부내역서", {"항목내역": rows, "환자정보(진료시작일)": "20200716"}, [])["항목내역"]
+    assert [row["항목"] for row in out] == ["5.투약및조제료", "5.투약및조제료", "소계", "10.검사료"]
+    assert all(row["시작일자"] == "20200716" for row in out if row["항목"] != "소계")
+
+
+# --- 묶음 머리 줄 날짜(2026-10-13 결정): 내원일 날짜 줄을 아래 행 시작일자로 ------------------------------
+
+
+def test_a_visit_date_head_line_dates_the_rows_below_it_and_is_dropped():
+    """날짜 열 없이 표 안 머리 줄('2022-02-25 (보험외래)')에만 날짜가 인쇄된 서식: 다음 머리 줄 전까지 행의 시작일자로 잇고(종료일자는 비움),
+    머리 줄 자체는 뺀다. 모델이 날짜를 항목·명칭·시작일자 칸 어디에 적었든 같다."""
+    rows = [{"항목": "2022-02-25", "EDI명칭": "(보험외래)"}, _data("진찰료", "AA154", "16,970"), _data("투약", "643505741", "242"),
+            {"시작일자": "2022.03.02", "EDI명칭": "(보험외래)"}, _data("진찰료", "AA254", "12,130"),
+            {"항목": "2022-03-07 (보험외래)"}, {"항목": "검사"}, _data(None, "E6660", "9,280"), {"항목": "합계", "총액": "38,622"}]
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
+    assert [(row["항목"], row["시작일자"], row["종료일자"]) for row in out] == [
+        ("진찰료", "20220225", None), ("투약", "20220225", None), ("진찰료", "20220302", None), ("검사", "20220307", None), ("합계", None, None)]
+    # 날짜 머리 줄 아래 섹션 제목('검사')은 날짜 무리를 끊지 않는다. 항목이 빈 행은 날짜 글자가 아니라 섹션 제목을 이어 받고, 그래서
+    # 분류가 아래 행에 있게 된 제목 행은 뺀다(v9 회귀 수정, 2026-10-13)
+
+
+def test_printed_row_dates_are_never_overwritten_by_a_head_line_date():
+    rows = [{"항목": "2022-02-25"}, {**_data("진찰료", "AA154", "16,970"), "시작일자": "20220226"}, _data("투약", "J1", "242")]
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
+    assert [row["시작일자"] for row in out] == ["20220226", None]  # 행 날짜가 인쇄된 서식(날짜 열 있음)이면 머리 줄 날짜를 잇지 않는다
+    assert rules.drop_group_titles([{"항목": "2022-02-25"}, _data("진찰료", "AA154", "1")]) == [_data("진찰료", "AA154", "1")]
+
+
+def test_a_named_section_title_with_a_date_is_a_head_too():
+    rows = [{"항목": "진찰료", "시작일자": "20240105"}, _data("01.진찰료", "AA154", "17,610")]
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])["항목내역"]
+    assert [(row["항목"], row["시작일자"]) for row in out] == [("01.진찰료", "20240105")]
+
+
+def test_section_titles_whose_rows_print_no_item_are_carried_down_and_dropped():
+    """v9 회귀(SA2020010683384_2020010610103300): 섹션 제목 줄('01.진찰료')만 항목이 인쇄되고 아래 행 항목 칸은 빈 서식. 모델은 인쇄된 대로
+    제목 행과 항목 빈 행을 낸다 → 제목을 아래 행에 잇고(섹션 제목 관례) 제목 행은 뺀다. 집계 행은 남는다."""
+    row = lambda code, total: {"시작일자": "2019-05-08", "EDI코드": code, "EDI명칭": "명칭" + code, "단가": total, "횟수": "1", "일수": "1",
+                               "총액": total, "본인부담": "0", "공단부담": total}
+    read = [{"항목": "01.진찰료"}, row("A1AA156", "17,400"), row("AAU232", "3,150"), row("AAU313", "60"), {"항목": "소계", "총액": "20,610"},
+            {"항목": "03.투약료"}, row("D677200160", "0"), {"항목": "소계", "총액": "0"}, {"항목": "계", "총액": "20,610"},
+            {"항목": "끝수처리 조정금액"}, {"항목": "합계", "총액": "20,610"}]
+    out = rules.apply("세부내역서", {"항목내역": read}, [])["항목내역"]
+    assert [row["항목"].replace(" ", "") for row in out] == ["01.진찰료"] * 3 + ["소계", "03.투약료", "소계", "계", "끝수처리조정금액", "합계"]
+
+
+# --- 묶음 머리 줄 날짜가 출력에서 빠진 경우: 같은 자리 OCR 머리 줄 날짜(2026-10-13) ----------------------------
+
+
+def _visit_ocr(*groups):
+    """OCR 표 블록: 묶음마다 날짜 머리 줄과 그 행들의 줄(코드·명칭)."""
+    text = "\n".join(f"{day} {tag}\n" + "\n".join(f"진찰료 {code} 명칭{code} 1 1 1,000" for code in codes) for day, tag, codes in groups)
+    return [{"type": "table", "page": 1, "text": text}]
+
+
+@pytest.mark.parametrize("head", [{"항목": "보험외래"}, {"항목": "(입원)"}, {"EDI코드": "보험외래", "항목": "외래"}])
+@pytest.mark.parametrize("printed, day", [("2022-02-25", "20220225"), ("2022.02.25", "20220225"), ("22.02.25", "20220225")])
+def test_a_head_row_missing_its_date_takes_the_date_of_the_ocr_head_line_at_its_place(head, printed, day):
+    blocks = _visit_ocr((printed, "(보험외래)", ["AA154", "AL801"]), ("2022-03-02", "(보험외래)", ["AA254"]))
+    read = [dict(head), _data("진찰료", "AA154", "16,970"), _data("진찰료", "AL801", "210"),
+            {"항목": "2022-03-02", "EDI명칭": "(보험외래)"}, _data("진찰료", "AA254", "12,130")]
+    out = rules.apply("세부내역서", {"항목내역": read}, blocks)["항목내역"]
+    assert [(row["EDI코드"], row["시작일자"]) for row in out] == [("AA154", day), ("AL801", day), ("AA254", "20220302")]  # 머리 행은 빠진다
+
+
+def test_a_head_row_whose_tag_went_to_the_code_column_is_still_a_head():
+    read = [{"항목": "2022-02-25", "EDI코드": "보험외래"}, _data("진찰료", "AA154", "16,970")]
+    out = rules.apply("세부내역서", {"항목내역": read}, [])["항목내역"]
+    assert [(row["EDI코드"], row["시작일자"]) for row in out] == [("AA154", "20220225")]
+    assert len(rules.drop_group_titles([{"항목": "진찰료", "EDI코드": "AA154"}, _data("01.진찰료", "AA1", "1")])) == 2  # 코드 꼴 값은 꼬리표가 아니다
+
+
+def test_a_head_row_with_its_date_keeps_it_over_the_ocr_line():
+    blocks = _visit_ocr(("2022-02-26", "(보험외래)", ["AA154"]))
+    out = rules.apply("세부내역서", {"항목내역": [{"항목": "2022-02-25 (보험외래)"}, _data("진찰료", "AA154", "16,970")]}, blocks)["항목내역"]
+    assert out[0]["시작일자"] == "20220225"
+
+
+def test_a_merged_item_cell_printed_once_in_a_one_group_table_is_carried_down():
+    """SA2020010684193_2020010610415102 꼴: 항목 칸이 세로 병합돼 무리 하나뿐인 표의 첫 행에만 인쇄. 모델이 인쇄된 대로 첫 행에만 적어도
+    아래 항목 행에 잇는다(집계 행은 그대로). 표 첫 행이 아닌 홀로 찍힌 값은 잇지 않는다."""
+    row = lambda code, item=None: {"항목": item, "시작일자": "20191024", "EDI코드": code, "EDI명칭": "명칭" + code, "단가": "100", "횟수": "1",
+                                   "일수": "1", "총액": "100", "본인부담": "5", "공단부담": "95"}
+    read = [row("J1100", "투약및조제료"), row("J2000"), row("652100970"), row("650700790"), {"항목": "투약및조제료 소계", "총액": "400"},
+            {"항목": "끝수처리조정금액", "총액": "0"}, {"항목": "합계", "총액": "400"}]
+    out = rules.apply("세부내역서", {"항목내역": read}, [])["항목내역"]
+    assert [row["항목"] for row in out[:4]] == ["투약및조제료"] * 4 and [row["항목"] for row in out[4:]] == ["소계", "끝수처리조정금액", "합계"]
+    stray = rules.apply("세부내역서", {"항목내역": [row("J1100"), row("J2000", "투약및조제료"), row("J3000")]}, [])["항목내역"]
+    assert [row["항목"] for row in stray] == [None, "투약및조제료", None]

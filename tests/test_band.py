@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import fitz
 import pytest
 
-from backend import band, doctypes, engine, latency, verify
+from backend import band, doctypes, engine, latency, rules, verify
 
 ITEM = doctypes.schema("진료비영수증")["properties"]["항목내역"]
 DEV_PROMPT_SHA256 = "c96e890181e9aca410a145426f917b644d0e8da37e2422bb1b3df819a079f953"  # BAND_HEADER_NOTE 도입 전 dev(0751745) 띠 프롬프트
@@ -199,7 +199,7 @@ def test_band_reads_the_located_table_in_three_strips_and_the_summary_block_apar
     result, groundings = engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")
 
     assert kinds(state) == ["band"] * 3 + ["fields", "locate", "summary"]
-    assert [call.images for call in state.calls if call.kind == "band"] == [1, 2, 2]  # 첫 띠는 머리글째, 나머지는 머리글 띠 + 띠
+    assert [call.images for call in state.calls if call.kind == "band"] == [1, 2, 2]  # 첫 띠는 머리글째, 나머지는 머리글 띠 + 띠 두 장(위치 찾기 머리글 띠는 첫 행이 걸칠 수 있다)
     assert all(engine.TABLE_NOTE in call.system for call in state.calls if call.kind == "band")
     assert "항목내역" in groundings and result["환자정보-성명"] == "홍길동"
 
@@ -440,3 +440,543 @@ def test_a_skewed_upright_page_uses_the_straightened_locate_image_sent_before_oc
     assert result == run(replay, monkeypatch, blocks, BAND_PRELOCATE="false")[0]
     _, calls, stats = run(replay, monkeypatch, [{**replay.blocks[0], "skew": skew, "orientation": 90}], BAND_PRELOCATE="true")  # 90도 돌렸으면 다시 찾는다
     assert (calls.count("locate"), stats.get("band_prelocate")) == (2, "turned")
+
+
+# --- 세부내역서: 위치 찾기 없이 OCR 행 경계로 자른 띠(BAND_DOC_TYPES=진료비영수증,세부내역서) ---------------------------
+
+DETAIL = doctypes.schema("세부내역서")["properties"]["항목내역"]
+DPROPS = DETAIL["items"]["properties"]
+DKEYS = band.short_keys(DETAIL, "세부내역서")
+
+
+def detail_row(**cols):
+    """세부내역서 짧은 키 행(스키마 전체 열): 열 이름으로 준 값 외에는 빈칸."""
+    names = {column: key for key, column in DKEYS.items()}
+    return {key: "" for key in DKEYS} | {names[column]: value for column, value in cols.items()}
+
+
+def detail_blocks(rows, wrapped=(), lines=True):
+    """1쪽 세부내역서 표 블록(쪽 1000×1000): 머리글 줄 아래 금액이 찍힌 인쇄 행 ``rows``개(행 간격 STEP, 줄 높이 0.4 STEP), ``wrapped`` 번호
+    행은 명칭이 다음 줄로 이어진다(금액 없는 줄)."""
+    step = STEP(rows)
+    text = [{"text": "항목 | 코드 | 명칭 | 금액 | 본인부담", "bbox": [60, 240 - step, 940, 240 - 0.6 * step]}]
+    for i in range(rows):
+        y = 240 + i * step
+        text.append({"text": f"진찰료 | AA154 | 초진진찰료 | {10000 + i:,}", "bbox": [60, y, 940, y + 0.4 * step]})
+        if i in wrapped:
+            text.append({"text": "(이어 쓴 명칭)", "bbox": [300, y + 0.45 * step, 500, y + 0.8 * step]})
+    return [{"page": 1, "type": "table", "text": "\n".join(line["text"] for line in text), "page_size": [1000, 1000],
+             "bbox": [50, 200, 950, 245 + rows * step], **({"lines": text} if lines else {})}]
+
+
+def STEP(rows):
+    return min(20, 700 / rows)  # 표가 쪽 안에 든다
+
+
+def body(strip):
+    """띠 본문 크롭의 위·아래(쪽 1000 기준)."""
+    return strip["clips"][-1][1] * 1000, strip["clips"][-1][3] * 1000
+
+
+def inside(point, polygon):
+    """점이 다각형 안인지(광선 교차)."""
+    x, y = point
+    hits = False
+    for (ax, ay), (bx, by) in zip(polygon, polygon[1:] + polygon[:1]):
+        if (ay > y) != (by > y) and x < ax + (y - ay) * (bx - ax) / (by - ay):
+            hits = not hits
+    return hits
+
+
+def shown(point, strip, image=-1):
+    """띠 크롭 ``image``(기본 띠 본문)에 그 점(쪽 1000 좌표)이 보이는지: 크롭 상자 안이고 지운 다각형 밖."""
+    x0, y0, x1, y1 = (value * 1000 for value in strip["clips"][image])
+    masks = (strip.get("masks") or [[]] * len(strip["clips"]))[image]
+    return x0 <= point[0] <= x1 and y0 <= point[1] <= y1 and not any(inside(point, [(px * 1000, py * 1000) for px, py in polygon]) for polygon in masks)
+
+
+def corners(line):
+    x0, y0, x1, y1 = line["bbox"]
+    return [(x0 + 0.5, y0 + 0.2), (x1 - 0.5, y0 + 0.2), (x0 + 0.5, y1 - 0.2), (x1 - 0.5, y1 - 0.2), ((x0 + x1) / 2, (y0 + y1) / 2)]
+
+
+def whole_once(line, bands, image=-1):
+    """줄이 띠 하나에만 온전히 보이고, 다른 띠에는 조금도 보이지 않는다(띠 경계·꺾은선이 줄을 가르지 않는다)."""
+    seen = [sum(shown(point, b, image) for point in corners(line)) for b in bands]
+    return sorted(seen)[-1] == 5 and sum(seen) == 5
+
+
+@pytest.mark.parametrize("rows, count", [(1, 1), (5, 1), (12, 1), (13, 2), (30, 3), (31, 3), (60, 5), (100, 8)])
+def test_detail_bands_cut_between_printed_rows_about_twelve_rows_a_band(rows, count):
+    blocks = detail_blocks(rows, wrapped={0, 11, 12, rows - 1})
+    bands = engine._row_bands(blocks, len(DPROPS), band.PROFILES["세부내역서"]["rows"])
+    assert len(bands) == count and not any(b.get("repeats") for b in bands)  # 행 사이에서 자르므로 되풀이 행이 없다
+    lines = blocks[0]["lines"][1:]
+    for number, line in enumerate(lines):  # 어느 줄도 띠 경계에 걸치지 않고, 띠 하나에만 든다(이어 쓴 명칭 줄은 제 행과 같은 띠)
+        assert whole_once(line, bands), number
+        if "이어 쓴" in line["text"]:
+            assert [shown(corners(line)[-1], b) for b in bands] == [shown(corners(lines[number - 1])[-1], b) for b in bands]
+    sizes = [sum(shown(corners(line)[-1], b) for line in lines if "," in line["text"]) for b in bands]
+    assert sum(sizes) == rows and max(sizes) <= -(-rows // count) and (max(sizes) <= 12 or count == engine.MAX_STRIPS)
+    assert [len(b["clips"]) for b in bands] == [1] + [2] * (count - 1)  # 뒤 띠에는 머리글 띠가 첫 이미지로 붙는다
+    top = pytest.approx((240 - 1.1 * STEP(rows)) / 1000)  # 머리글 줄 위 행 높이(0.4 STEP) 1/4 여백 — 표 블록 상자(0.2)가 아니다
+    assert all(b["clips"][0] == [0.05, top, 0.95, pytest.approx((240 - 0.3 * STEP(rows)) / 1000)] for b in bands[1:])  # 머리글 줄과 첫 행 사이에서 끝나는 머리글 띠
+    assert bands[0]["clips"][0][1] == top and "항목 | 코드" in bands[-1]["text"]  # 첫 띠는 머리글째, 띠 글자에는 머리글 줄
+
+
+def test_rowmajor_fallback_bands_keep_their_amount_budget_and_repeats():
+    assert engine._bands(detail_blocks(20), len(DPROPS)) == []  # 응답 상한 기준이면 20행은 한 덩어리: 다시 읽을 띠가 아니다
+    bands = engine._bands(detail_blocks(200), len(DPROPS))
+    assert len(bands) > 1 and all(b.get("repeats") for b in bands[1:])
+
+
+def test_detail_prompt_keys_every_column_and_leaves_out_the_receipt_form_notes():
+    text = band.prompt(DETAIL, engine.BAND_NOTE[1], True, "세부내역서")
+    assert list(DKEYS.values()) == list(DPROPS) and DKEYS["a"] == "항목"  # 항목도 짧은 키 열(행 이름 n 없음)
+    assert '"a" = 항목: 진료 항목 구분명.' in text and doctypes.DETAIL_HINT not in text.split("Short keys")[1].split("Every row")[0]
+    assert '"n": "<' not in text and "every key (a, b," in text
+    for receipt_only in ("Reading aid", rules.ITEM_ORDER[0] + ", ", band.LAYOUTS, band.HEADER_NOTE, "A blank cell is 0"):
+        assert receipt_only not in text
+    assert "끝수처리 조정금액" in text and "A blank cell is null" in text and engine.BAND_NOTE[1].strip() in text
+
+
+def test_detail_expand_keeps_blank_cells_of_every_column_kind_null():
+    rows, unknown, missing = band.expand([detail_row(항목="진찰료", EDI코드="AA154", 총액="17,610", 일수="1", 본인부담="")], DETAIL, "세부내역서")
+    assert (unknown, missing) == (0, 0) and list(rows[0]) == list(DPROPS)
+    assert rows[0]["항목"] == "진찰료" and rows[0]["총액"] == "17,610" and rows[0]["일수"] == "1"
+    assert rows[0]["본인부담"] is None and rows[0]["시작일자"] is None and rows[0]["급여구분"] is None and rows[0]["EDI명칭"] is None  # 금액·날짜·enum·글자
+    assert band.expand([{"a": "합계"}], DETAIL, "세부내역서")[0][0]["총액"] is None  # 빠진 금액 열도 0으로 채우지 않는다
+
+
+PLAN = (DETAIL["description"] + " 열 배치 안내.", {"항목": DPROPS["항목"]["description"], "EDI코드": DPROPS["EDI코드"]["description"] + " 이 문서에서는 '코드' 열이다.",
+                                              "EDI명칭": DPROPS["EDI명칭"]["description"], "단가": DPROPS["단가"]["description"], "횟수": DPROPS["횟수"]["description"],
+                                              "일수": DPROPS["일수"]["description"], "총액": DPROPS["총액"]["description"],
+                                              "본인부담": DPROPS["본인부담"]["description"], "기타": "알 수 없는 열."}, None)
+
+
+def test_detail_prompt_asks_only_the_planned_columns_in_printed_order():
+    keys = band.short_keys(DETAIL, "세부내역서", PLAN)
+    assert list(keys.values()) == list(PLAN[1])  # 인쇄 순서, 스키마 밖 열도 물어 자리를 지킨다
+    text = band.prompt(DETAIL, engine.BAND_NOTE[0], False, "세부내역서", PLAN)
+    assert '"b" = EDI코드: EDI 코드.' in text and "이 문서에서는 '코드' 열이다." in text and doctypes.DETAIL_HINT not in text.split("Short keys")[1].split("Every row")[0]
+    assert "급여구분" not in text.split("Short keys")[1].split("Every row")[0] and "every key (a, b, c, d, e, f, g, h, i) in this order" in text
+    assert "Rules (same as the schema): " + PLAN[0] in text
+    assert band.prompt(DETAIL, engine.BAND_NOTE[0], False, "세부내역서") != text  # 배치가 없으면 스키마 전체 열
+
+
+def test_detail_expand_puts_planned_values_under_schema_columns_and_fills_the_rest():
+    keys = {column: key for key, column in band.short_keys(DETAIL, "세부내역서", PLAN).items()}
+    reply = [{keys["항목"]: "검사료", keys["단가"]: "15,180", keys["횟수"]: "1", keys["일수"]: "1", keys["총액"]: "15,180", keys["본인부담"]: "", keys["기타"]: "x"}]
+    rows, unknown, missing = band.expand(reply, DETAIL, "세부내역서", PLAN)
+    assert (unknown, missing) == (0, 1) and list(rows[0]) == list(DPROPS)  # 스키마 열·순서, 스키마 밖 '기타'는 버린다
+    assert (rows[0]["단가"], rows[0]["횟수"], rows[0]["일수"], rows[0]["총액"]) == ("15,180", "1", "1", "15,180")
+    assert rows[0]["본인부담"] is None and rows[0]["급여구분"] is None and rows[0]["시작일자"] is None
+    assert band.expand(reply, DETAIL, "세부내역서", (PLAN[0], PLAN[1], "0"))[0][0]["급여구분"] == "0"  # 묻지 않은 열은 배치의 채움 값(rowmajor와 같다)
+
+
+@pytest.fixture
+def detail(state, monkeypatch):
+    monkeypatch.setenv("BAND_DOC_TYPES", "진료비영수증,세부내역서")
+    monkeypatch.setattr(engine, "_table_plan", lambda doc_type, *args: PLAN if doc_type == "세부내역서" else ("영수증 배치", {"본인부담금": "x"}, "0"))
+    state.blocks = detail_blocks(30)
+    keys = {column: key for key, column in band.short_keys(DETAIL, "세부내역서", PLAN).items()}
+    state.row = lambda **cols: {keys[column]: value for column, value in cols.items()}
+    return state
+
+
+def detail_schema():
+    return verify._restrict(doctypes.schema("세부내역서"), {"항목내역", "환자성명"})
+
+
+def test_a_one_page_detail_statement_is_read_in_row_bands_without_a_locate_call(detail):
+    detail.bands = [[detail.row(항목="진찰료", EDI코드="AA154", 총액="17,610")], [detail.row(항목="진찰료", EDI코드="AA154", 총액="17,610")],
+                    [detail.row(항목="합계", 총액="30,140"), detail.row(항목="끝수처리 조정금액", 총액="-40"), detail.row(항목="합계", 총액="30,100")]]
+    with latency.track() as stats:
+        result, _ = engine.extract(detail_schema(), detail.blocks, detail.image, table_extract="band")
+
+    assert kinds(detail) == ["band"] * 3 + ["fields"] and "band_fallback" not in stats  # 위치 찾기·금액산정 블록 읽기 없음
+    calls = [call for call in detail.calls if call.kind == "band"]
+    assert [call.images for call in calls] == [1, 1, 1]
+    bands = engine._row_bands(detail.blocks, len(DPROPS), 12)
+    heads = [engine._page_images(detail.image, [1], {}, b["clips"], b.get("edge"), b.get("masks"), True) for b in bands]
+    assert [call.image for call in calls] == [urls[0] if len(urls) == 1 else engine._stacked(urls) for urls in heads]  # 뒤 띠: 머리글 띠 + 띠 한 장
+    assert [call.max_tokens for call in calls] == [min(engine.TABLE_REPLY_TOKENS, engine._reply_cap(b["text"], len(DPROPS))) + engine.THINK_TOKENS for b in bands]
+    assert all(call.text == band.prompt(DETAIL, engine.BAND_NOTE[2 if i else 0], True, "세부내역서", PLAN) for i, call in enumerate(calls))
+    rows = result["항목내역"]  # 되풀이되는 같은 행도 겹침으로 지우지 않는다(띠가 겹치지 않는다), 인쇄된 집계 행은 그대로
+    assert [(row["항목"], row["총액"]) for row in rows] == [("진찰료", "17,610"), ("진찰료", "17,610"), ("합계", "30,140"),
+                                                         ("끝수처리 조정금액", "-40"), ("합계", "30,100")]
+    assert rows[0]["EDI코드"] == "AA154" and rows[0]["본인부담"] is None and rows[0]["급여구분"] is None
+
+
+def test_a_header_strip_is_stacked_above_its_strip_in_one_image_at_the_strip_width():
+    import base64
+    import io
+    from PIL import Image
+
+    def url(color, size):
+        buffer = io.BytesIO()
+        Image.new("RGB", size, color).save(buffer, "JPEG")
+        return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
+    def image(data):
+        return Image.open(io.BytesIO(base64.b64decode(data.split(",", 1)[1]))).convert("RGB")
+
+    same = image(engine._stacked([url((0, 0, 255), (200, 20)), url((255, 0, 0), (200, 60))]))
+    assert same.size == (200, 80) and same.getpixel((100, 10))[2] > 200 and same.getpixel((100, 50))[0] > 200  # 머리글이 위, 띠가 아래
+    wider = image(engine._stacked([url((0, 0, 255), (400, 40)), url((255, 0, 0), (200, 60))]))
+    assert wider.size == (200, 80)  # 폭이 다른 머리글 띠는 띠 폭으로 맞춘다(열 자리가 같은 배율)
+
+
+def test_a_detail_statement_whose_ocr_lines_cannot_cut_it_is_read_as_rowmajor(detail):
+    detail.blocks = detail_blocks(30, lines=False)
+    with latency.track() as stats:
+        engine.extract(detail_schema(), detail.blocks, detail.image, table_extract="band")
+    assert "rows" in kinds(detail) and not {"locate", "band"} & set(kinds(detail)) and stats["band_fallback"] == "rows"
+
+
+def test_a_detail_statement_is_never_prelocated(detail, monkeypatch):
+    monkeypatch.setenv("BAND_PRELOCATE", "true")
+    assert engine.prelocate(detail_schema(), detail.image, "band") is None and detail.calls == []
+
+
+def test_receipt_band_strips_ignore_the_rowmajor_plan(detail):
+    detail.blocks = [{"page": 1, "type": "table", "text": "", "rows": [["항목", "요양급여(①+②)", "비급여"]]}]
+    detail.locate, detail.bands = GRID, [[], [], []]
+    engine.extract(receipt_schema(), detail.blocks, detail.image, table_extract="band")
+    texts = [call.text for call in detail.calls if call.kind == "band"]
+    assert kinds(detail).count("locate") == 1 and len(texts) == 3
+    assert all(text == band.prompt(ITEM, engine.BAND_NOTE[i > 0], True) for i, text in enumerate(texts))
+    assert {call.max_tokens for call in detail.calls if call.kind == "band"} == {engine.KEYED_CAP}
+
+
+def test_detail_row_band_prompt_says_every_row_is_whole_and_the_receipt_prompt_still_skips_cut_rows():
+    text = band.prompt(DETAIL, engine.BAND_NOTE[1], True, "세부내역서", PLAN)
+    assert "Skip rows" not in text and "cut off" not in text
+    assert "Every row in the strip is whole" in text and "touching the top or bottom edge" in text
+    assert "Skip rows whose name is cut off at the top or bottom edge." in band.prompt(ITEM, engine.BAND_NOTE[1])  # 영수증(겹친 띠)은 그대로
+
+
+@pytest.mark.parametrize("rows", [5, 30, 61, 100])
+def test_detail_row_bands_have_margin_around_every_row_without_taking_in_a_neighbour(rows):
+    blocks = detail_blocks(rows, wrapped={3})
+    last = max(line["bbox"][3] for line in blocks[0]["lines"])
+    first = blocks[0]["lines"][0]["bbox"][1]
+    blocks[0]["bbox"] = [50, first, 950, last]  # 표 블록 상자가 머리글 줄 위·마지막 줄 아래에 딱 붙었다
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    pad = 0.4 * STEP(rows) / 4  # 행 높이의 1/4
+    assert bands[0]["clips"][0][1] * 1000 == pytest.approx(first - pad) and bands[-1]["clips"][-1][3] * 1000 == pytest.approx(last + pad)
+    assert all(whole_once(line, bands) for line in blocks[0]["lines"][1:])  # 경계 행도 온전히, 이웃 행은 조금도 안 든다
+    for strip in bands:  # 띠 위·아래 끝에 붙은 행도 여백째 담는다(가운데에서 자른 틈의 절반 또는 행 높이 1/4)
+        top, bottom = body(strip)
+        boxes = [line["bbox"] for line in blocks[0]["lines"] if shown(corners(line)[-1], strip)]
+        assert min(box[1] for box in boxes) - top >= pad - 1e-9 and bottom - max(box[3] for box in boxes) >= pad - 1e-9
+    fallback = engine._bands(blocks, len(DPROPS))  # rowmajor 폴백 띠(per 없음)는 그대로: 표 블록 상자에서 자른다
+    assert (fallback == []) is (rows <= 20) and (not fallback or fallback[0]["clips"][0][1] * 1000 == pytest.approx(first))
+
+
+# --- BAND_STRIP_EDGE: 세부내역서 OCR 행 띠 크롭을 원본 해상도까지 ---------------------------------------
+
+
+def strip_size(path, edge=None, clip=(0.05, 0.2, 0.95, 0.4)):
+    import base64
+    import io
+    from PIL import Image
+    url = engine._page_images(str(path), [1], {}, [list(clip)], edge)[0]
+    return Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))).size
+
+
+@pytest.fixture
+def scans(tmp_path, monkeypatch):
+    from PIL import Image
+    monkeypatch.setenv("AI_VISION", "true")
+    files = {}
+    for name, size, dpi in (("200dpi.tif", (2352, 1655), 200), ("96dpi.jpg", (1728, 2333), 96), ("72dpi.jpg", (3000, 2000), 72), ("nodpi.jpg", (2221, 3000), None)):
+        files[name] = tmp_path / name
+        Image.new("RGB", size, "white").save(files[name], **({"dpi": (dpi, dpi)} if dpi else {}))
+    return files
+
+
+@pytest.mark.parametrize("name, unset, wide", [("200dpi.tif", 2000, 2117), ("96dpi.jpg", 2000, 2000), ("72dpi.jpg", 2000, 2700), ("nodpi.jpg", 2000, 2000)])
+def test_band_strip_edge_draws_row_strips_at_the_file_resolution_within_the_edge(scans, name, unset, wide):
+    assert abs(strip_size(scans[name])[0] - unset) <= 1  # 끔: 기존 그대로(긴 변 VISION_MAX_EDGE)
+    width = strip_size(scans[name], 3000)[0]
+    assert abs(width - wide) <= 1  # 원본 픽셀까지, 기존보다 작게는 그리지 않는다(96dpi는 기존 배율이 이미 원본보다 크다)
+    assert strip_size(scans[name], 2400)[0] <= max(2400, unset) + 1  # 상한
+
+
+def test_band_strip_edge_is_passed_only_to_detail_row_bands(state, monkeypatch):
+    seen = []
+    images = engine._page_images
+    monkeypatch.setattr(engine, "_page_images", lambda *args, **kw: seen.append(args[4] if len(args) > 4 else None) or images(*args, **kw))
+    monkeypatch.setenv("BAND_STRIP_EDGE", "3000")
+    monkeypatch.setenv("BAND_DOC_TYPES", "진료비영수증,세부내역서")
+    engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")  # 영수증: 위치 찾기 띠는 그대로
+    assert set(seen) == {None}
+    seen.clear()
+    state.bands = [[], [], []]
+    engine.extract(verify._restrict(doctypes.schema("세부내역서"), {"항목내역"}), detail_blocks(30), state.image, table_extract="band")
+    assert seen.count(3000) == 3 and None in seen  # 띠 셋만, 쪽 이미지는 그대로
+
+
+# --- BAND_DUMP_DIR: 띠 읽기 진단 저장 ------------------------------------------------------------------
+
+
+def test_band_dump_saves_each_strip_image_prompt_and_reply_under_the_request(state, monkeypatch, tmp_path):
+    import hashlib
+    import json
+    from backend.config import bind_request
+    dump = tmp_path / "dump"
+    monkeypatch.setenv("BAND_DUMP_DIR", str(dump))
+    engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")  # 요청 밖: 원본 파일 해시 폴더
+    folder = dump / hashlib.sha1(open(state.image, "rb").read()).hexdigest()[:12]
+    assert sorted(path.name for path in folder.iterdir()) == ["0.prompt.txt", "0.reply.json", "0_0.jpg", "1.prompt.txt", "1.reply.json",
+                                                             "1_0.jpg", "1_1.jpg", "2.prompt.txt", "2.reply.json", "2_0.jpg", "2_1.jpg"]
+    assert (folder / "0_0.jpg").read_bytes()[:2] == b"\xff\xd8" and "Short keys" in (folder / "0.prompt.txt").read_text(encoding="utf-8")
+    assert json.loads((folder / "0.reply.json").read_text(encoding="utf-8"))["rows"][0]["n"] == "진찰료"
+    state.bands = [[], [], []]
+    with bind_request("job-1/doc:2"):
+        engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")
+    assert (dump / "job-1_doc_2" / "2.reply.json").exists()
+
+
+def test_band_dump_off_writes_nothing(state, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(engine, "_band_dump", lambda *args: pytest.fail("BAND_DUMP_DIR 없이 저장했다"))
+    engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")
+    assert [path for path in tmp_path.iterdir() if path.name != "page.png"] == []
+
+
+# --- 세부내역서 OCR 행 띠: 표 블록을 합치고 항목 표만, 남은 기울기 보정 ------------------------------------
+
+
+def piece(text, x0, x1, y, slope=0.0, height=8):
+    """OCR 줄 하나(쪽 1000×1000): 가운데 x에서 ``slope``만큼 기운 줄."""
+    shift = slope * (x0 + x1) / 2
+    return {"text": text, "bbox": [x0, y + shift, x1, y + shift + height]}
+
+
+def statement(rows=30, slope=0.0, split=None):
+    """환자정보 표·항목 표(머리글, 행마다 가로로 넷으로 갈린 OCR 줄: 이름 둘·금액 둘, 합계 행)·서명 줄. ``slope``만큼 기울었고(행 양 끝 줄의
+    높이 차가 줄 높이보다 크다), ``split`` 번째 행 한가운데에서 레이아웃이 항목 표를 두 블록으로 나눴다(앞 두 줄은 위 블록, 뒤 두 줄은 아래 블록)."""
+    def four(texts, y):
+        return [piece(text, x0, x1, y, slope) for text, (x0, x1) in zip(texts, ((60, 200), (300, 500), (620, 780), (800, 940)))]
+    info = four(["환자등록번호", "환자성명", "진료기간", "진료과"], 100) + four(["0000068743", "서기원", "2019-07-22 00:00", "내과"], 125)
+    head = four(["항목 일자", "코드 명칭", "금액 횟수", "일수 총액"], 190)
+    body = [four(["진찰료", f"AA{154 + i} 초진진찰료", f"{10000 + i:,} 1", f"1 {10000 + i:,}"] if i < rows else ["합계", "", "", "30,000"],
+                 220 + i * 20) for i in range(rows + 1)]
+    body[-1] = [line for line in body[-1] if line["text"]]
+    sign = [piece("신청인 조동주 의 요청에 따라 발급합니다. 2020 년 01 월 02 일", 60, 940, 240 + (rows + 1) * 20, slope)]
+    cut = split if split is not None else len(body)
+    top = [line for row in body[:cut] for line in row] + (body[cut][:2] if split is not None else [])
+    bottom = (body[cut][2:] if split is not None else []) + [line for row in body[cut + 1:] for line in row]
+    block = lambda lines: {"page": 1, "type": "table", "text": "\n".join(l["text"] for l in lines), "page_size": [1000, 1000], "lines": lines,
+                           "bbox": [50, min(l["bbox"][1] for l in lines) - 2, 950, max(l["bbox"][3] for l in lines) + 2]}
+    blocks = [block(info), block(head + top)] + ([block(bottom)] if bottom else []) + [block(sign)]
+    return blocks, info, head, body, sign
+
+
+def in_band(line, band):
+    return shown(corners(line)[-1], band)
+
+
+@pytest.mark.parametrize("slope, split", [(0.0, None), (0.0, 14), (0.012, None), (0.012, 14), (-0.012, 7)])
+def test_detail_row_bands_cut_the_item_table_alone_between_rows_across_blocks_and_tilt(slope, split):
+    blocks, info, head, rows, sign = statement(30, slope, split)
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    assert len(bands) == 3
+    for row in rows:  # 행의 줄들(블록이 갈라도·기울어도)은 같은 띠 하나에 온전히
+        assert all(whole_once(line, bands) for line in row) and len({i for i, b in enumerate(bands) for line in row if in_band(line, b)}) == 1
+    assert not any(shown(point, b, image) for line in info + sign for b in bands for image in range(len(b["clips"])) for point in corners(line))
+    assert all(all(sum(shown(point, b, 0) for point in corners(line)) == 5 for line in head) for b in bands[1:])  # 머리글 띠에 머리글 줄 온전히
+    assert not any(shown(point, b, 0) for b in bands[1:] for row in rows for line in row for point in corners(line))  # 머리글 띠에 데이터 행 없음
+
+
+def test_detail_row_bands_need_a_header_line_else_rowmajor():
+    blocks, info, head, rows, sign = statement(30)
+    blocks[1]["lines"] = blocks[1]["lines"][4:]  # 머리글 줄을 못 읽었다
+    assert engine._row_bands(blocks, len(DPROPS), 12) == []
+
+
+def test_rowmajor_fallback_bands_still_cut_each_block_alone():
+    blocks = statement(60, split=30)[0]
+    bands = engine._bands(blocks, len(DPROPS))  # per 없음: 블록마다 따로(블록 상자 안에서) 자른다
+    assert len(bands) > len(blocks)
+    assert all(any(block["bbox"][1] <= b["clips"][-1][1] * 1000 and b["clips"][-1][3] * 1000 <= block["bbox"][3] for block in blocks) for b in bands)
+
+
+# --- 반복 머리글 묶음·쪽 끝 표·휜 표의 꺾은선 경계 ------------------------------------------------------
+
+
+def table_block(lines):
+    return {"page": 1, "type": "table", "text": "\n".join(l["text"] for l in lines), "page_size": [1000, 1000], "lines": lines,
+            "bbox": [50, min(l["bbox"][1] for l in lines) - 2, 950, max(l["bbox"][3] for l in lines) + 2]}
+
+
+def visit_groups():
+    """내원일마다 '머리글 → 6행 → 합계' 묶음을 다시 찍는 서식(3022033115105207 꼴): 환자정보 줄, 묶음 셋, 묶음 사이 안내 줄."""
+    info = [piece("환자성명 홍길동 | 등록번호 0001234567", 60, 940, 60)]
+    groups, notes, y = [], [], 100
+    for g in range(3):
+        head = [piece("내원일 처방일 항목 코드", 60, 500, y), piece("명칭 총투 횟수 일수 금액 급/비", 520, 940, y)]
+        rows = [[piece(f"2023-0{g + 1}-1{i} 진찰료 AA{150 + i}", 60, 500, y + 25 + i * 20), piece(f"초진 1 1 1 {12000 + i:,} 급여", 520, 940, y + 25 + i * 20)]
+                for i in range(6)]
+        rows.append([piece("합계", 60, 500, y + 25 + 6 * 20), piece(f"{72015 + g:,}", 520, 940, y + 25 + 6 * 20)])
+        notes.append(piece("※ 위 금액은 본인부담 기준입니다", 60, 940, y + 25 + 7 * 20 + 10))
+        groups.append((head, rows))
+        y += 25 + 8 * 20 + 40
+    lines = info + [line for head, rows in groups for line in head + [l for row in rows for l in row]] + notes
+    return [table_block(lines)], info, groups, notes
+
+
+def test_a_header_printed_again_starts_a_new_table_group_with_its_own_header_strip():
+    blocks, info, groups, notes = visit_groups()
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    data = [line for _, rows in groups for row in rows for line in row]
+    assert all(whole_once(line, bands) for line in data)  # 셋째 묶음까지 모든 행·합계가 띠 하나에 온전히
+    assert not any(shown(point, b, image) for line in info + notes for b in bands for image in range(len(b["clips"])) for point in corners(line))
+    owner = [next(i for i, b in enumerate(bands) if in_band(rows[0][0], b)) for _, rows in groups]
+    assert owner == sorted(set(owner)) and len(owner) == 3  # 묶음 순서대로, 묶음마다 다른 띠
+    assert [b["text"].split("\n")[0] for b in (bands[i] for i in owner)] == ["내원일 처방일 항목 코드 | 명칭 총투 횟수 일수 금액 급/비"] * 3
+
+
+def test_a_table_running_on_to_the_next_page_ends_at_its_last_row_not_at_an_early_subtotal():
+    """SA2020010683384_2020010610103002 꼴: 쪽에 첫 묶음 소계만 있고 계·합계는 다음 쪽 — 표 끝을 마지막 집계 행(첫 소계)으로 잡아 그 아래
+    스무 행을 버렸다. 표 끝은 마지막 표 행(집계 행 또는 금액 꼴 숫자 둘 이상인 행)이다. 아래 쪽 번호·로고·발행일 줄은 빠진다."""
+    head = [piece("항목 일자 코드 명칭", 60, 500, 100), piece("금액 횟수 일수 총액", 520, 940, 100)]
+    rows = [[piece("01.진찰료", 60, 200, 125)]]
+    rows += [[piece("2019-07-22 AAL200 의약품관리료", 60, 500, 150), piece("50 1 1 50 3 47", 520, 940, 150)], [piece("소계", 60, 200, 175), piece("50 3 47", 520, 940, 175)],
+             [piece("09.검사료", 60, 200, 200)]]
+    rows += [[piece(f"2019-07-22 L{3011 + i} 검사", 60, 500, 225 + i * 20), piece(f"1,{600 + i} 1 1 1,{600 + i} 82 1,556", 520, 940, 225 + i * 20)] for i in range(25)]
+    foot = [piece("- 1 / 2 -", 450, 550, 760), piece("GNUH 경상대학교병원 2019", 60, 300, 790)]
+    blocks = [table_block(head + [l for row in rows for l in row] + foot)]
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    assert all(whole_once(line, bands) for row in rows for line in row)
+    assert not any(shown(point, b) for line in foot for b in bands for point in corners(line))
+
+
+def curved(rows=24, bow=16.0, pieces=16):
+    """휜 사진 꼴 표: 행 줄이 가로로 ``pieces`` 조각이고 y가 x에 따라 사인 곡선으로 ``bow``만큼 휜다(휜 높이 > 행 틈 12: 곧은 선으로는 못 가른다)."""
+    import math
+    width = 880 / pieces
+    lines = [piece(word, 60 + k * width, 60 + (k + 1) * width - 6, 100 + bow * math.sin(math.pi * k / (pieces - 1)))
+             for k, word in enumerate(["항목", "일자", "코드", "명칭", "금액", "횟수", "일수", "총액"] * 2)]
+    body = [[piece(f"{10000 + i:,}" if k % 4 == 3 else f"AA{i}{k}", 60 + k * width, 60 + (k + 1) * width - 6,
+                   125 + i * 20 + bow * math.sin(math.pi * k / (pieces - 1))) for k in range(pieces)] for i in range(rows)]
+    return [table_block(lines + [l for row in body for l in row])], body
+
+
+def test_curved_rows_are_cut_along_the_gap_by_a_polyline_and_a_straight_cut_would_split_them(monkeypatch):
+    blocks, body_rows = curved()
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    assert len(bands) == 2 and "masks" in bands[1]
+    assert all(whole_once(line, bands) for row in body_rows for line in row)  # 꺾은선: 휜 행도 온전히, 이웃 행은 지운다
+    monkeypatch.setattr(engine, "STRIP_BINS", 1)  # 칸 하나 = 곧은 경계: 틈을 찾지 못해 기울기 따라 곧게 자른다
+    straight = engine._row_bands(blocks, len(DPROPS), 12)
+    assert not all(whole_once(line, straight) for row in body_rows for line in row)
+
+
+def test_masks_paint_the_cut_off_side_white_and_no_masks_keep_the_old_image(tmp_path, monkeypatch):
+    import base64
+    import io
+    from PIL import Image
+    monkeypatch.setenv("AI_VISION", "true")
+    path = tmp_path / "black.png"
+    Image.new("RGB", (1000, 1000), "black").save(path, dpi=(72, 72))
+    clip = [[0.1, 0.1, 0.9, 0.5]]
+    plain = engine._page_images(str(path), [1], {}, clip)
+    assert plain == engine._page_images(str(path), [1], {}, clip, None, [[]])  # 지울 것이 없으면 이미지 그대로
+    image = Image.open(io.BytesIO(base64.b64decode(engine._page_images(str(path), [1], {}, clip, None, [[[[0.1, 0.1], [0.9, 0.1], [0.9, 0.3]]]])[0].split(",")[1])))
+    width, height = image.size
+    assert sum(image.getpixel((int(width * 0.9), int(height * 0.1)))) > 700 and sum(image.getpixel((int(width * 0.1), int(height * 0.9)))) < 60
+
+
+# --- 쪽이 머리글 없이 앞 쪽 표의 행으로 시작 ---------------------------------------------------------------
+
+CELLS = ((60, 160), (170, 260), (270, 340), (350, 500), (520, 560), (800, 880), (890, 940))
+
+
+def cells(values, y):
+    return [piece(value, x0, x1, y) for value, (x0, x1) in zip(values, CELLS) if value]
+
+
+def continued(lead=2, only_total=False, summary=False):
+    """앞 쪽에서 이어지는 쪽(3022033115105207 꼴): 환자정보 줄 → 머리글 없는 앞 묶음의 끝 행 ``lead``개와 그 합계 → 머리글 → 6행 → 합계.
+    ``only_total``이면 앞 묶음은 합계 행 하나, ``summary``면 표 열과 어긋난 금액 요약 줄이 환자정보 아래에 있다."""
+    info = [piece("전화번호 : 063-531-7501", 60, 400, 40), piece("사업자등록번호 : 680-99-01186", 500, 900, 40)]
+    extra = [piece("진료비총액 127,317", 60, 300, 70), piece("납부할금액 127,317 원", 520, 900, 70)] if summary else []
+    y, leading = 100, []
+    for i in range(0 if only_total else lead):
+        leading.append(cells(["2022-03-03", "이학요법료", f"MX12{i}", "도수치료", "1", f"{50000 + i:,}", "비급여"], y))
+        y += 20
+    leading.append([piece("합계", 60, 160, y), piece("127,317", 800, 880, y)])
+    head = cells(["내원일", "항목", "코드", "명칭", "횟수", "금액", "급/비"], y + 30)
+    rows = [cells(["2022-03-10", "진찰료", f"AA25{i}", "재진진찰료", "1", f"{12130 + i:,}", "급여"], y + 55 + i * 20) for i in range(6)]
+    rows.append([piece("합계", 60, 160, y + 55 + 6 * 20), piece("127,317", 800, 880, y + 55 + 6 * 20)])
+    lines = info + extra + [l for row in leading for l in row] + head + [l for row in rows for l in row]
+    return [table_block(lines)], info + extra, leading, head, rows
+
+
+@pytest.mark.parametrize("lead, only_total, summary", [(1, False, False), (2, False, False), (9, False, False), (0, True, False), (2, False, True)])
+def test_rows_continued_from_the_previous_page_above_the_first_header_are_a_leading_group(lead, only_total, summary):
+    blocks, outside, leading, head, rows = continued(lead, only_total, summary)
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    assert all(whole_once(line, bands) for row in leading + rows for line in row)  # 앞 묶음 끝 행·합계도 띠에 온전히
+    assert not any(shown(point, b, image) for line in outside for b in bands for image in range(len(b["clips"])) for point in corners(line))
+    first = next(b for b in bands if in_band(leading[0][0], b))
+    assert len(first["clips"]) == 2 and all(sum(shown(point, first, 0) for point in corners(line)) == 5 for line in head)  # 아래 첫 머리글 띠
+    assert first["text"].startswith("내원일 | 항목 | 코드")
+
+
+def legend_table(gap=12):
+    """머리글 → 14행 → 계, 그 아래 왼쪽에 안내문과 열 이름을 문장으로 늘어놓은 범례 줄, 오른쪽에 끝수처리·합계 행(코드2종포함 꼴).
+    범례 줄은 행 사이 ``gap`` 아래에 있다."""
+    head = cells(["내원일", "항목", "코드", "명칭", "횟수", "금액", "급/비"], 100)
+    rows = [cells(["2022-03-10", "진찰료", f"AA25{i}", "재진진찰료", "1", f"{12130 + i:,}", "급여"], 125 + i * 20) for i in range(14)]
+    y = 125 + 14 * 20
+    rows.append([piece("계", 60, 160, y), piece("127,317", 800, 880, y)])
+    legend = [piece("※ 예약 진찰료는 예약진료당일 내역서에 표기됩니다.", 60, 500, y + gap),
+              piece("①항목 ②코드 ③명칭 ④횟수 ⑤금액", 60, 500, y + gap + 14)]
+    rows += [[piece("끝수처리조정금액", 520, 640, y + gap + 6), piece("-58", 800, 880, y + gap + 6)],
+             [piece("합계", 520, 640, y + gap + 26), piece("127,259", 800, 880, y + gap + 26)]]
+    return [table_block(head + [l for row in rows for l in row] + legend)], head, rows, legend
+
+
+def test_a_legend_line_naming_the_columns_below_the_table_is_no_header_and_does_not_split_it():
+    blocks, head, rows, legend = legend_table()
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    assert all(whole_once(line, bands) for row in rows for line in row)  # 끝수처리·합계도 같은 표의 띠에 온전히
+    last = next(b for b in bands if in_band(rows[-1][0], b))
+    assert len(last["clips"]) == 2 and all(sum(shown(point, last, 0) for point in corners(line)) == 5 for line in head)  # 진짜 머리글 띠
+    assert not last["text"].startswith("①")  # 범례 줄을 머리글로 붙이지 않는다
+
+
+def test_a_repeated_header_printed_at_the_column_places_still_starts_a_new_group():
+    blocks, head, rows, legend = legend_table()
+    again = [{**line, "bbox": [line["bbox"][0], line["bbox"][1] + 200, line["bbox"][2], line["bbox"][3] + 200]} for line in head]
+    more = [cells(["2022-03-11", "진찰료", f"AA26{i}", "재진진찰료", "1", f"{13130 + i:,}", "급여"], 525 + i * 20) for i in range(3)]
+    blocks = [table_block(blocks[0]["lines"] + again + [l for row in more for l in row])]
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    first = next(b for b in bands if in_band(more[0][0], b))
+    assert first["text"].startswith("내원일") and len(first["clips"]) == 1  # 다시 찍은 머리글째 새 묶음의 첫 띠
+
+
+def test_a_group_edge_margin_stops_halfway_to_the_next_groups_header():
+    blocks, head, rows, legend = legend_table()
+    shift = rows[-1][0]["bbox"][3] + 1 - head[0]["bbox"][1]  # 다음 묶음 머리글이 합계 바로 아래(여백 pad 보다 가까이)
+    again = [{**line, "bbox": [line["bbox"][0], line["bbox"][1] + shift, line["bbox"][2], line["bbox"][3] + shift]} for line in head]
+    more = [cells(["2022-03-11", "진찰료", f"AA26{i}", "재진진찰료", "1", f"{13130 + i:,}", "급여"], again[0]["bbox"][1] + 25 + i * 20) for i in range(3)]
+    blocks = [table_block(blocks[0]["lines"] + again + [l for row in more for l in row])]
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    assert all(whole_once(line, bands) for row in rows + more for line in row)
+    before = [b for b in bands if any(in_band(line, b) for row in rows for line in row)]
+    assert not any(shown(point, b, image) for b in before for image in range(len(b["clips"])) for line in again for point in corners(line))
+
+
+
+def test_rows_above_the_first_header_that_do_not_line_up_with_its_columns_stay_out():
+    blocks, outside, leading, head, rows = continued(2)
+    for row in leading[:-1]:  # 앞 묶음 행을 표 열과 어긋나게(값 꼴이 다른 열 자리에) 옮긴다
+        for line in row:
+            line["bbox"] = [line["bbox"][0] + 120, line["bbox"][1], line["bbox"][2] + 120, line["bbox"][3]]
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    assert not any(in_band(line, b) for row in leading[:-1] for line in row for b in bands)
+    assert all(whole_once(line, bands) for row in rows for line in row)
