@@ -199,7 +199,7 @@ def test_band_reads_the_located_table_in_three_strips_and_the_summary_block_apar
     result, groundings = engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")
 
     assert kinds(state) == ["band"] * 3 + ["fields", "locate", "summary"]
-    assert [call.images for call in state.calls if call.kind == "band"] == [1, 1, 1]  # 첫 띠는 머리글째, 나머지는 머리글 띠를 위에 이어 붙인 한 장
+    assert [call.images for call in state.calls if call.kind == "band"] == [1, 2, 2]  # 첫 띠는 머리글째, 나머지는 머리글 띠 + 띠 두 장(위치 찾기 머리글 띠는 첫 행이 걸칠 수 있다)
     assert all(engine.TABLE_NOTE in call.system for call in state.calls if call.kind == "band")
     assert "항목내역" in groundings and result["환자정보-성명"] == "홍길동"
 
@@ -598,10 +598,10 @@ def test_a_one_page_detail_statement_is_read_in_row_bands_without_a_locate_call(
     calls = [call for call in detail.calls if call.kind == "band"]
     assert [call.images for call in calls] == [1, 1, 1]
     bands = engine._row_bands(detail.blocks, len(DPROPS), 12)
-    heads = [engine._page_images(detail.image, [1], {}, b["clips"], b.get("edge"), b.get("masks")) for b in bands]
+    heads = [engine._page_images(detail.image, [1], {}, b["clips"], b.get("edge"), b.get("masks"), True) for b in bands]
     assert [call.image for call in calls] == [urls[0] if len(urls) == 1 else engine._stacked(urls) for urls in heads]  # 뒤 띠: 머리글 띠 + 띠 한 장
     assert [call.max_tokens for call in calls] == [min(engine.TABLE_REPLY_TOKENS, engine._reply_cap(b["text"], len(DPROPS))) + engine.THINK_TOKENS for b in bands]
-    assert all(call.text == band.prompt(DETAIL, engine.BAND_NOTE[i > 0], True, "세부내역서", PLAN) for i, call in enumerate(calls))
+    assert all(call.text == band.prompt(DETAIL, engine.BAND_NOTE[2 if i else 0], True, "세부내역서", PLAN) for i, call in enumerate(calls))
     rows = result["항목내역"]  # 되풀이되는 같은 행도 겹침으로 지우지 않는다(띠가 겹치지 않는다), 인쇄된 집계 행은 그대로
     assert [(row["항목"], row["총액"]) for row in rows] == [("진찰료", "17,610"), ("진찰료", "17,610"), ("합계", "30,140"),
                                                          ("끝수처리 조정금액", "-40"), ("합계", "30,100")]
@@ -706,7 +706,7 @@ def test_band_strip_edge_draws_row_strips_at_the_file_resolution_within_the_edge
 def test_band_strip_edge_is_passed_only_to_detail_row_bands(state, monkeypatch):
     seen = []
     images = engine._page_images
-    monkeypatch.setattr(engine, "_page_images", lambda *args: seen.append(args[4] if len(args) > 4 else None) or images(*args))
+    monkeypatch.setattr(engine, "_page_images", lambda *args, **kw: seen.append(args[4] if len(args) > 4 else None) or images(*args, **kw))
     monkeypatch.setenv("BAND_STRIP_EDGE", "3000")
     monkeypatch.setenv("BAND_DOC_TYPES", "진료비영수증,세부내역서")
     engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")  # 영수증: 위치 찾기 띠는 그대로
@@ -729,7 +729,7 @@ def test_band_dump_saves_each_strip_image_prompt_and_reply_under_the_request(sta
     engine.extract(receipt_schema(), state.blocks, state.image, table_extract="band")  # 요청 밖: 원본 파일 해시 폴더
     folder = dump / hashlib.sha1(open(state.image, "rb").read()).hexdigest()[:12]
     assert sorted(path.name for path in folder.iterdir()) == ["0.prompt.txt", "0.reply.json", "0_0.jpg", "1.prompt.txt", "1.reply.json",
-                                                             "1_0.jpg", "2.prompt.txt", "2.reply.json", "2_0.jpg"]
+                                                             "1_0.jpg", "1_1.jpg", "2.prompt.txt", "2.reply.json", "2_0.jpg", "2_1.jpg"]
     assert (folder / "0_0.jpg").read_bytes()[:2] == b"\xff\xd8" and "Short keys" in (folder / "0.prompt.txt").read_text(encoding="utf-8")
     assert json.loads((folder / "0.reply.json").read_text(encoding="utf-8"))["rows"][0]["n"] == "진찰료"
     state.bands = [[], [], []]

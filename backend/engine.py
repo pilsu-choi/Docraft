@@ -129,13 +129,13 @@ def _native_zoom(source, page, number):
         return max(image.size) / max(page.rect.width, page.rect.height)
 
 
-def _page_images(source, pages, turns=None, clips=None, edge=None, masks=None):
+def _page_images(source, pages, turns=None, clips=None, edge=None, masks=None, stack=False):
     """Page images of the document file `source` for the given 1-based page numbers (the same numbering the
     parser puts on blocks), each turned upright by `turns` (page → `_angle`). Empty when vision is off, the
     format has no page image (docx/xlsx/csv/txt/html), or rendering fails — the call then falls back to the OCR text alone.
     `clips` (boxes as fractions [x0, y0, x1, y1] of the turned first page, e.g. a row band of `_bands`) attach those regions
-    of that page instead, at up to twice the whole-page zoom: a strip is smaller than the page. Several clips (a header strip and
-    its strip) come back as one image, stacked top to bottom (`_stacked`). `edge` (`BAND_STRIP_EDGE`,
+    of that page instead, at up to twice the whole-page zoom: a strip is smaller than the page. With `stack` (OCR-cut bands, whose
+    header strip holds the header alone) several clips (a header strip and its strip) come back as one image, top to bottom (`_stacked`). `edge` (`BAND_STRIP_EDGE`,
     세부내역서 OCR row bands) draws those regions at least at the file's own resolution (`_native_zoom`) within a longest side
     of `edge` px instead of VISION_MAX_EDGE; never smaller than without it, and never upsampled beyond the larger of the two
     (the zoom without it already upsamples a low-resolution page; more upsampling adds image tokens, not detail).
@@ -157,7 +157,7 @@ def _page_images(source, pages, turns=None, clips=None, edge=None, masks=None):
                 urls = [_data_url(page, area, max(native, min(VISION_MAX_EDGE / max(area.width, area.height), 4.0)) if edge else 4.0, turn,
                                   edge or VISION_MAX_EDGE, [[(x * width, y * height) for x, y in polygon] for polygon in (masks or [[]] * len(areas))[number]])
                         for number, area in enumerate(areas)]
-                return [_stacked(urls)] if len(urls) > 1 else urls
+                return [_stacked(urls)] if stack and len(urls) > 1 else urls
             return [_data_url(document[number - 1], turn=(turns or {}).get(number, 0)) for number in pages if 1 <= number <= len(document)]
     except Exception as exc:
         logger.warning("vision: page image rendering failed for %s: %s", Path(source).name, exc, exc_info=True)
@@ -564,7 +564,9 @@ SUMMARY = object()  # `extract` part key of the 금액산정 block read beside t
 TABLE_REPLY_TOKENS = 16000  # Reply cap a page group of one table aims under: half the provider output limit (32k).
 PAGES_NOTE = (" These are page(s) {pages} of a table printed over page(s) {span}: read only the rows printed on these pages. "
               "A continuation page may have no header row; the fields above still give its columns in printed order.")
-BAND_NOTE = (" The image shows only a horizontal strip of this table: transcribe only the rows in it.",  # [머리글 띠를 위에 붙인 한 장인가]
+BAND_NOTE = (" The image shows only a horizontal strip of this table: transcribe only the rows in it.",  # [띠만, 머리글 띠 + 띠 두 장, 이어 붙인 한 장]
+             " The first image is only the table's header (no rows to output); the second image is a horizontal strip of "
+             "this table: transcribe only the rows in it.",
              " The image shows the table's printed header at the top (no rows to output) and, directly below it in the same column "
              "positions, a horizontal strip of this table: transcribe only the rows below the header.")
 COMPACT_NOTE = " Write the JSON reply minified on one line: no indentation, line breaks or spaces between tokens."  # COMPACT_REPLY
@@ -721,7 +723,8 @@ def _bands(page_blocks, columns):
             text = [row[2] for row in rows[:head] + rows[start:end]] + [line["text"] for line in tall if line["bbox"][1] < bottom and line["bbox"][3] > top]
             bands.append({"page": block.get("page"), "type": "table", "page_size": block["page_size"], **({"orientation": turn} if turn else {}),
                           **({"repeats": True} if start < fresh else {}),
-                          "text": "\n".join(text), "clips": [_clip(box, upright["page_size"]) for box in ([[x0, y0, x1, cut(head)], [x0, top, x1, bottom]] if start > head and head else [[x0, top, x1, bottom]])]})
+                          "text": "\n".join(text), "clips": [_clip(box, upright["page_size"]) for box in ([[x0, y0, x1, cut(head)], [x0, top, x1, bottom]] if start > head and head else [[x0, top, x1, bottom]])],
+                          "stack": True})
     return bands if len(bands) > len(tables) else []
 
 
@@ -908,7 +911,7 @@ def _row_bands(page_blocks, columns, per):
             low, high = min(y for _, y in top), max(y for _, y in bottom)
             text = texts[h0:h1] + texts[start:end] + [line["text"] for line in tall if line["bbox"][1] < high and line["bbox"][3] > low]
             bands.append({"page": tables[0].get("page"), "type": "table", "page_size": tables[0]["page_size"], **({"orientation": turn} if turn else {}),
-                          "text": "\n".join(text), "clips": clips, **({"masks": masks} if any(masks) else {})})
+                          "text": "\n".join(text), "clips": clips, "stack": True, **({"masks": masks} if any(masks) else {})})
     return bands
 
 
@@ -1048,7 +1051,7 @@ def _read_chunk(schema, chunk, index, count, source, budget, deadline=None, canc
         raise TimeoutError("extraction deadline exceeded")
     page_range = _page_range(chunk)
     evidence = _chunk_text(chunk, budget)
-    images = _page_images(source, _pages(chunk), _turns(chunk), chunk[0].get("clips") if chunk else None)
+    images = _page_images(source, _pages(chunk), _turns(chunk), chunk[0].get("clips") if chunk else None, stack=bool(chunk and chunk[0].get("stack")))
     logger.debug("extract: chunk %d/%d pages=%s blocks=%d evidence_chars=%d images=%d", index + 1, count, page_range, len(chunk), len(evidence), len(images))
     system += VISION_NOTE if images else ""
     if count > 1:
@@ -1170,8 +1173,10 @@ def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=
     def read_group(table, group, index, count):
         pages = _page_range(group)
         if rowmajor and (group_images := _page_images(source, _pages(group), _turns(group), group[0].get("clips"), group[0].get("edge"),
-                                                      group[0].get("masks"))):
-            headed = len(group[0].get("clips") or []) > 1  # 띠 위에 머리글 띠를 이어 붙인 한 장(_stacked)
+                                                      group[0].get("masks"), group[0].get("stack", False))):
+            # 머리글 띠가 붙은 띠: OCR 줄로 자른 띠는 머리글 띠를 위에 이어 붙인 한 장, 영수증(위치 찾기로 자른 머리글 띠에 첫 행이 걸칠
+            # 수 있다)은 '행 없음' 안내를 단 두 장
+            headed = len(group[0].get("clips") or []) > 1 and (2 if group[0].get("stack") else 1)
             try:
                 if group[0].get("keyed"):
                     keyed = group[0]["keyed"]
