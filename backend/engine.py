@@ -143,13 +143,15 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_to
     body = {"model": settings["model"], "messages": messages, "temperature": 0, "response_format": {"type": "json_object"}}
     if json_schema is not None:
         # The server constrains the reply to the schema (vLLM structured outputs, OpenRouter json_schema). OpenRouter routes
-        # only to providers honoring it (require_parameters); none of those for qwen3-vl takes `reasoning`, so it is left
-        # out (an instruct model has no reasoning mode). vLLM ignores the unknown `provider` field.
+        # only to providers honoring every sent parameter (require_parameters). vLLM ignores the unknown `provider` field.
         body["response_format"] = {"type": "json_schema", "json_schema": {"name": "response", "schema": json_schema}}
         body["provider"] = {"require_parameters": True}
-    elif not settings["reasoning"]:
-        # OpenRouter standard param; providers/models without reasoning support just ignore it.
+    if not settings["reasoning"]:
+        # Thinking off for both servers: OpenRouter reads `reasoning`, vLLM the chat template's `enable_thinking`; each
+        # ignores the other's field. With require_parameters OpenRouter has no endpoint for `reasoning` on a model without
+        # a reasoning mode (404), so such a model there runs with AI_REASONING=on.
         body["reasoning"] = {"enabled": False}
+        body["chat_template_kwargs"] = {"enable_thinking": False}
     if max_tokens:
         body["max_tokens"] = max_tokens
     if settings["repetition_penalty"] is not None:

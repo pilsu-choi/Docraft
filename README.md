@@ -234,7 +234,7 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `DATABASE_URL`, `DOCRAFT_DATA_DIR` | `.env.example` 참고 | PostgreSQL 연결·원본 저장 |
 | `DOCRAFT_API_KEY` | 빈 값 | 설정 시 `X-API-Key` 인증 활성화 |
 | `AI_MODE`, `AI_BASE_URL`, `AI_API_KEY`, `AI_VLM_MODEL` | `provider`, 빈 URL·키 | 추출·스키마 생성 provider 설정 |
-| `AI_REASONING` | `off` | `on`이면 모델의 기본 사고 모드를 끄지 않음(일부 모델은 켜지면 10배 이상 느려짐) |
+| `AI_REASONING` | `off` | `off`는 사고 모드를 끔(OpenRouter `reasoning` + vLLM `chat_template_kwargs.enable_thinking`). `on`은 모델 기본값 유지 — OpenRouter에서 사고 모드 없는 모델(qwen3-vl-*-instruct 등)은 `on`이어야 표 호출이 404 나지 않음 |
 | `AI_VISION` | `true` | PDF·이미지의 페이지 이미지를 provider에 첨부 |
 | `PARSE_PROVIDER`, `PADDLEOCR_BASE_URL` | `library`, 빈 URL | 기본 라이브러리 파싱 또는 원격 PaddleOCR |
 | `PADDLEOCR_LINES_URL` | 빈 값 | 선택적인 줄 단위 근거 좌표. 레이아웃 요청과 동시에 보낸다(서로의 응답이 필요 없다) |

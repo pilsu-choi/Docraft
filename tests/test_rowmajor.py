@@ -536,7 +536,7 @@ def test_repetition_penalty_is_sent_only_when_configured(monkeypatch, value, sen
     assert bodies[0].get("repetition_penalty") == sent and ("repetition_penalty" in bodies[0]) == (sent is not None)
 
 
-def test_json_schema_calls_require_the_parameter_and_leave_out_reasoning(monkeypatch):
+def test_json_schema_calls_require_the_parameter_and_turn_thinking_off_on_both_servers(monkeypatch):
     monkeypatch.setenv("AI_MODE", "provider")
     monkeypatch.setenv("AI_BASE_URL", "https://provider.invalid/v1")
     monkeypatch.setenv("AI_API_KEY", "key")
@@ -565,8 +565,10 @@ def test_json_schema_calls_require_the_parameter_and_leave_out_reasoning(monkeyp
     engine._provider([])
 
     assert bodies[0]["response_format"] == {"type": "json_schema", "json_schema": {"name": "response", "schema": {"type": "object"}}}
-    assert bodies[0]["provider"] == {"require_parameters": True} and "reasoning" not in bodies[0]
-    assert bodies[1]["response_format"] == {"type": "json_object"} and "provider" not in bodies[1] and bodies[1]["reasoning"] == {"enabled": False}
+    assert bodies[0]["provider"] == {"require_parameters": True} and "provider" not in bodies[1]
+    assert bodies[1]["response_format"] == {"type": "json_object"}
+    for body in bodies:
+        assert body["reasoning"] == {"enabled": False} and body["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 # --- verify.read: 열 밀림 감지 후 asis 재추출 -----------------------------------------

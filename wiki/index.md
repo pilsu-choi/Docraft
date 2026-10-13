@@ -236,3 +236,4 @@ okf_version: "0.2"
 - [빽빽한 표 쪽을 행 띠로 나눠 읽기](2026-10-05-dense-page-split.md) — 한 응답에 들지 않는 쪽만 OCR 줄 틈에서 띠로 잘라 읽기, 건국대 41→195행·청담 2·3쪽 0→124행
 - [AWS 통합 배포 1006a — harness 4438155·Docraft 134f385 최신화](2026-10-06-aws-integrated-deploy-1006a.md) — 규칙셋 2026.09.22, health 정상, 테스트 호출 0건
 - [진료비영수증 키 상한액초과금 정정](2026-10-07-limit-excess-key.md) — Docraft 키 상환액초과금 오기 정정, 입력 별칭 장치 없음
+* [사고 모드 끄기 — vLLM enable_thinking·json_schema 포함](2026-10-13-thinking-off-vllm.md) - AI_REASONING=off가 모든 호출에 reasoning + chat_template_kwargs.enable_thinking=false

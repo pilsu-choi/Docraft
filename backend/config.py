@@ -127,7 +127,9 @@ def ai_settings() -> dict:
     vision = _flag("AI_VISION", "true")
     # Correct OCR table cell text against the table image, keeping the OCR model's cell structure.
     table_refine = _flag("TABLE_REFINE", "false")
-    # Some VLMs (e.g. qwen3.5) default reasoning mode on, turning a 10-30s call into 200-500s; off disables it.
+    # Some VLMs (e.g. qwen3.5·3.8) default reasoning mode on, turning a 10-30s call into 200-500s; off disables it
+    # (OpenRouter `reasoning`, vLLM `enable_thinking`). on leaves the model default — needed on OpenRouter for a model
+    # without a reasoning mode, whose structured-output calls otherwise find no endpoint.
     reasoning = os.getenv("AI_REASONING", "off").strip().lower() == "on"
     # How /api/read·verify reads table fields first: asis = one JSON object, rowmajor = positional rows per table, re-read asis
     # when the share of broken 세부내역서 rows (row arithmetic, all amounts blank, misfit values) reaches TABLE_RECHECK_RATIO.
