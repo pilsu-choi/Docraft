@@ -570,3 +570,4 @@
 - **Creation** (2026-10-12): [Docraft wiki 정리](2026-10-12-wiki-cleanup.md) — 삭제·흡수 58건, 갱신 12건, 복구 기준 dev 21db625.
 - **Update** (2026-10-12): README 설정 표에 AI_TIMEOUT 추가, OpenRouter 서술을 Nebius vLLM·고객사 vLLM으로 갱신. 삭제 문서 링크는 텍스트로 바꿈.
 - **Creation** (2026-10-13): [표 행 번호로 반복 행 끊김 막기](2026-10-03-dense-page-row-number.md) — 병합하지 않은 fix/dense-page-json 실험 기록을 deprecated로 보존(브랜치 삭제). 미반영 브랜치 정리.
+- **Creation** (2026-10-13): [끊긴 keep-alive 연결 재사용 오류 수정](2026-10-13-stale-keepalive-fix.md) — Docraft 3d407d4·harness-v2 ad26222.
