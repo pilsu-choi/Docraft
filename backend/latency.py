@@ -26,11 +26,24 @@ _gates: dict[str, threading.BoundedSemaphore] = {}  # 환경변수 이름 -> 자
 _background = ThreadPoolExecutor(32, thread_name_prefix="docraft-early")  # ``spawn``: 기다리는 동안 먼저 보내 두는 원격 호출
 
 
+class _RetryStaleTransport(httpx.HTTPTransport):
+    """서버가 이미 닫은 keep-alive 연결을 재사용해 응답 전에 끊기면(RemoteProtocolError·ReadError) 새 연결로 한 번 다시 보낸다.
+    응답 헤더를 받은 뒤의 오류는 handle_request 밖에서 나므로 재시도하지 않는다. ``retries``(연결 실패 재시도)와 별개다."""
+
+    def handle_request(self, request):
+        try:
+            return super().handle_request(request)
+        except (httpx.RemoteProtocolError, httpx.ReadError):
+            return super().handle_request(request)
+
+
 @lru_cache
 def http_client(retries=0):
     """프로세스 공용 HTTP 클라이언트(스레드 안전): 호출마다 연결·TLS를 새로 맺지 않는다. 연결 수는 제한하지 않아(동시성은 슬롯이 정한다)
-    VLM·OCR 동시 호출이 풀에서 기다리지 않는다. 시한은 호출마다 `timeout=`으로 준다."""
-    return httpx.Client(transport=httpx.HTTPTransport(retries=retries, limits=httpx.Limits(max_connections=None, max_keepalive_connections=32)))
+    VLM·OCR 동시 호출이 풀에서 기다리지 않는다. 시한은 호출마다 `timeout=`으로 준다.
+    유휴 연결은 2초만 쓴다: uvicorn(vLLM·Docraft·하네스)의 keep-alive 5초와 같으면 닫히는 순간과 재사용이 겹친다."""
+    limits = httpx.Limits(max_connections=None, max_keepalive_connections=32, keepalive_expiry=2.0)
+    return httpx.Client(transport=_RetryStaleTransport(retries=retries, limits=limits))
 
 
 def remaining(deadline):
