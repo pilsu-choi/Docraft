@@ -771,7 +771,9 @@ def _row_bands(page_blocks, columns, per):
       앞 쪽 표의 행으로 시작하면 첫 머리글 바로 위로 이어진, 아래 표 행과 같은 열 자리에 같은 꼴 값을 찍은 표 행들(``fits``)도 선행 묶음이고
       그 띠에는 아래 첫 머리글 띠를 붙인다.
     - 묶음마다 금액 행 약 ``per``행씩(띠 수는 쪽 전체 금액 행으로 MAX_STRIPS개까지 고르게) 금액 행 앞에서 자르고(``_cuts``, 행을 되풀이하지
-      않는다), 뒤 띠에는 그 묶음 머리글 띠를 붙인다. 표 위·아래는 행 높이 1/4 여백.
+      않는다), 뒤 띠에는 그 묶음 머리글 띠를 붙인다. 표 위·아래는 행 높이 1/4 여백이되 이웃 행과의 틈 가운데를 넘지 않는다(``fence``).
+    - 머리글 줄은 첫 머리글과 같은 열 자리(표 폭 1/20 안)에 머리글 낱말 넷 이상을 찍은 줄만이다 — 표 아래 범례·안내 문장은 낱말이 많아도
+      머리글이 아니어서 표를 끊지 않는다.
     - 띠 경계는 행 사이 틈을 따라가는 꺾은선이다: 표 폭을 STRIP_BINS칸으로 나눠 칸마다 위 행 줄 하단 최대와 아래 행 줄 상단 최소의 가운데(한쪽만
       있는 칸·빈 칸은 이웃 칸에서 이어 긋는다). 어느 칸에서든 틈이 없으면 그 자리에서는 자르지 않는다. 띠 크롭은 꺾은선을 담는 직사각형이고
       꺾은선 바깥(이웃 띠의 행)은 흰색으로 지운다(``masks``, ``_data_url``). 꺾은선이 곧으면 지울 것이 없다.
@@ -792,8 +794,22 @@ def _row_bands(page_blocks, columns, per):
     tops, bottoms = [min(line["bbox"][1] for line in row) for row in members], [max(line["bbox"][3] for line in row) for row in members]
     counts = [len(ROW_AMOUNT.findall(text)) for text in texts]
     height = sorted(b - t for t, b in zip(tops, bottoms))[len(members) // 2]
+    def concepts(i):
+        """i행 머리글 낱말 개념 → 가로 자리(줄 상자 안 글자 위치 비율로 어림)."""
+        found = {}
+        for line in members[i]:
+            text, (left, _, right, _) = str(line["text"]), line["bbox"]
+            for word in re.finditer(r"[^\s|]+", text):
+                if hits := table_layout._concepts(word.group())[0]:
+                    found.setdefault(hits[0], left + (right - left) * (word.start() + word.end()) / 2 / max(1, len(text)))
+        return found
+
     heads = [i for i, text in enumerate(texts) if len({hits[0] for part in text.split(" | ") for word in table_layout._words(part)
                                                       for hits, _ in [table_layout._concepts(word)] if hits}) >= 4]
+    if heads:  # 다시 찍은 머리글은 첫 머리글과 같은 열 자리에 낱말 넷 이상 — 표 아래 범례·안내 문장('①본인부담금액 ②보훈감면액 …')은 아니다
+        data = next((i for i in range(heads[0], len(members)) if counts[i]), len(members))
+        places, slack = {c: x for i in heads if i < data for c, x in concepts(i).items()}, (x1 - x0) / 20
+        heads = [i for i in heads if i < data or sum(abs(x - places[c]) <= slack for c, x in concepts(i).items() if c in places) >= 4]
     groups, first = [], None
     for k, head in enumerate(heads):
         after = heads[k + 1] if k + 1 < len(heads) else len(members)
@@ -859,6 +875,16 @@ def _row_bands(page_blocks, columns, per):
     def line_at(i):  # 틈이 없어 자르지 않으려 했지만 고를 데가 없었다: 두 행 사이 곧은 선
         return seam(i) or [(x, (bottoms[i - 1] + tops[i]) / 2) for x in (x0, x1)]
 
+    def fence(i, below):
+        """묶음 바깥 경계(i-1행과 i행 사이)의 곧은 선: 묶음 행 끝에서 여백 pad이되 이웃 행과의 틈 가운데를 넘지 않는다(이웃 행 글자가 크롭에
+        비치지 않는다). 묶음 행 끝 안으로는 들어가지 않는다."""
+        own = bottoms[i - 1] if below else tops[i]
+        y = own + pad if below else own - pad
+        if 0 < i < len(members):
+            middle = (bottoms[i - 1] + tops[i]) / 2
+            y = min(y, max(own, middle)) if below else max(y, min(own, middle))
+        return [(x, min(size[1], max(0, y))) for x in (x0, x1)]
+
     def strip(top, bottom):
         """위·아래 꺾은선 사이 띠: (크롭 상자, 지울 다각형들), 쪽 비율."""
         y_top, y_bottom = min(y for _, y in top), max(y for _, y in bottom)
@@ -871,12 +897,12 @@ def _row_bands(page_blocks, columns, per):
         amounts = [int(bool(count)) for count in counts[a:b]]
         head = a + next(i for i, count in enumerate(amounts) if count)
         h0, h1 = lead or (a, head)
-        roof = [(x, max(0, tops[a] - pad)) for x in (x0, x1)]  # 묶음 맨 위 줄(머리글 줄) 위
-        floor = [(x, min(size[1], bottoms[b - 1] + pad)) for x in (x0, x1)]  # 마지막 행 아래
+        roof = fence(a, False)  # 묶음 맨 위 줄(머리글 줄) 위
+        floor = fence(b, True)  # 마지막 행 아래
         for start, _, end in _cuts(amounts, most, lambda i: seam(a + i) is not None, repeat=False):
             start, end = a + start, a + end
             top, bottom = roof if start == head else line_at(start), floor if end == b else line_at(end)
-            header = [strip([(x, max(0, tops[h0] - pad)) for x in (x0, x1)], line_at(h1))] if (start > head or lead) and h1 > h0 else []
+            header = [strip(fence(h0, False), line_at(h1))] if (start > head or lead) and h1 > h0 else []
             parts = header + [strip(top, bottom)]  # 뒤 띠·선행 묶음 띠: 그 묶음 머리글 띠 + 띠
             clips, masks = [clip for clip, _ in parts], [mask for _, mask in parts]
             low, high = min(y for _, y in top), max(y for _, y in bottom)

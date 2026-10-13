@@ -926,6 +926,52 @@ def test_rows_continued_from_the_previous_page_above_the_first_header_are_a_lead
     assert first["text"].startswith("내원일 | 항목 | 코드")
 
 
+def legend_table(gap=12):
+    """머리글 → 14행 → 계, 그 아래 왼쪽에 안내문과 열 이름을 문장으로 늘어놓은 범례 줄, 오른쪽에 끝수처리·합계 행(코드2종포함 꼴).
+    범례 줄은 행 사이 ``gap`` 아래에 있다."""
+    head = cells(["내원일", "항목", "코드", "명칭", "횟수", "금액", "급/비"], 100)
+    rows = [cells(["2022-03-10", "진찰료", f"AA25{i}", "재진진찰료", "1", f"{12130 + i:,}", "급여"], 125 + i * 20) for i in range(14)]
+    y = 125 + 14 * 20
+    rows.append([piece("계", 60, 160, y), piece("127,317", 800, 880, y)])
+    legend = [piece("※ 예약 진찰료는 예약진료당일 내역서에 표기됩니다.", 60, 500, y + gap),
+              piece("①항목 ②코드 ③명칭 ④횟수 ⑤금액", 60, 500, y + gap + 14)]
+    rows += [[piece("끝수처리조정금액", 520, 640, y + gap + 6), piece("-58", 800, 880, y + gap + 6)],
+             [piece("합계", 520, 640, y + gap + 26), piece("127,259", 800, 880, y + gap + 26)]]
+    return [table_block(head + [l for row in rows for l in row] + legend)], head, rows, legend
+
+
+def test_a_legend_line_naming_the_columns_below_the_table_is_no_header_and_does_not_split_it():
+    blocks, head, rows, legend = legend_table()
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    assert all(whole_once(line, bands) for row in rows for line in row)  # 끝수처리·합계도 같은 표의 띠에 온전히
+    last = next(b for b in bands if in_band(rows[-1][0], b))
+    assert len(last["clips"]) == 2 and all(sum(shown(point, last, 0) for point in corners(line)) == 5 for line in head)  # 진짜 머리글 띠
+    assert not last["text"].startswith("①")  # 범례 줄을 머리글로 붙이지 않는다
+
+
+def test_a_repeated_header_printed_at_the_column_places_still_starts_a_new_group():
+    blocks, head, rows, legend = legend_table()
+    again = [{**line, "bbox": [line["bbox"][0], line["bbox"][1] + 200, line["bbox"][2], line["bbox"][3] + 200]} for line in head]
+    more = [cells(["2022-03-11", "진찰료", f"AA26{i}", "재진진찰료", "1", f"{13130 + i:,}", "급여"], 525 + i * 20) for i in range(3)]
+    blocks = [table_block(blocks[0]["lines"] + again + [l for row in more for l in row])]
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    first = next(b for b in bands if in_band(more[0][0], b))
+    assert first["text"].startswith("내원일") and len(first["clips"]) == 1  # 다시 찍은 머리글째 새 묶음의 첫 띠
+
+
+def test_a_group_edge_margin_stops_halfway_to_the_next_groups_header():
+    blocks, head, rows, legend = legend_table()
+    shift = rows[-1][0]["bbox"][3] + 1 - head[0]["bbox"][1]  # 다음 묶음 머리글이 합계 바로 아래(여백 pad 보다 가까이)
+    again = [{**line, "bbox": [line["bbox"][0], line["bbox"][1] + shift, line["bbox"][2], line["bbox"][3] + shift]} for line in head]
+    more = [cells(["2022-03-11", "진찰료", f"AA26{i}", "재진진찰료", "1", f"{13130 + i:,}", "급여"], again[0]["bbox"][1] + 25 + i * 20) for i in range(3)]
+    blocks = [table_block(blocks[0]["lines"] + again + [l for row in more for l in row])]
+    bands = engine._row_bands(blocks, len(DPROPS), 12)
+    assert all(whole_once(line, bands) for row in rows + more for line in row)
+    before = [b for b in bands if any(in_band(line, b) for row in rows for line in row)]
+    assert not any(shown(point, b, image) for b in before for image in range(len(b["clips"])) for line in again for point in corners(line))
+
+
+
 def test_rows_above_the_first_header_that_do_not_line_up_with_its_columns_stay_out():
     blocks, outside, leading, head, rows = continued(2)
     for row in leading[:-1]:  # 앞 묶음 행을 표 열과 어긋나게(값 꼴이 다른 열 자리에) 옮긴다
