@@ -722,3 +722,30 @@ def test_band_latency_flags_default_on_and_can_be_turned_off(monkeypatch):
 def test_http_client_is_shared_per_retry_count():
     from backend import latency
     assert latency.http_client(2) is latency.http_client(2) and latency.http_client(2) is not latency.http_client(0)
+
+
+def _usage_response(usage):
+    body = {"choices": [{"message": {"content": "{}"}, "finish_reason": "stop"}]}
+    if usage is not None:
+        body["usage"] = usage
+    return httpx.Response(200, json=body, request=httpx.Request("POST", "https://provider.invalid/v1/chat/completions"))
+
+
+@pytest.mark.parametrize("usage, expected", [
+    ({"prompt_tokens": 120, "completion_tokens": 30}, {"vlm_calls": 2, "vlm_prompt_tokens": 240, "vlm_completion_tokens": 60}),
+    (None, {"vlm_calls": 2}),  # usage가 없으면 토큰은 기록하지 않는다
+    ({"prompt_tokens": 7}, {"vlm_calls": 2, "vlm_prompt_tokens": 14}),
+])
+def test_provider_counts_calls_and_tokens(monkeypatch, usage, expected):
+    from backend import latency
+    configure(monkeypatch)
+    FakeClient.responses = [_usage_response(usage), _usage_response(usage)]
+    FakeClient.response = None
+    FakeClient.requests = []
+    monkeypatch.setattr(engine.httpx, "Client", FakeClient)
+
+    with latency.track() as stats:
+        engine._provider([{"role": "user", "content": "x"}])
+        engine._provider([{"role": "user", "content": "x"}])
+
+    assert {k: v for k, v in stats.items() if k in {"vlm_calls", "vlm_prompt_tokens", "vlm_completion_tokens"}} == expected

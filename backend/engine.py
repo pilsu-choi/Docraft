@@ -214,8 +214,13 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_to
             if timeout_cap is not None and time.monotonic() - started > max(0.1, timeout_cap):
                 raise TimeoutError("AI provider 응답이 요청 시한을 넘었습니다.")
         elapsed = time.monotonic() - started
+        note("vlm_calls", 1)
         try:
-            choice = json.loads(raw)["choices"][0]
+            data = json.loads(raw)
+            for key, stage in (("prompt_tokens", "vlm_prompt_tokens"), ("completion_tokens", "vlm_completion_tokens")):
+                if isinstance((data.get("usage") or {}).get(key), int):  # 서버가 usage를 안 주면 기록하지 않는다
+                    note(stage, data["usage"][key])
+            choice = data["choices"][0]
             finish_reason = choice.get("finish_reason")
             if finish_reason == "length":
                 logger.warning("provider response truncated: finish_reason=length elapsed=%.2fs", elapsed)
