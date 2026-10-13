@@ -121,6 +121,10 @@ BF16 + 텐서 병렬로 바꾸려면 `vllmVlm.modelDir`을 BF16 가중치 서브
 모드면 `deviceIds`를 `"1,2"`처럼 카드 두 장으로) 바꾼다 — `--tensor-parallel-size`는 이 값(또는 `deviceIds`
 개수)으로 자동 정해진다(값을 따로 두지 않는다).
 
+한 장에 들어가는 모델(예: Qwen3.8-27B FP8 — L40S 한 장)을 여러 장에 띄울 때는 `vllmVlm.parallel: data`로 카드마다 한 벌씩
+띄운다(`--data-parallel-size`, 주소·Service 는 하나 그대로, vLLM 이 요청을 나눠 준다). 벌끼리 통신하지 않아 처리량이 장수에
+비례한다. `--max-num-seqs`는 벌마다 적용된다. 기본 `tensor`는 한 벌을 장수로 나눈다(`--tensor-parallel-size`).
+
 ## hostPath 모델 디렉터리 구조 (반입 번들이 채운다)
 
 ```

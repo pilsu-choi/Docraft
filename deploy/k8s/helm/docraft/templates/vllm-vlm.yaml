@@ -49,9 +49,15 @@ spec:
           args:
             - /models/vlm
             - --served-model-name={{ $v.servedModelName }}
-            # 텐서 병렬 장수 — device plugin 모드는 gpuCount, 카드 지정 모드는 deviceIds 개수다
+            # 병렬 장수(parallel: tensor 는 한 벌을 나눔, data 는 카드마다 한 벌) — device plugin 모드는 gpuCount, 카드 지정 모드는 deviceIds 개수다
             # (dft.gpuCount, harness-v2 embedding 모델과 같은 패턴).
+            {{- if eq $v.parallel "data" }}
+            - --data-parallel-size={{ include "dft.gpuCount" $v }}
+            {{- else if eq ($v.parallel | default "tensor") "tensor" }}
             - --tensor-parallel-size={{ include "dft.gpuCount" $v }}
+            {{- else }}
+            {{- fail "vllmVlm.parallel 은 tensor 또는 data 다" }}
+            {{- end }}
             - --gpu-memory-utilization={{ $v.gpuMemoryUtilization }}
             {{- with $v.maxModelLen }}
             - --max-model-len={{ . }}
