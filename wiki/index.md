@@ -2,6 +2,7 @@
 okf_version: "0.2"
 ---
 
+- [응답 harness.timings](2026-10-13-response-timings.md) — 상위 wiki에서 동기화
 - [harness·Docraft 속도 개선과 L40S 동시 처리 상향](2026-10-13-speed-opt-gpu-concurrency.md) — GPU 동시 처리 한도 상향·연결 재사용·위치 찾기 선행 기본 켬, 실측 전
 - [세부내역서 band 읽기 — OCR 행 경계 띠 (v1~v4)](2026-10-12-detail-band-ocr-rows.md) — 1쪽 세부내역서 band(BAND_DOC_TYPES로 켬), qwen3.8-27b 30건 rowmajor 84.5% → 92.3%(하네스 기준 89.7%), 영수증 불변, 띠 자르기 구조 수정 v11 96.1%, v13 97.0%
 - [영수증 띠 프롬프트 쪼개진 머리글 안내(BAND_HEADER_NOTE)](2026-10-12-band-header-note.md) — 기본 켬(10/12), Nebius 10건 소표본 표 95.10→95.68%·고침 7·깨뜨림 0
