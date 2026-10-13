@@ -17,7 +17,7 @@ status: active
 > 교정 규칙(코드 일치 시 1글자 교정)과 그 근거는 이 문서 그대로 유효하다 — 원본 로딩 구조 변경은
 > [KCD·EDI 마스터 원본 소스를 harness DB·docraft DB로 재사용](2026-09-23-master-source-reuse.md) 참고.
 
-[key-value 추출 정확도 개선 지점 검토](2026-09-22-kv-accuracy-review.md)의 우선순위 3(코드 사전 교정)을 구현했다.
+[key-value 추출 정확도 개선 지점 검토](2026-09-22-ocr-verify.md)의 우선순위 3(코드 사전 교정)을 구현했다.
 
 ## 만든 것
 
@@ -91,6 +91,10 @@ EDI 코드 미적중 87건은 `_columns`가 EDI코드가 빈 행에 원내코드
 순이득이 작지만 부호는 양이고 오탐을 늘리지 않으므로 유지한다. 비용은 마스터 적재 1회(~1초, 코드 49만 건) 뿐이다. 정확도를 크게 움직이려면 사전이 아니라 우선순위 1(표 행 정렬)과 2(`_fill` 오탐 억제)가 필요하다.
 
 ## 관련 자료
-- [key-value 추출 정확도 개선 지점 검토](2026-09-22-kv-accuracy-review.md)
-- [76건 평가 확장](2026-09-22-accuracy-eval-expansion.md)
+- [key-value 추출 정확도 개선 지점 검토](2026-09-22-ocr-verify.md)
+- [76건 평가 확장](2026-09-22-ocr-verify.md)
 - harness-v2: `src/mlife_harness/master/{loader_kcd,loader_edi,loader_notice,lookup}.py`, `docs/requirements/latest/`
+
+## 2026-10-12 갱신
+
+KCD·EDI 마스터 명칭 보정은 '원문과 달라지는 보정 금지' 방침에 따라 고객사 염려로 보류 상태다. 코드는 남아 있으나 근거가 약하면 표시만 하고 값을 바꾸지 않는다. 현재 상태 요약은 상위 wiki `/home/pilsu/projects/mirae-assets/wiki/2026-10-12-current-state.md`.

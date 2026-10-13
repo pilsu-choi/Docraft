@@ -178,3 +178,7 @@ harness-installer 우산 차트(`charts/mlife-ocr/templates/secret.yaml`)의
 
 - [harness-v2 mlife-harness 차트](../../../harness-v2/deploy/k8s/helm/mlife-harness) (참고용, 이 저장소 밖)
 - [deploy/k8s/README.md](../deploy/k8s/README.md) — 값·GPU 배치·hostPath 구조 요약
+
+## 2026-10-12 갱신
+
+고객사 운영계 plpagpu05(L40S 4장)는 2026-09-30에 첫 설치됐다(큰 번들 hd845dc0-d3f725a5 + 앱 번들 hb1925dd-db92f75c). 이후 261003 앱 번들은 만들었으나 설치 미확인이며, 10/12 pin 갱신은 측정이 끝날 때까지 보류다. 고객사(l40s-4)와 AWS 차이: AI_TIMEOUT 300|90, QUEUE_CONCURRENCY 4|6, TABLE_REFINE false|true(측정 중 false), TITLE_OCR_URL 켜짐|꺼짐. 현재 상태 요약은 상위 wiki `/home/pilsu/projects/mirae-assets/wiki/2026-10-12-current-state.md`.

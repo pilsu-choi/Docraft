@@ -237,3 +237,10 @@ dev 재실행 결과:
   - `pipeline/runner.py`: 303, 890
   - `normalizer/parser_fill.py`: 245
 - Docraft: `backend/doctypes.py` 24, 108, 142, 169-176, 216
+
+
+## 흡수한 기록 (2026-10-12 정리)
+
+흡수한 문서는 삭제했다. 복구는 Docraft dev 21db625에서 한다.
+
+- `2026-09-30-harness-issue-todo` (하네스 고객 검증 이슈 TODO (영수증·내역서·KCD)): 고객 검증 보고서 2건([영수증,내역서]검증, [진단서]KCD_검증)을 로컬·AWS에서 다시 돌려 나온 남은 문제와 할 일 목록. 우선순위, 근거 사례, 방향, 진행 상태를 기록한다

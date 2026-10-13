@@ -124,3 +124,7 @@ key를 빠뜨려 판정이 없을 때도 `source="ao"`(`NO_VERDICT`)로 내보�
 
 - [Agentic OCR 2.0 결과 교차검증·자동 교정 API 구현](2026-09-22-ocr-verify.md) — `verify.run`의 기본
   구조·Judge 설계
+
+## 2026-10-12 갱신
+
+하네스는 `/api/verify`를 호출하지 않는다(`/api/read`의 `keys`가 같은 역할). `hint_paths`는 Docraft 단독 verify 경로에만 남아 있다. 현재 상태 요약은 상위 wiki `/home/pilsu/projects/mirae-assets/wiki/2026-10-12-current-state.md`.

@@ -13,7 +13,7 @@ status: active
 
 ## 배경
 
-[key-value 추출 정확도 개선 지점 검토](2026-09-22-kv-accuracy-review.md)가 꼽은 1순위(표 행 정렬·세분 항목명)를 구현한다.
+[key-value 추출 정확도 개선 지점 검토](2026-09-22-ocr-verify.md)가 꼽은 1순위(표 행 정렬·세분 항목명)를 구현한다.
 기준선은 main `6f13166`의 76건 rules 단계 평가(`data/verify/eval-20260922-195058.json`)다. 캐시된 파싱·추출을
 쓰므로 모델 호출은 없다.
 
@@ -103,6 +103,6 @@ status: active
 
 ## 관련 자료
 
-* [key-value 추출 정확도 개선 지점 검토](2026-09-22-kv-accuracy-review.md)
-* [정확도 평가 확장과 홀드아웃 라벨 매니페스트](2026-09-22-accuracy-eval-expansion.md)
-* [AO 교차검증 정답셋과 단계별 정확도 평가 스크립트](2026-09-22-ocr-verify-labels.md)
+* [key-value 추출 정확도 개선 지점 검토](2026-09-22-ocr-verify.md)
+* [정확도 평가 확장과 홀드아웃 라벨 매니페스트](2026-09-22-ocr-verify.md)
+* [AO 교차검증 정답셋과 단계별 정확도 평가 스크립트](2026-09-22-ocr-verify.md)

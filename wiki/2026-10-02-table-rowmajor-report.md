@@ -10,7 +10,7 @@ status: active
 브랜치: exp-extract-table `feat/rowmajor-conditional` (`1d0b1ae`·`924d175`·`9126014`, 로컬 커밋)  
 워크트리: `exp-extract-table/.worktrees/rowmajor-cond`  
 결과 폴더: `e2e/out/ab-rowmajor-1002/` (`full/` 1단계, `cond/` 감지 조건, `layout/` 영수증 양식, `header/` 세부내역서 머리글)  
-세부 기록: [1단계 A/B](2026-10-02-table-rowmajor-ab-experiment.md), [2단계 조건부](2026-10-02-table-rowmajor-conditional.md)
+세부 기록: 1단계 A/B, 2단계 조건부
 
 ## 1. 한눈에 보기
 
@@ -151,3 +151,16 @@ $PY ab/run_ab.py --arm rowmajor_header --out $OUT/full          # 판독 모델 
 $PY ab/grade_ab.py --out $OUT/full --arms asis rowmajor rowmajor_header --dest $OUT/header
 $PY ab/gate_ab.py --arm rowmajor_header --full $OUT/full --dest $OUT/header/gate   # 호출 없음
 ```
+
+
+## 흡수한 기록 (2026-10-12 정리)
+
+흡수한 문서는 삭제했다. 복구는 Docraft dev 21db625에서 한다.
+
+- `2026-10-02-table-rowmajor-ab-experiment` (표 추출 방식 A/B 실험 — Docraft 현행(asis) vs 위치 배열(rowmajor)): exp-extract-table의 rowmajor를 Docraft 표 추출에 녹일 가치가 있는지 정답지 59건·같은 OCR·같은 LLM으로 비교한 실험 보고서
+- `2026-10-02-table-rowmajor-conditional` (표 추출 rowmajor 조건부 도입 2단계 — 열 밀림 감지·영수증 양식별 열 배치): rowmajor로 먼저 읽고 세부내역서 산식 불일치가 크면 asis로 다시 읽는 조건과, 진료비영수증 양식 5종의 인쇄 열만 주는 방식을 정답지 59건으로 검증한 결과
+- `2026-10-02-table-rowmajor-port` (표 rowmajor 추출 이식 (TABLE_EXTRACT)): exp-extract-table에서 검증한 조건부 rowmajor 표 추출(영수증 양식별 열, 세부내역서 머리글 열 순서, 행 산술 게이트)을 Docraft 첫 추출에 이식하고 기본값으로 켰다. 원내코드 후퇴를 고쳤고 정답지 59건 오프라인 재현으로 확인했다
+
+## 2026-10-12 갱신
+
+현재 기본 `TABLE_EXTRACT=band`(`BAND_DOC_TYPES=진료비영수증`), 그 밖 유형은 rowmajor, 표 누락률이 0.6 이상이면 asis로 다시 읽는다. 아래 실험은 rowmajor 도입의 근거다. 현재 상태 요약은 상위 wiki `/home/pilsu/projects/mirae-assets/wiki/2026-10-12-current-state.md`.

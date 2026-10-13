@@ -6,17 +6,15 @@ okf_version: "0.2"
 - [영수증 띠 프롬프트 쪼개진 머리글 안내(BAND_HEADER_NOTE)](2026-10-12-band-header-note.md) — 기본 켬(10/12), Nebius 10건 소표본 표 95.10→95.68%·고침 7·깨뜨림 0
 - [영수증 금액 칸 단위 열 옮김 — OCR 인쇄 머리글 열로](2026-10-12-receipt-cell-column-move.md) — 모델 열과 인쇄 머리글 열이 다른 금액을 값 그대로 옮김, 바로 위 머리글 줄만 읽기, 197건 98.16→98.21%(12/0)·g25 불변
 - [영수증 맨 오른쪽 열 — 열 맞바꿈 쪽 고르기·금액산정 경계 자르기](2026-10-12-receipt-rightcol-swap-crop.md) — 인쇄 머리글로 틀린 쪽(항목/합계 행) 고르기, 표 끝=패널 라벨 정렬선, 197건 98.05→98.14%·g25 불변·잘림 16→4칸
+- [Docraft wiki 정리 (2026-10-12)](2026-10-12-wiki-cleanup.md) — 삭제·흡수·갱신 내역, 복구 기준 21db625, 판단 보류 목록
 - [영수증 문서 단위 인쇄 정합(PRINT_REGISTER) 이식](2026-10-09-receipt-print-register-port.md) — band 결과의 반 행 인쇄 밀림을 OCR 줄 좌표·합계 기준점으로 문서 단위 되돌림, 기본 꺼짐, 197건 +48/0·g25 0/0 재생 일치
 - [페이지 기울기 보정(PAGE_DESKEW)](2026-10-12-page-skew-correction.md) — 방향(90도 단위)+기울기를 한 각도로 합쳐 모델 이미지를 돌림, 띠 상자는 돌린 페이지 기준
 - [영수증 항목표 band 읽기 이식](2026-10-09-receipt-band-port.md) — 위치 찾기→3띠 짧은 키 읽기→금액산정 블록 따로, 저장 응답 195건 재생 일치
 - [영수증 합계 행 금액 되돌림](2026-10-09-receipt-total-row-shift.md) — 합계 금액이 위 행에 붙어 읽힌 것을 열 합으로 판별해 되돌림, 197건 고침 8·깨짐 0
 - [영수증 별칭 재선별·위치 제약 이름·열 되돌림](2026-10-08-receipt-name-column-rules.md) — 정답지 30건 raw 96.44→97.37%
 - [영수증 정답지 30건 Docraft 오류 원인](2026-10-08-receipt-g30-error-cause.md) — 항목명 오독 37%, 위치 제약 이름 맞춤 제안
-- [영수증 항목 별칭 고객 스키마 근거 보강](2026-10-08-receipt-schema-aliases.md) — 전체 일치 별칭, 정액수가 삼킴 수정, 충돌 4건 결정 대기
 - [영수증 항목표 OCR 행 골격 커버리지](2026-10-08-receipt-row-skeleton-coverage.md) — 인쇄만 78.0%·보충 93.4% vs A 90.3%, 행 후보 목록으로 호출 실험 예정
-- [영수증 Docraft 항목표 오류 원인 분석](2026-10-08-receipt-docraft-error-cause.md) — 0원 행 미출력 60%, 제외 시 94.26%, 표 구조 인식이 주원인, 상세는 상위 wiki
 - [/api/read groundings 자료형·재처리 key 불일치 수정](2026-10-07-read-groundings-reprocess-keys.md) — unit_flags list 502, 재처리 KeyError
-- [영수증 선별급여 법령 문구 별칭 동기화](2026-10-07-receipt-alias-sync.md) — 하네스 receipt_items.yaml 사본 동기화, 상세는 상위 wiki
 - [진료비영수증 항목명 원본 인쇄 표기 유지](2026-10-07-receipt-item-print-name.md) — 요약, 상세는 상위 wiki, dev 9ced432
 - [진단서4종 진료소견 판독 필드 추가](2026-10-06-clinical-opinion-extract.md) — `_MEDICAL_FIELDS` 진료소견 text, dev 3d4f9e5
 - [CI 공통 영수증 규칙 동기화](2026-10-03-ci-shared-receipt-policy.md) — 종료일 필수 키 사본 불일치 수정·gitlink 검증
@@ -37,9 +35,7 @@ okf_version: "0.2"
 * [이슈 유형별 보정 장치 대응표](2026-10-04-issue-taxonomy-correction-coverage.md) - 일반 보정 방법·하네스/Docraft 장치 현황·우선순위
 - [Parse·Extract 이슈 도감](2026-10-08-issue-taxonomy-gallery.md) — 노드 111개·보조 원인 10개의 원문·출력 비교 예시(관측 74·합성 38·추정 9), artifact 페이지
 - [이슈 분류에 입력 매체·화질 조건 기록 축 추가](2026-10-12-issue-taxonomy-media-quality-axes.md) — 매체 14종·화질 열화 12종 포괄 점검, 입력 매체(생성·전달 경로·열화 이력)·화질 조건 축과 결과 노드·합성 메커니즘 대응
-* [이슈 분류 기반 오류 분석·탐지 작업 계획](2026-10-03-issue-taxonomy-work-plan.md) - 6단계 계획
 
-* [작업 세대·부분 추출·스프레드시트 무결성](2026-10-03-review-integrity.md) - 오래된 작업 쓰기 차단, 부분 페이지 표시·승인 제한, CSV/XLSX 문자열 보호와 회귀
 
 작업 기록은 Open Knowledge Format v0.2(`type` 등 YAML frontmatter + markdown 본문)을 따르며, 파일명은 `YYYY-MM-DD-<주제>.md`다. 변경 이력은 [log.md](log.md)에 남긴다.
 
@@ -48,7 +44,6 @@ okf_version: "0.2"
 
 * [진료비영수증 항목명 이름 규칙 보강(표준 표기 유지)](2026-09-30-receipt-item-names.md) - 재활및물리치료료·조제료 이름 규칙, 예약진찰료·응급 관리료 표준 항목 추가(하네스와 공통 표), 보철교정료·입원료_2-3인실 표기 유지
 * [세부내역서 급여구분 스키마 설명: 공란 칸을 급여로 채우지 않기](2026-09-29-benefit-class-hint.md) - 급여구분 힌트에 인쇄된 값만·공란 null·추정 금지·TABLE_HINT 추가, 원인 경로(VLM 추출·BLANK_AO 채택)와 표본 4건 실측
-* [MIG 자원 이름 선택: 컴포넌트마다 다른 nvidia.com/mig-* 요청](2026-09-28-mig-gpu-resource-name.md) - helm/docraft GPU 컴포넌트(paddleocrVl vlm-server·api, paddleocrLines, vllmVlm)의 device plugin 자원 이름을 값으로 빼 MIG로 나뉜 카드에서 조각별로 요청하게 함. paddleocrVl.gpuResource/apiGpuResource로 api·vlm-server 분리, gpu-check가 MIG 줄 수를 세도록 전환
 * [/api/verify 응답에 요청 처리시간(verify.elapsed_ms) 추가](2026-09-28-response-elapsed.md) - 업로드 저장부터 응답 직전까지 걸린 시간을 documents[0].verify.elapsed_ms로 반환
 * [auto_reprocess=false 읽기 오류와 ROI VLM 오채택 수정](2026-09-29-read-reprocess-fix.md) - 미할당 recovery_groundings 502 수정, ROI OCR이 지지한 원값을 VLM이 덮어쓰지 못하게 함
 * [날짜·체크·표 셀의 유형별 원문 근거](2026-09-27-typed-evidence.md) - 라벨 역할이 확인된 날짜·체크 표기, 물리 표 셀·총계·빈칸과 제한된 null 교정
@@ -58,16 +53,13 @@ okf_version: "0.2"
 * [Parse·Extract 근거와 검토 상태 보강](2026-09-27-parse-extract-quality.md) - OCR 원문·행/열·페이지 좌표 기반 품질 신호와 API 계약, 76건 캐시 평가 및 97% 목표의 남은 한계
 * [/api/read 최종 값의 원문 좌표 반환](2026-09-27-read-groundings.md) - 규칙 적용 뒤 값·행이 유일하게 대응하는 근거만 `groundings`로 제공
 * [Harness와 Docraft의 key-value 추출 흐름 점검](2026-09-27-harness-docraft-kv-pipeline-review.md) - OCR·스키마 추출·검증·근거·사람 검토의 구현 범위와 통합 경로의 한계
-* [임시 맥락·피드백 문서 Git 추적 해제](2026-09-27-untrack-context-feedback.md) - 정제 전 `context.md`·`feedback.md`를 Git 추적 대상에서 제거하고 루트 `.gitignore`에 등록해 재추가를 방지
 * [운영자 긴급 중지: 문서 잡·in-flight 호출 취소 API](2026-09-27-작업-중지-API.md) - 대기·실행 중인 문서 잡 단건 취소(`POST /api/documents/{id}/cancel`)와 전체 취소(`POST /api/admin/cancel-all?confirm=true`). queued는 즉시 canceled, 실행 중은 documents.cancel_requested로 다음 단계 경계에서 협조적 취소, cancel-all은 진행 중인 모든 /api/verify·/api/read 호출도 함께 끊어 409로 마무리(클라이언트 연결 끊김 499와 구분)
 * [Docraft를 하네스 읽기 서비스로 만드는 POST /api/read](2026-09-27-read-api.md) - AO 비교·rules.run·Judge 없이 Docraft 자체 추출만 돌려주는 읽기 전용 API. verify.run에서 공용 부분(resolve_doc_type·resolve_keys·verify.read)을 뽑아 재사용하고, /api/verify와 업로드·취소·in-flight 보일러플레이트(process_image)를 공유. health의 verify_inflight는 이름을 유지한 채 두 경로 합계를 센다
 * [필수 필드 오독 교정 확대](2026-09-26-misread-correction.md) - 진료비영수증 항목명 오독 교정을 세 글자 이하까지 자모 하나 차이로 넓히고('진칠료'→'진찰료'), 날짜의 숫자에 붙은 O·I·l을 0·1로 읽게 함. 라벨 오독 매칭은 실제 낱말 오매칭('발생일'→'발행일')으로 보류
 * [GPU 할당 방식 이원화: 카드 지정 모드 + device plugin 자원 모드](2026-09-26-GPU-할당-방식.md) - helm/docraft 차트의 paddleocrVl·paddleocrLines·vllmVlm 에 harness-v2 embedding 차트와 같은 nvidia.com/gpu 요청 기반 device plugin 모드를 추가하고 기존 deviceIds 카드 지정 모드와 헬퍼를 통합
-* [OCR 엣지 케이스 개선 우선순위: 속도와 정확도](2026-09-25-edge-speed-accuracy-priorities.md) - 실측 지연·정확도와 102개 카탈로그를 함께 고려한 규칙 보완, 선택적 모델 호출, 룰 1차 추출, 교차검증의 실행 순서와 채택 기준
 * [보험 청구서류 7종 OCR 엣지 케이스 카탈로그 대응 점검](2026-09-25-ocr-edge-catalog-audit.md) - 카탈로그 102개 ID와 검산식 11개를 현재 코드와 대조한 지원·부분·미지원 판정 및 우선 대응 순서
 * [하네스 표본 7종 e2e에서 드러난 /api/verify 수정](2026-09-24-verify-harness-e2e-fixes.md) - 진단서 계열 정의 밖 key(사고발생일자) 502, `_balance` 가 Docraft 항목명까지 가져오던 문제(이름 유지 짝 조건·합계 행·정의 밖 열), 하네스 서식 재분류의 값 없는 AO 요청은 Judge 없이 Docraft 추출값 사용
 * [자동 통과 칸 review 표시와 자동 통과 정확도](2026-09-24-auto-review.md) - AO·Docraft 엄격 불일치·남은 CALC·STRUCT 이상·통째로 빈 인쇄 열에 `review`를 붙여, 자동 통과 칸 정확도 세부내역서 99.71%(76.2%)·영수증 99.11%(81.5%), 남은 오류와 공유 서버 운영 주의
-* [7종 210장 e2e 테스트 계획](2026-09-24-e2e-210-plan.md) - AO 2.0 → harness-v2 → Docraft 단계별 소요 시간·결과·정확도를 문서마다 모아 통계로 쓰는 수집 항목, 57건 실측으로 낸 소요 시간 추산(약 4~4.5시간, 여유 포함 5~6시간), 실행 전 점검(`POLL_MAX` 상향, 5종 정답지)
 * [e2e 57건 엣지케이스](2026-09-24-e2e-edge-cases.md) - `비급 구분` 열 서식(빈칸·`100%`=급여), 실시일 칸 입원기간, 병실 칸 진료과, 섹션 제목 행, `총투`·`수량` 머리글, 코드 칸 `-`, AO 자리표시 `열추출`, Judge의 금액 지어내기, 정답지 관례 차이와 처리 상태
 * [harness-v2 e2e 57건 AO 단독 vs AO+Docraft 최종 정확도](2026-09-24-e2e-ao-verify.md) - AO 응답을 AWS `/api/verify`에 넣고 e2e 채점기로 같은 칸 집합에서 비교: 영수증 96.16%→98.04%, 세부내역서 94.36%→94.08%(악화 원인·남은 오류 필드), 하네스는 값을 바꾸지 않음
 * [세부내역서 머리글 없는 표 처리](2026-09-24-detail-headerless.md) - `_headers`가 오타·병합 셀·머리글 없는 이어지는 쪽에서 열 머리글을 놓치던 문제를 머리글 낱말 행·병합 셀 분리·금액×횟수×일수=총액 추론으로 보강. 76건 세부내역서 fp 88→63, e2e 차이는 Judge 편차
@@ -75,21 +67,16 @@ okf_version: "0.2"
 * [/api/verify 연결 끊김 중단과 AWS 배포 잠금](2026-09-23-verify-ops.md) - 클라이언트가 끊기면 추출·Judge 전에 멈추고(실측 89.9초에 중단), 배포 잠금(`flock`)·배포 기록(`DEPLOYED`)·처리 중 요청이 있으면 거부(`verify_inflight`, 실측 exit 3)·자기 터널만 끄는 `tunnel.sh`, 필수 필드에서 납부할금액 제외
 * [필수 필드 누락 룰 MISSING.REQUIRED](2026-09-23-required-fields.md) - 설계안 4단계: 고객 후처리 플러그인·반출 샘플·라벨 93건 빈 값 비율로 유형별 필수 필드를 `rules.yaml` `required`에 정의하고, AO에서 비면 Judge 힌트로 보내고 끝까지 비면 `review`로 표시. 라벨 헛경고 93건 중 2건
 * [룰 레지스트리·반복 교정·rulesets YAML 구현](2026-09-23-rule-registry.md) - 설계안 1~3단계: 검사·교정 18개를 `rules.RULES`로, `rules.run` 최대 3회 반복·`verify.trace`·ESCALATE `review` 표시, 룰 데이터 표 23개를 `backend/rulesets/rules.yaml`로 옮기고 `disable` 추가. 1·3단계 동작 변화 0 대조, 범위 룰은 걸릴 일이 없어 뺌
-* [룰 엔진 선언형 전환 설계안](2026-09-23-rule-engine-design.md) - rules.py 검사·교정 16종을 룰 레지스트리(탐지기+교정기, CORRECT/RE_EXTRACT/ESCALATE)와 반복 실행기·`verify.trace`로 옮기는 5단계 설계, harness-v2 선언형 룰 DSL과의 역할 분담과 결정 필요 사항
-* [0922 테스트 산출물 59건 AWS 교차검증 재테스트](2026-09-23-verify-test-0922.md) - AO 대비 변경 797곳을 원본 이미지로 감사: 영수증 교정 163 맞음/15 악화, 세부내역서는 집계 행 삭제 등으로 84 맞음/303 악화, `/api/verify` 이벤트 루프 차단 버그 수정, 후속 과제 5개
 * [합계식 Judge 판정 보조와 선별급여 라벨 통일](2026-09-23-sum-guard-labels.md) - Judge 판정이 합계식을 더 어기면 불일치가 줄어드는 AO·Docraft 값으로 되돌리는 `verify._balance`(`rules.sum_errors`)와 한방 흐린 팩스 문서 결과, 정답셋 선별급여 행 이름 7건 conform과 76건 새 기준점
 * [진료비영수증 이슈 정리 260923 룰 해결](2026-09-23-receipt-issues-0923.md) - 열 전체가 서식에 없는 열로 간 매핑 오류(파서 머리글 기준 `no_column`, 교정은 `column_shift`로 통합), 선별급여 유의어·한방 항목·한 글자 오독 항목명 교정(`item_name`), 한방 소계 열 오매핑 비우기와 퇴행·라벨 관례 충돌 측정
-* [진료비영수증 고객 이슈 3건 룰 해결](2026-09-23-receipt-issue-cases.md) - harness-v2 요구사항의 비급여→급여·파싱 에러·항목명 누락 이슈를 AWS 파서+OpenRouter로 끝까지 돌려 원본과 대조하고, 세로 행 밀림 `row_shift`·`선택진료료 이외` 머리글 오독·파서 행 부족 시 열 되돌림·포괄수가 합계 `row_copy` 헛경고를 보강해 3건 모두 원본과 일치시킨 기록
 * [마스터 명칭 유사도 검토 필요 플래그 — 임계값 스윕 결과와 보류 결정](2026-09-23-master-name-mismatch-flag.md) - 코드는 마스터에 있는데 인쇄 명칭이 후보 전부와 크게 다른 행을 `검토 필요`로 표시하는 안을 difflib로, 이어서 harness-v2 BAAI/bge-m3 임베딩 코사인 유사도로 76건 재평가(임계값 0.05~0.95 스윕, 결합 규칙 포함)했으나 최고 정밀도가 병명 40%·EDI 21%로 목표(70%) 미달이라 검사는 추가하지 않고 두 조회 함수(difflib `similarity()`, 임베딩) 모두 제거한 결정 기록
 * [KCD·EDI 마스터 원본 소스를 harness DB·docraft DB로 재사용](2026-09-23-master-source-reuse.md) - `data/master`(dockerignore 대상, 로컬 전용) 대신 harness-v2 Postgres 재사용 → docraft DB `master_code` 재사용 → `MASTER_SOURCE_DIR` 원본 신규 적재 순으로 소스를 해석하는 구현: advisory lock으로 감싼 COPY 적재, `python -m backend.master --source` 강제 재적재, compose/helm 배포 배선, 381 passed
 * [POST /api/verify에 hint_paths 필드 추가](2026-09-23-verify-hint-paths.md) - harness-v2 룰 엔진이 확정 못한 필드만 골라 Docraft 교차검증·Judge를 돌리는 선택 form 필드 `hint_paths` 구현: 추출 스키마 축소, 힌트 밖 필드는 판정 정보 없이 AO 값 그대로 반환, counts는 판정된 key만 집계
 * [Docraft Helm 차트(k8s, GPU 서빙 포함)](2026-09-23-k8s-helm-chart.md) - harness-installer 우산 차트의 서브차트로 쓸 `deploy/k8s/helm/docraft`를 harness-v2 mlife-harness 차트 관례로 구현. backend/worker/frontend, 외부 Postgres·Redis 연결(existingSecret 패턴), PaddleOCR-VL·PP-OCRv5·Qwen3-VL(vLLM) 세 GPU 컴포넌트의 deviceIds 기반 카드 지정과 L40S 2장 배치 기본값, helm lint/template 검증과 정수 quote 버그 수정 기록
 * [수술확인서·입퇴원확인서·약제비영수증 유형 추가](2026-09-23-doctypes-3more.md) - 남은 3종 정의(진단서 스키마 재사용, 약제비 15필드, AO 이름 alias), 제목 확인으로 고른 57건 평가셋, VLM 라벨 검수 248건, 검수 후속 룰 보강과 rules 정확도(수술 92.1%, 입퇴원 96.2%, 약제비 94.8%)
 * [룰 엔진 엣지케이스 확장](2026-09-23-rules-edge-cases.md) - 열 밀림·통째 맞바꿈·산술·근거·형식·표 구조 엣지케이스 목록과 룰별 캐시 평가 효과(세부내역서 fp 273→43, 영수증 fp 27→11), 헛경고 측정, 버린 룰, main 급여 열 관례 조정
-* [라벨 관례 정렬 결과와 추출 모델 비교](2026-09-23-label-alignment-and-model-compare.md) - 확정 관례를 76건 정답셋에 적용한 단계별 수치 변화와 분모 변경 경고, 같은 parse·라벨·코드로 채점한 `qwen3-vl-32b-instruct` vs `qwen3.5-27b`(사고 모드 off) 유형별 비교·뒤진 원인·지연·단가 해석과 권고(결정 보류)
 * [rules 후처리 흐름 예시 풀이](2026-09-23-rules-flow-example.md) - 추출(`rules.apply`)과 룰 검사·교정 반복(`rules.run`), Judge·합계 보조를 진단서·진료비영수증 예시로 실제 실행해 보여 주는 설명과 이름 도장 표시(`(인)`) 버그 수정
 * [추출 VLM qwen3.5-27b 전환과 AI_REASONING](2026-09-23-vlm-model-qwen35.md) - qwen3.5-27b 전환 배경·OpenRouter 확인(단가·컨텍스트)과, 기본 사고 모드로 인한 추출 호출 10배 지연 실측 및 `AI_REASONING` 설정으로 끄는 구현
-* [홀드아웃 40건 라벨 이미지 검수](2026-09-23-label-review.md) - 정확도 평가용 홀드아웃 40건 silver 라벨을 이미지 대조로 교정한 감사 집계, 캐시 재사용 재채점 전후(existing 36건 무변화로 검증), 남은 진짜 오류 요약, 기존 36건과의 관례 불일치 7건 통일 권고안
 
 * [파서 표 복원 보강(기울기 보정·해상도 비례 격자)](2026-09-22-table-restore.md) - 모델과 무관한 파서 구조 지표(`scripts/parse_audit.py`), 기울기·`_runs` 정렬 버그·셀 병합 오판 분류, 38건 구조 지표와 76건 정확도 전후
 
@@ -103,24 +90,14 @@ okf_version: "0.2"
 
 * [표 행을 키 열로 대응하고 세분 항목명을 보존](2026-09-22-kv-row-align.md) - 짝짓기 규칙을 rules.pair_rows 한 곳으로 모으고, 영수증 항목 행을 파서 표 순서·세분 항목명으로 바로잡고 소계 행을 보존한 구현(76건 전후 수치 포함)
 
-* [key-value 추출 정확도 개선 지점 검토](2026-09-22-kv-accuracy-review.md) - 76건 rules 단계 오류 분포와 코드 검토를 대조한 정확도 개선 우선순위(구현 없음)
 
-* [정확도 평가 확장과 홀드아웃 라벨 매니페스트](2026-09-22-accuracy-eval-expansion.md) - 기존 36건과 콘텐츠 중복 없는 40건 holdout, 독립 라벨 provenance, strict/legacy 평가 집계
 
-* [룰 검증 성능 개선 우선순위](2026-09-22-rule-performance-review.md) - 표 복원·자동 일치 기준·Judge 범위와 평가 개선 제안
 
-* [README 아키텍처·처리 흐름 시각화](2026-09-22-readme-architecture.md) - 서비스 관계와 일반 추출·AO 검증 흐름을 Mermaid로 정리하고 현행 스키마·설정을 반영
 
-* [verify 룰 1차 추출 전환 계획](2026-09-22-verify-rule-first-plan.md) - 지연 시간 최소화를 위해 모델 추출을 빼고 파싱 블록 룰 추출 + AO 비교 + Judge 1회로 재구성하는 후속 작업 지시서(현황·실측 시간·부작용·단계·완료 기준)
 * [Agentic OCR 2.0 결과 교차검증·자동 교정 API 구현](2026-09-22-ocr-verify.md) - POST /api/verify 구현 기록: doctypes·rules(twin reader 이식·확장)·verify(Judge)·AO 키/값 누락 대응·진료비영수증 표 오류 검출·교정과 정답셋 평가 결과
-* [Agentic OCR 2.0 결과 교차검증·자동 교정 API 계획](2026-09-22-ocr-verify-plan.md) - Docraft Parse→twin reader 룰→Extract 결과와 AO 응답을 LLM-as-Judge로 비교해 교정 JSON을 돌려주는 API의 작업 지시서
-* [AO 교차검증 정답셋(라벨)과 단계별 정확도 평가 스크립트](2026-09-22-ocr-verify-labels.md) - VLM으로 문서 유형 4종 정답셋(gold 4+silver 32)을 라벨링하고 36건을 이미지 대조로 검수한 뒤, 표 행 식별자 정렬·rules.same 일원화로 보정한 raw/rules/ao/final 4단계 정확도 측정 기록
 * [추출·스키마 생성에 페이지 이미지 첨부](2026-09-22-vision-extract.md) - OCR 텍스트만 보내던 VLM 호출에 문서 페이지 이미지를 함께 보내 병합 셀 표의 값·합계 오류를 없앤 기록
 * [OCR 줄 좌표 기반 grounding](2026-09-22-ocr-line-grounding.md) - 표 블록을 행 수로 균등 분할해 추정하던 grounding bbox를 PP-OCRv5 줄 단위 OCR 좌표로 교체한 기록
 * [라벨 기준 grounding과 합계 필드 추출 지시](2026-09-22-label-grounding.md) - 같은 값이 여러 셀에 있을 때 필드 라벨 옆 줄을 고르고, 합계 필드가 개별 항목 값을 가져오던 추출 오류를 프롬프트로 바로잡은 기록
-* [Backend P0 implementation (2026-09-21)](2026-09-21-backend-implementation.md) - FastAPI 백엔드 P0 최초 구현(SQLite·Tesseract 시기) 기록 (deprecated)
-* [AGENTS.md 작업 규칙 보강](2026-09-21-agents-md-rules.md) - 브랜치·워크트리, 커밋 메시지, wiki 작성 규칙을 AGENTS.md에 명시
-* [dev 통합 및 UI 확인](2026-09-21-dev-merge.md) - P0 구현을 dev 브랜치로 통합하고 UI를 실행한 작업 기록
 * [작업 큐(Queue·Worker) 구조 도입](2026-09-22-job-queue.md) - 파싱·추출을 inline·celery로 교체 가능한 작업 큐에서 실행하고 공용 redis/Celery 인프라에 붙이는 구성
 * [작업 큐 중단 작업 자동 복구](2026-09-22-job-recovery.md) - heartbeat lease와 기동 시 재등록으로 worker 중단·inline 재시작에도 문서가 멈추지 않게 한 구성
 * [스키마 내보내기](2026-09-22-schema-export.md) - 편집 중인 JSON Schema를 title(스키마 이름)과 함께 파일로 내려받는 기능
@@ -138,15 +115,11 @@ okf_version: "0.2"
 * [Markdown·HTML 뷰어](2026-09-21-markdown-html-viewer.md) - Markdown·HTML 원본 렌더링, 분석 결과 미리보기·HTML 출력, HTML 업로드 파싱
 * [분석 결과 표 미리보기와 JSON 색상](2026-09-21-table-preview.md) - 블록 카드 미리보기로 OCR 표 렌더링, JSON 문법 색상
 * [Agentic OCR 2.0.1 fixture conversion](2026-09-21-fixture-conversion.md) - Agentic OCR 2.0.1 PNG fixture를 텍스트 레이어 포함 PDF로 변환한 절차
-* [PRD 구현 작업](2026-09-21-implementation-session.md) - PRD P0 구현 세션의 브랜치·역할 분배·완료 범위
 * [구현 기록](2026-09-21-implementation.md) - PRD P0 요구사항과 검증 근거 매핑, 통합 검증 결과
 * [백엔드 로깅과 Docker 전체 스택](2026-09-21-logging-docker.md) - 백엔드 레벨별 로깅(docraft.log)과 postgres·backend·frontend Docker 전체 스택 구성
-* [요청 ID 로그 문맥과 실패 사유 기록](2026-09-27-request-id-logging.md) - 모든 로그 줄의 [rid], 하네스 X-Request-ID 연결, 4xx 사유·provider 오류 본문 기록
 * [PaddleOCR-VL 로컬 Docker 호스팅](2026-09-21-paddleocr-docker.md) - PaddleOCR-VL을 compose ocr profile로 로컬 GPU에 호스팅한 구성과 검증
 * [PDF 근거 상자 정밀화](2026-09-21-pdf-line-bbox.md) - PDF 근거 상자를 텍스트 블록에서 줄 단위로 정밀화
 * [프로젝트 작업공간 백엔드 변경 기록](2026-09-21-project-workspace-backend.md) - PostgreSQL 전환, 프로젝트·스키마 CRUD, SQLite 이관 도구 기록
-* [프로젝트 작업공간 개편](2026-09-21-project-workspace-plan.md) - 프로젝트 작업공간 개편의 사용자 요구와 작업 분배
-* [UI 개편 제안 및 진행 상태](2026-09-21-ui-redesign-plan.md) - 단순하고 직관적인 UI 개편 방향과 진행 상태
 
 # 조사
 
@@ -167,74 +140,44 @@ okf_version: "0.2"
 
 * [/api/read row_filter](2026-09-29-read-row-filter.md) - 지정한 행만 생성하게 해 재읽기 시간을 줄이는 인자
 * [요양기관종류 체크박스 판독 지침과 텍스트 일치 판정 보정](2026-10-02-institution-type-checkbox.md) - 표시된 선택지만 답이라는 필드 설명, 선택지를 품은 값을 같다고 보던 오판을 enum 정확 비교로 수정
-* [표 rowmajor 추출 이식 (TABLE_EXTRACT)](2026-10-02-table-rowmajor-port.md) - 표를 행 값 배열로 읽고 인쇄 열 순서(영수증 양식·세부내역서 머리글)를 주며 행 산술이 깨지면 asis로 다시 읽음, 기본값 rowmajor, 59건 90.29%·지연 −51%
 * [/api/read 지연과 HTTP 408 대응](2026-10-02-read-지연-대응.md) - 같은 페이지 OCR·표 교정 공유, 표 교정 병렬·분할, GPU OCR 동시성 제한, 재처리·모델 호출 시한, 단계별 시간 로그
 * [돌아간 스캔의 방향 정규화](2026-10-02-scan-orientation.md) - 90°·180°·270° 스캔을 줄 상자·마침표 위치로 판별해 바로 세워 다시 읽고 좌표는 원본 기준 유지
 * [rowmajor 열 배치·게이트 보강과 무리 값 채우기](2026-10-02-rowmajor-rotation-fixes.md) - 기간 한 칸 두 일자·못 읽은 짝 열 유지·같은 개념 열 표기·금액 빈 행·무너진 행 게이트(0.6)·출력 상한·섹션 제목·진료기간 채우기, 59건 92.47%
 * [여러 쪽 표를 쪽 묶음별로 나눠 읽기](2026-10-03-pagewise-table.md) - 응답 상한 16k·4쪽 안의 쪽 묶음 병렬, 쪽 다수결 열 배치 하나, 실패한 쪽만 asis, 쪽 순서 이어 붙이기. length 오류 0, 21세기 −59% 지연, 아주대 0→330행
 * [rowmajor 열 배치는 근거가 있을 때만, 약하면 알림](2026-10-05-column-evidence.md) - 필수 열은 머리글 조각·본문 값 근거로만, 코드 두 열은 낱말·값 꼴, 머리글 없는 표는 yaml 순서·값 꼴 점수, column_plan 알림, OpenRouter 35회
-* [rowmajor 열 배치 근거화와 세부내역서 열 맞바꿈](2026-10-03-colplan-evidence.md) - 근거 있는 자리에만 못 읽은 필수 열, 여러 줄·쌓인 머리글, 셀 머리글·값 꼴 배치, 코드 꼴·인쇄 자리로 열 맞바꿈(약하면 알림), /api/read diagnostics, 59건 93.14%
-* [세부내역서 집계 행·급여 인쇄값만](2026-10-03-summary-rows-printed-benefit.md) - 2026-10-03 정책: 소계·계·합계·끝수처리 행을 표준 라벨로 표에 남기고, 급여는 인쇄된 열만. 59건 93.14→96.24%
-* [세부내역서 칸을 다른 칸에서 옮겨 채우지 않는다](2026-10-03-printed-only-derive.md) - '급/비' 표시로 비급여를, 시작일자로 종료일자를 채우던 규칙 제거, 표시 열만 있는 서식의 비급여 비우기. 재적용 59건 96.51%
-* [진료기간 필드는 인쇄된 값만](2026-10-03-printed-period-fields.md) - 외래 진료종료일 = 진료시작일 복사와 표 날짜(최소·최대)로 진료기간 채우기 제거, 사고발생일자는 스키마 정의대로 유지. 재적용 59건 96.54%
 
 ## 루트 공통 기록 동기화 (2026-10-03)
 
-* [동기화 범위·병합 판단·첨부 검증](2026-10-03-root-wiki-sync.md)
 * [2026-09-27-auto-reprocess-loop](2026-09-27-auto-reprocess-loop.md)
 * [2026-09-27-image-parse-extract-edge-cases](2026-09-27-image-parse-extract-edge-cases.md)
 * [2026-09-28-extract-coverage-rules](2026-09-28-extract-coverage-rules.md)
-* [2026-09-29-harness-flow-briefing](2026-09-29-harness-flow-briefing.md)
 * [2026-09-29-request-trace-logging](2026-09-29-request-trace-logging.md)
 * [2026-09-30-autoscaling-plan](2026-09-30-autoscaling-plan.md)
 * [2026-09-30-aws-orchestrator-harness-callback-e2e](2026-09-30-aws-orchestrator-harness-callback-e2e.md)
 * [2026-09-30-golden-set-59-aws-harness-benchmark](2026-09-30-golden-set-59-aws-harness-benchmark.md)
-* [2026-09-30-harness-issue-todo](2026-09-30-harness-issue-todo.md)
-* [2026-09-30-harness-weekly-briefing](2026-09-30-harness-weekly-briefing.md)
-* [2026-10-02-agents-aws-batch-test](2026-10-02-agents-aws-batch-test.md)
-* [2026-10-02-agents-bug-principle](2026-10-02-agents-bug-principle.md)
-* [2026-10-02-aws-integrated-deploy-1002c](2026-10-02-aws-integrated-deploy-1002c.md)
-* [2026-10-02-aws-integrated-deploy-1002d](2026-10-02-aws-integrated-deploy-1002d.md)
-* [2026-10-02-aws-integrated-deploy-1002f](2026-10-02-aws-integrated-deploy-1002f.md)
-* [2026-10-02-aws-integrated-deploy-1002g](2026-10-02-aws-integrated-deploy-1002g.md)
-* [2026-10-02-aws-integrated-deploy-1002h](2026-10-02-aws-integrated-deploy-1002h.md)
-* [2026-10-02-aws-integrated-deploy-1002i](2026-10-02-aws-integrated-deploy-1002i.md)
-* [2026-10-02-aws-integrated-deploy-1002j](2026-10-02-aws-integrated-deploy-1002j.md)
-* [2026-10-02-aws-integrated-deploy-r3](2026-10-02-aws-integrated-deploy-r3.md)
-* [2026-10-02-aws-integrated-feature-test](2026-10-02-aws-integrated-feature-test.md)
-* [2026-10-02-aws-redeploy-golden59-rerun](2026-10-02-aws-redeploy-golden59-rerun.md)
 * [2026-10-02-detail-filldown-group-values](2026-10-02-detail-filldown-group-values.md)
 * [2026-10-02-detail-testset200](2026-10-02-detail-testset200.md)
 * [2026-10-02-docraft-read-latency-analysis](2026-10-02-docraft-read-latency-analysis.md)
 * [2026-10-02-extra-detail-validation](2026-10-02-extra-detail-validation.md)
 * [2026-10-02-extraction-accuracy-paper-experiments](2026-10-02-extraction-accuracy-paper-experiments.md)
-* [2026-10-02-golden-benefit-col-extract-unify](2026-10-02-golden-benefit-col-extract-unify.md)
 * [2026-10-02-golden-harness-misextraction-analysis](2026-10-02-golden-harness-misextraction-analysis.md)
-* [2026-10-02-institution-type-r3-followup](2026-10-02-institution-type-r3-followup.md)
 * [2026-10-02-rule-based-kv-extract-review](2026-10-02-rule-based-kv-extract-review.md)
 * [2026-10-02-six-type-testsets](2026-10-02-six-type-testsets.md)
-* [2026-10-02-table-rowmajor-ab-experiment](2026-10-02-table-rowmajor-ab-experiment.md)
-* [2026-10-02-table-rowmajor-conditional](2026-10-02-table-rowmajor-conditional.md)
 * [2026-10-02-table-rowmajor-report](2026-10-02-table-rowmajor-report.md)
 * [2026-10-03-golden-benefit-printed-only](2026-10-03-golden-benefit-printed-only.md)
 * [2026-10-03-harness-docraft-architecture-quality-review](2026-10-03-harness-docraft-architecture-quality-review.md)
-* [2026-10-03-medical-table-comparison-design](2026-10-03-medical-table-comparison-design.md)
 * [2026-10-03-medical-table-parsing-research](2026-10-03-medical-table-parsing-research.md)
 * [2026-10-03-model-fixed-table-algorithms](2026-10-03-model-fixed-table-algorithms.md)
-* [2026-10-03-oct02-weekly-report-summary](2026-10-03-oct02-weekly-report-summary.md)
-* [2026-10-03-parallel-subagents-preference](2026-10-03-parallel-subagents-preference.md)
 * [2026-10-03-review-integrity-remediation](2026-10-03-review-integrity-remediation.md)
 * [2026-10-03-summary-rows-policy-integration](2026-10-03-summary-rows-policy-integration.md)
 * [2026-10-03-synthetic-dataset-codex-작업지시서](2026-10-03-synthetic-dataset-codex-작업지시서.md)
 * [2026-10-03-parse-extract-보강-작업지시서](2026-10-03-parse-extract-보강-작업지시서.md)
 
-- [harness·Docraft 서식 자동분류 끄기 확인](2026-10-03-classification-toggle-check.md) — 제목 OCR 재분류 설정과 수동 서식 지정
 
 - [서식 재분류 기본 OFF와 재생성 가이드](2026-10-03-classification-default-off.md) — ON/OFF·API/worker·AWS/Helm 적용
 
 - [약제영수증 진료비내역-비급여 칸 반영](2026-10-05-pharmacy-noncovered-field.md) — 1005 약제 스키마 비교, 비급여 추가(상위 wiki 동기화)
 
 - [빽빽한 표 쪽을 행 띠로 나눠 읽기](2026-10-05-dense-page-split.md) — 한 응답에 들지 않는 쪽만 OCR 줄 틈에서 띠로 잘라 읽기, 건국대 41→195행·청담 2·3쪽 0→124행
-- [AWS 통합 배포 1006a — harness 4438155·Docraft 134f385 최신화](2026-10-06-aws-integrated-deploy-1006a.md) — 규칙셋 2026.09.22, health 정상, 테스트 호출 0건
 - [진료비영수증 키 상한액초과금 정정](2026-10-07-limit-excess-key.md) — Docraft 키 상환액초과금 오기 정정, 입력 별칭 장치 없음
 * [사고 모드 끄기 — vLLM enable_thinking·json_schema 포함](2026-10-13-thinking-off-vllm.md) - AI_REASONING=off가 모든 호출에 reasoning + chat_template_kwargs.enable_thinking=false

@@ -118,3 +118,7 @@ master 소스 이미지 전부 켠 조합 포함)을 통과했다.
 - [KCD·EDI 마스터 사전 명칭 교정](2026-09-22-master-name-correction.md) — 이 문서가 대체한 `scripts/build_master.py` 기반 흐름의 원 구현 기록(교정 규칙 자체는 그대로다)
 - [Docraft Helm 차트](2026-09-23-k8s-helm-chart.md) — `deploy/k8s/helm/docraft`의 기존 관례(existingSecret 패턴, restricted PSS)
 - harness-v2: `src/mlife_harness/master/schema.sql`, `deploy/k8s/helm/mlife-harness/templates/master-load.yaml`
+
+## 2026-10-12 갱신
+
+EDI 마스터 명칭 보정 자체는 고객사 염려로 보류 상태다(원문과 달라지는 보정 금지). 마스터 소스 재사용 구조는 그대로 유효하다. 현재 상태 요약은 상위 wiki `/home/pilsu/projects/mirae-assets/wiki/2026-10-12-current-state.md`.

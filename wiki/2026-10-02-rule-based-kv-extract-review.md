@@ -45,7 +45,7 @@ harness는 Docraft parse를 직접 부르지 않는다. `/api/read` 응답 중 `
    - r6 결과에서 자동 적재된 칸의 오류 81칸 중 56칸은 값이 빠진 경우였다([논문 기반 실험 계획](2026-10-02-extraction-accuracy-paper-experiments.md) 5.1).
    - 나머지 상당수는 Docraft 표 요청 실패(408·502)와 병합칸 문제였다.
    - 같은 parse 결과에 룰을 돌려도 이 원인들은 그대로 남는다.
-   - 이후 AWS 1002i(Docraft `298570b`, `e2e/out/golden1002-aws-r9/`)에서 Docraft 요청 실패는 3건에서 0건이 됐다(전체 99.40%). 표 요청 실패는 룰이 아니라 Docraft 지연 대응으로 해결됐다. [AWS 통합 배포 1002i](2026-10-02-aws-integrated-deploy-1002i.md)
+   - 이후 AWS 1002i(Docraft `298570b`, `e2e/out/golden1002-aws-r9/`)에서 Docraft 요청 실패는 3건에서 0건이 됐다(전체 99.40%). 표 요청 실패는 룰이 아니라 Docraft 지연 대응으로 해결됐다. [AWS 통합 배포 1002i](2026-09-30-golden-set-59-aws-harness-benchmark.md)
 
 ## 룰 기반이 효과적인 곳
 

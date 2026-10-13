@@ -67,3 +67,10 @@ Docraft helm 설정은 `templates/config.yaml:13` 에서 `LOG_FILE: ""` 이고, 
 
 - 설치 번들 재빌드 전이다.
 - k8s 에서 로그를 파일로 오래 남길 방법(수집기 또는 PVC 파일 기록)은 정하지 않았다.
+
+
+## 흡수한 기록 (2026-10-12 정리)
+
+흡수한 문서는 삭제했다. 복구는 Docraft dev 21db625에서 한다.
+
+- `2026-09-27-request-id-logging` (요청 ID 로그 문맥과 실패 사유 기록): 모든 로그 줄에 [rid] 를 붙여 동시 /api/verify 의 중간 줄(LLM 호출 등)을 요청별로 가르고, 하네스가 보낸 X-Request-ID(job.txn.doc)로 두 시스템 로그를 잇게 한 기록. 4xx 사유·AI provider HTTP 오류 본문도 남긴다
