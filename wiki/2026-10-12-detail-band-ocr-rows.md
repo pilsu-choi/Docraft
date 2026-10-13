@@ -331,3 +331,9 @@ v11 상세: 누락 46·오검출 8·불일치 109칸, 행 수 정답과 같은 �
 
 - 세부: `exp/e2e_call_test/out/detail30-1012/v14/`, 영수증: `out/receipt-dualread-1012/v14-stack/`·`v15-revert/`
 - NYLON 직접 호출: 세션 scratchpad `stack/`(run2.py·r2/), OCR 대조: scratchpad `ocr30/`(compare.py, res/out = 서버 OCR 줄)
+
+## 2026-10-13 dev 반영·기본 켬
+
+- Docraft dev 554e95c(feat/detail-band 병합, 전체 회귀 4082 통과·3 xfailed) GitLab push.
+- 사용자 결정: band 세부내역서가 하네스 기존 경로보다 정확도가 높아 기본으로 켠다. `BAND_DOC_TYPES` 기본값을 `진료비영수증,세부내역서`로(코드·.env.example·AWS 예시·helm·README). Docraft dev acc1cae(e3b0f66), 전체 회귀 4083 통과·3 xfailed.
+- harness-installer 번들의 Docraft 설정(helm 값)이 따로 고정돼 있으면 같이 바꿔야 한다.

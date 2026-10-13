@@ -561,3 +561,4 @@
 - **Update** (2026-10-12): index.md에 연결.
 - **Creation** (2026-10-13): [사고 모드 끄기](2026-10-13-thinking-off-vllm.md) — AI_REASONING=off가 모든 호출에 reasoning + enable_thinking=false. 상위 wiki와 동기화.
 - **Update** (2026-10-13): [세부내역서 band 읽기](2026-10-12-detail-band-ocr-rows.md) — v14: 머리글 띠 이어 붙이기(세부만), 범례 줄·묶음 여백, 기호 동치, EDI명칭 OCR 대조.
+- **Update** (2026-10-13): [세부내역서 band 읽기](2026-10-12-detail-band-ocr-rows.md) — dev 반영·세부내역서 band 기본 켬.
