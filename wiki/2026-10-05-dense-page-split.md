@@ -19,7 +19,7 @@ status: active
 - 쪽 묶음 읽기(`_table_pages`)는 쪽 하나가 상한을 넘어도 그 쪽을 호출 한 번에 넣었다.
   - 건국대 1·3쪽과 청담 2·3쪽은 rowmajor와 asis 모두 JSON이 깨진 채 끝났다(`finish_reason=stop`).
   - 그래서 그 쪽의 행이 통째로 빠졌다(`pagewise-1002`).
-- `fix/dense-page-json`(행 번호 `#`)은 모든 표 호출을 바꿨다. 정답지에서 93%가 asis로 다시 읽혀 병합하지 않았다(브랜치 `fix/dense-page-json`의 `wiki/2026-10-03-dense-page-row-number.md`).
+- `fix/dense-page-json`(행 번호 `#`)은 모든 표 호출을 바꿨다. 정답지에서 93%가 asis로 다시 읽혀 병합하지 않았다([기록](2026-10-03-dense-page-row-number.md)).
 - 이번 설계는 프롬프트와 보통 쪽을 바꾸지 않는다. 한 응답에 들지 않는 쪽만 나눈다.
 
 ## 근본 원인과 문제 유형
