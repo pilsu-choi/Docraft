@@ -103,6 +103,37 @@ def test_line_ocr_failure_keeps_parsing_without_lines(tmp_path, monkeypatch):
     assert all("lines" not in block for block in blocks)
 
 
+def test_ocr_replay_dir_records_then_replays_without_remote_calls(tmp_path, monkeypatch):
+    """``OCR_REPLAY_DIR``: 첫 요청은 두 OCR 응답을 저장하고, 같은 파일의 다음 요청은 원격을 부르지 않고 같은 블록을 만든다."""
+    path = tmp_path / "scan.png"
+    path.write_bytes(b"fake-image-bytes")
+    monkeypatch.setenv("OCR_REPLAY_DIR", str(tmp_path / "replay"))
+    calls = _paddle(monkeypatch, LINES_RESPONSE)
+    first = parsers._remote_paddle(path, 1, expected_pages=1)
+    assert len(calls) == 2
+    assert sorted(p.name.split("-")[0] for p in (tmp_path / "replay").iterdir()) == ["layoutParsingResults", "ocrResults"]
+
+    monkeypatch.setattr(httpx.Client, "post", lambda *a, **k: pytest.fail("replay must not call the OCR services"))
+    assert parsers._remote_paddle(path, 1, expected_pages=1) == first
+
+
+def test_ocr_replay_keys_on_file_bytes_and_skips_failed_answers(tmp_path, monkeypatch):
+    """다른 파일(회전·크롭 이미지 포함)은 저장본을 나눠 쓰지 않고, 실패한 줄 OCR 응답은 저장하지 않아 다음 요청이 다시 부른다."""
+    monkeypatch.setenv("OCR_REPLAY_DIR", str(tmp_path / "replay"))
+    calls = _paddle(monkeypatch, httpx.ConnectError("refused"))
+    for name, data in (("a.png", b"page-a"), ("b.png", b"page-b")):
+        (tmp_path / name).write_bytes(data)
+        blocks = parsers._remote_paddle(tmp_path / name, 1, expected_pages=1)
+        assert all("lines" not in block for block in blocks)
+    assert len(calls) == 4
+    assert sorted(p.name.split("-")[0] for p in (tmp_path / "replay").iterdir()) == ["layoutParsingResults"] * 2
+
+    calls = _paddle(monkeypatch, LINES_RESPONSE)
+    blocks = parsers._remote_paddle(tmp_path / "a.png", 1, expected_pages=1)
+    assert calls == ["http://lines.invalid/ocr"]  # 레이아웃은 저장본, 실패했던 줄 OCR만 다시 부른다
+    assert blocks[1]["lines"] == [{"text": "진찰료", "bbox": [10.0, 50.0, 40.0, 70.0]}]
+
+
 def test_line_ocr_request_overlaps_the_layout_request(tmp_path, monkeypatch):
     """The line OCR needs only the file, not the layout answer: it is sent while the layout request is still running."""
     path = tmp_path / "scan.png"

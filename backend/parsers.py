@@ -135,15 +135,33 @@ def _html_table(content):
     return {key: table[key] for key in ("rows", "spans") if key in table}
 
 
+def _ocr_pages(url, payload, headers, timeout, field, settings):
+    """원격 OCR 응답의 ``result[field]``(페이지 목록). ``replay_dir``(``OCR_REPLAY_DIR``)이 있으면 같은 요청(서비스 응답 종류·파일·형식)의
+    응답을 그 폴더에서 읽고, 없으면 원격을 불러 저장한다 — 회전·크롭 재OCR도 요청 바이트가 같으면 같은 저장본을 쓴다."""
+    folder = settings["replay_dir"]
+    digest = hashlib.sha256(f"{field}:{payload['fileType']}:{payload['file']}".encode()).hexdigest()
+    path = Path(folder) / f"{field}-{digest}.json" if folder else None
+    if path and path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    response = latency.http_client().post(url, json=payload, headers=headers, timeout=timeout)
+    response.raise_for_status()
+    pages = response.json()["result"][field]
+    if path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        partial = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")  # 동시 요청이 반쯤 쓴 파일을 읽지 않게 이름을 바꿔 넣는다
+        partial.write_text(json.dumps(pages, ensure_ascii=False), encoding="utf-8")
+        partial.replace(path)
+    return pages
+
+
 def _read_lines(encoded, file_type, settings, deadline=None):
     """PP-OCRv5 line results (one per page) of the encoded file, or None when the line service fails — that only costs precision."""
     started = time.monotonic()
     headers = {"Authorization": f"Bearer {settings['token']}"} if settings["token"] else {}
     try:
         with latency.timed("lines_ms"):  # 줄 OCR 시간(진단 값) — 레이아웃 ocr_ms와 겹쳐 흐른다
-            response = latency.http_client().post(f"{settings['lines_url']}/ocr", json={"file": encoded, "fileType": file_type, "visualize": False}, headers=headers, timeout=latency.capped(settings["timeout"], deadline))
-        response.raise_for_status()
-        pages = response.json()["result"]["ocrResults"]
+            pages = _ocr_pages(f"{settings['lines_url']}/ocr", {"file": encoded, "fileType": file_type, "visualize": False}, headers,
+                               latency.capped(settings["timeout"], deadline), "ocrResults", settings)
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
         logger.warning("paddleocr line OCR failed, grounding falls back to block boxes: %s", exc, exc_info=True)
         return None
@@ -453,9 +471,7 @@ def _remote_paddle(path, file_type, page_map=None, expected_pages=None, timeout=
     try:
         with latency.ocr_slot(deadline):  # GPU 레이아웃 모델은 동시 2건에서 포화된다 — 몰리면 줄을 세운다
             budget = min(settings["timeout"], timeout) if timeout is not None else settings["timeout"]
-            response = latency.http_client().post(endpoint, json=payload, headers=headers, timeout=latency.capped(budget, deadline))
-        response.raise_for_status()
-        pages = response.json()["result"]["layoutParsingResults"]
+            pages = _ocr_pages(endpoint, payload, headers, latency.capped(budget, deadline), "layoutParsingResults", settings)
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
         status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
         logger.error("paddleocr request failed: status=%s elapsed=%.2fs %s", status, time.monotonic() - started, exc)

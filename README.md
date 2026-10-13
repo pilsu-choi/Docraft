@@ -239,6 +239,7 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `AI_VISION` | `true` | PDF·이미지의 페이지 이미지를 provider에 첨부 |
 | `PARSE_PROVIDER`, `PADDLEOCR_BASE_URL` | `library`, 빈 URL | 기본 라이브러리 파싱 또는 원격 PaddleOCR |
 | `PADDLEOCR_LINES_URL` | 빈 값 | 선택적인 줄 단위 근거 좌표. 레이아웃 요청과 동시에 보낸다(서로의 응답이 필요 없다) |
+| `OCR_REPLAY_DIR` | 빈 값 | 측정 전용. 레이아웃·줄 OCR 응답을 이 폴더에 저장하고, 같은 요청(파일 바이트·형식)이 오면 원격을 부르지 않고 다시 쓴다. 모델 비교에서 OCR 시간·경합을 뺄 때 쓴다. 운영에서는 비운다 |
 | `PADDLEOCR_LINES_DEVICE` | `cpu` | compose `paddleocr-lines-api` 추론 장치. `gpu:0`이면 요청당 3~4.5초 → 0.3~0.9초(약 6GB) |
 | `VISION_MAX_EDGE` | `2000` | 모델에 붙이는 쪽·띠 이미지의 긴 변(px). 줄이면 VLM 입력(prefill) 토큰이 제곱으로 준다 — 정확도 A/B 후에만 바꾼다 |
 | `ORIENTATION_SCORE_CHECK` | `1` | 마침표 투표로 방향이 정해지지 않은 페이지를 후보 각도로 다시 읽어 OCR 평균 인식 점수가 높은 쪽으로 세움(0이면 끔) |
