@@ -172,6 +172,8 @@ def ocr_settings() -> dict:
         "token": token,
         "model": os.getenv("PADDLEOCR_MODEL", "PaddleOCR-VL-1.6-0.9B"),
         "timeout": float(os.getenv("PADDLEOCR_TIMEOUT", "600")),
+        # 측정 전용: OCR 응답을 이 폴더에 저장하고 같은 입력이면 다시 쓴다(모델 비교에서 OCR 시간·경합을 뺀다). 비우면 꺼짐.
+        "replay_dir": os.getenv("OCR_REPLAY_DIR", "").strip(),
         # Undecided page orientation is settled by re-reading the page at the candidate turns and comparing OCR scores.
         "orientation_score": _flag("ORIENTATION_SCORE_CHECK", "1"),
         # A tilted page (up to 45 degrees; past that it is a quarter turn away) is rotated straight in the image the model sees.
