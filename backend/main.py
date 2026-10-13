@@ -49,7 +49,7 @@ TABLE_STAGES = ("table_plan", "table_plan_reason", "table_plan_flags", "table_ga
 # read finished 로그 줄의 단계 시간. READ_STAGES는 요청을 차례로 나눈 몫이라 elapsed_ms에서 빼고 남은 것이 gap_ms다.
 # 나머지는 그 안에 든 세부(parse_ms ⊃ ocr·lines·upright·refine, extract_ms ⊃ vlm·ground, reprocess_ms ⊃ ground·assess) — 병렬로 겹치면 합이 더 크다.
 READ_STAGES = ("upload_ms", "queue_ms", "parse_ms", "extract_ms", "post_ms", "reprocess_ms", "finish_ms")
-DETAIL_STAGES = ("ocr_wait_ms", "ocr_ms", "lines_ms", "upright_ms", "refine_ms", "vlm_wait_ms", "vlm_ms", "ground_ms", "assess_ms", "cache_hit")
+DETAIL_STAGES = ("ocr_wait_ms", "ocr_ms", "lines_ms", "upright_ms", "refine_ms", "vlm_wait_ms", "vlm_ms", "ground_ms", "assess_ms", "cache_hit", "vlm_calls", "vlm_prompt_tokens", "vlm_completion_tokens")
 
 
 @asynccontextmanager
