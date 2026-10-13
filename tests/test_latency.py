@@ -80,7 +80,7 @@ def test_ocr_slot_wait_past_deadline_is_a_timeout(monkeypatch, tmp_path):
     monkeypatch.setenv("OCR_CONCURRENCY", "1")
     monkeypatch.setattr(latency, "_gates", {})
     monkeypatch.setenv("PADDLEOCR_BASE_URL", "https://ocr.invalid")
-    monkeypatch.setattr(parsers.httpx, "post", lambda *a, **k: pytest.fail("OCR must not be called without a slot"))
+    monkeypatch.setattr(httpx.Client, "post", lambda _self, *a, **k: (lambda *a, **k: pytest.fail("OCR must not be called without a slot"))(*a, **k))
     source = tmp_path / "scan.png"
     source.write_bytes(b"image")
     with latency.ocr_slot():  # another request holds the only GPU slot

@@ -21,7 +21,7 @@ from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit, request_id
 from . import band as bandkit, doctypes, print_register, rules, table_layout
-from .latency import note, parallel, provider_slot, remaining, spawn, timed
+from .latency import http_client, note, parallel, provider_slot, remaining, spawn, timed
 
 logger = logging.getLogger(__name__)
 
@@ -201,8 +201,7 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_to
     logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", settings["model"], len(messages), images, prompt_chars)
     started = time.monotonic()
     with provider_slot(None if timeout_cap is None else started + timeout_cap), \
-            httpx.Client(timeout=timeout, transport=httpx.HTTPTransport(retries=0 if timeout_cap is not None else 2)) as client, \
-            client.stream("POST", f"{settings['base_url']}/chat/completions", headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body) as response:
+            http_client(0 if timeout_cap is not None else 2).stream("POST", f"{settings['base_url']}/chat/completions", timeout=timeout, headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body) as response:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -1080,8 +1079,8 @@ def _read_chunk(schema, chunk, index, count, source, budget, deadline=None, canc
 
 def _read_chunks(schema, chunks, source, budget, deadline=None, cancel=None, on_call=None):
     """The schema read as one JSON object per chunk, merged by schema."""
-    return _merge_chunk_results([_read_chunk(schema, chunk, index, len(chunks), source, budget, deadline, cancel, on_call)
-                                 for index, chunk in enumerate(chunks)], schema)
+    return _merge_chunk_results(parallel(lambda item: _read_chunk(schema, item[1], item[0], len(chunks), source, budget, deadline, cancel, on_call),
+                                         enumerate(chunks), len(chunks)), schema)  # 동시 호출 수는 provider_slot이 정한다
 
 
 def extract(schema, blocks, source=None, *, deadline=None, cancel=None, on_call=None, table_extract="asis", completeness=None, located=None,
@@ -1507,9 +1506,14 @@ def ground(result, schema, blocks):
                    _grounding_tree(result, [(block, _block_rows(block)) for block in blocks], schema))
 
 
+@lru_cache(maxsize=64)
+def _validator(schema_json):
+    return Draft202012Validator(json.loads(schema_json))
+
+
 def validate(result, schema, groundings):
     issues = []
-    for error in Draft202012Validator(schema).iter_errors(result):
+    for error in _validator(json.dumps(schema, sort_keys=True)).iter_errors(result):
         issues.append({"path": "/" + "/".join(map(str, error.absolute_path)), "code": error.validator, "message": error.message})
     def check_groundings(values, prefix=""):
         for name, grounding in values.items():

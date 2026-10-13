@@ -491,6 +491,7 @@ def test_extract_small_document_is_a_single_provider_call(monkeypatch):
 
 def test_extract_splits_multi_page_document_into_chunks_on_page_boundaries(monkeypatch, caplog):
     configure(monkeypatch)
+    monkeypatch.setattr(engine, "parallel", lambda fn, items, workers: [fn(item) for item in items])  # 요청 도착 순서를 고정한다
     monkeypatch.setenv("EXTRACT_CHUNK_CHARS", "50")
     install_responses(monkeypatch, ['{"hospital": null}', '{"hospital": "서울병원"}'])
     schema = {"type": "object", "properties": {"hospital": {"type": "string"}}}
@@ -518,6 +519,7 @@ def test_extract_splits_multi_page_document_into_chunks_on_page_boundaries(monke
 
 def test_extract_merges_chunk_results_array_concat_and_scalar_first_non_null(monkeypatch):
     configure(monkeypatch)
+    monkeypatch.setattr(engine, "parallel", lambda fn, items, workers: [fn(item) for item in items])  # 요청 도착 순서를 고정한다
     monkeypatch.setenv("EXTRACT_CHUNK_CHARS", "35")
     install_responses(monkeypatch, [
         json.dumps({"title": None, "items": ["A", "B"]}, ensure_ascii=False),
@@ -538,6 +540,7 @@ def test_extract_merges_chunk_results_array_concat_and_scalar_first_non_null(mon
 
 def test_extract_splits_an_oversize_page_at_block_boundaries(monkeypatch):
     configure(monkeypatch)
+    monkeypatch.setattr(engine, "parallel", lambda fn, items, workers: [fn(item) for item in items])  # 요청 도착 순서를 고정한다
     monkeypatch.setenv("EXTRACT_CHUNK_CHARS", "50")
     install_responses(monkeypatch, ["{}", "{}", "{}"])
     blocks = [{"text": "Z" * 30, "page": 1, "bbox": None} for _ in range(3)]
@@ -598,6 +601,7 @@ def test_extract_without_vision_keeps_the_plain_text_message(monkeypatch, tmp_pa
 
 def test_extract_attaches_only_the_pages_of_each_chunk(monkeypatch, tmp_path):
     configure(monkeypatch)
+    monkeypatch.setattr(engine, "parallel", lambda fn, items, workers: [fn(item) for item in items])  # 요청 도착 순서를 고정한다
     monkeypatch.setenv("EXTRACT_CHUNK_CHARS", "50")
     install_responses(monkeypatch, ['{"hospital": null}', '{"hospital": "서울병원"}'])
     source = _page_file(tmp_path, "report.pdf", pages=3)
@@ -672,3 +676,49 @@ def test_extract_truncates_a_single_block_that_alone_exceeds_the_budget(monkeypa
     evidence = FakeClient.requests[0][1]["json"]["messages"][1]["content"].split("Source blocks:\n", 1)[1]
     assert len(evidence) == 50
     assert "truncat" in caplog.text
+
+
+def test_read_chunks_runs_concurrently_and_merges_in_chunk_order(monkeypatch):
+    """청크 호출이 겹쳐 돌아도(먼저 보낸 호출이 더 늦게 끝나도) 합치는 순서는 청크 순서다."""
+    import threading
+    import time
+    started, lock = [], threading.Lock()
+
+    def read(schema, chunk, index, count, *args):
+        with lock:
+            started.append(index)
+        time.sleep(0.15 if index == 0 else 0.01)  # 0번이 가장 늦게 끝난다
+        return {"title": f"T{index}", "items": [f"I{index}"]}
+
+    monkeypatch.setattr(engine, "_read_chunk", read)
+    schema = {"type": "object", "properties": {"title": {"type": "string"}, "items": {"type": "array", "items": {"type": "string"}}}}
+    began = time.monotonic()
+    result = engine._read_chunks(schema, [[{"page": n}] for n in range(1, 5)], None, 100)
+    assert time.monotonic() - began < 0.5 and sorted(started) == [0, 1, 2, 3]
+    assert result == {"title": "T0", "items": ["I0", "I1", "I2", "I3"]}
+
+
+def test_validate_reuses_a_validator_per_schema_and_keeps_the_issues():
+    engine._validator.cache_clear()
+    schema = {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]}
+    same = json.loads(json.dumps(schema))  # 다른 dict 객체여도 같은 스키마면 하나를 쓴다
+    first = engine.validate({"n": "x"}, schema, {})
+    assert [(i["path"], i["code"]) for i in first] == [("/n", "type")]
+    assert engine.validate({"n": "x"}, same, {}) == first and engine.validate({"n": 1}, schema, {}) == []
+    assert engine.validate({}, {"type": "object", "required": ["m"]}, {})[0]["code"] == "required"
+    assert engine._validator.cache_info().currsize == 2
+
+
+def test_band_latency_flags_default_on_and_can_be_turned_off(monkeypatch):
+    from backend.config import ai_settings
+    for name in ("BAND_PRELOCATE", "BAND_SPECULATE"):
+        monkeypatch.delenv(name, raising=False)
+    assert ai_settings()["band_prelocate"] and ai_settings()["band_speculate"]
+    monkeypatch.setenv("BAND_PRELOCATE", "false")
+    monkeypatch.setenv("BAND_SPECULATE", "0")
+    assert not ai_settings()["band_prelocate"] and not ai_settings()["band_speculate"]
+
+
+def test_http_client_is_shared_per_retry_count():
+    from backend import latency
+    assert latency.http_client(2) is latency.http_client(2) and latency.http_client(2) is not latency.http_client(0)
