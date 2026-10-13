@@ -88,7 +88,8 @@ def test_reasoning_off_by_default_disables_provider_reasoning(monkeypatch):
 
     engine.generate_schema("hospital name")
 
-    assert FakeClient.requests[0][1]["json"]["reasoning"] == {"enabled": False}
+    body = FakeClient.requests[0][1]["json"]
+    assert body["reasoning"] == {"enabled": False} and body["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 def test_reasoning_on_leaves_provider_default(monkeypatch):
@@ -98,7 +99,7 @@ def test_reasoning_on_leaves_provider_default(monkeypatch):
 
     engine.generate_schema("hospital name")
 
-    assert "reasoning" not in FakeClient.requests[0][1]["json"]
+    assert not {"reasoning", "chat_template_kwargs"} & FakeClient.requests[0][1]["json"].keys()
 
 
 def test_vlm_model_alias_is_supported(monkeypatch):
