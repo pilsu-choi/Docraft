@@ -114,7 +114,7 @@ flowchart TD
 
 `/api/read` 응답에는 기존 `fields`와 함께 `groundings`가 있습니다. 필드 근거는 `{ "page": 1, "bbox": [x1, y1, x2, y2], "source_text": "OCR 원문", "confidence": 1.0, "basis": "image_pixel" }` 형태입니다. `page`는 1부터 시작하며 `bbox`는 요청 이미지의 픽셀 좌표입니다. 90°·180°·270° 돌아간 스캔은 바로 세워 다시 읽지만 `bbox`·`page_size`는 그대로 요청 이미지(EXIF 회전 반영) 기준이고, 블록의 `orientation`이 바로 세우려고 반시계로 돌린 각도입니다([스캔 방향 정규화](wiki/2026-10-02-scan-orientation.md)). 표 근거는 최종 `fields`의 행 순서와 같은 목록이며 각 행은 열 이름에서 근거로 이어지는 객체입니다. 규칙이 만든 값, 추출값과 대응하지 않는 값, 중복되어 어느 원본 행인지 알 수 없는 값은 근거를 생략합니다. 표 행은 모든 정규화된 셀이 원본 행과 유일하게 맞을 때만 근거를 전달하므로 한 셀이 교정된 행은 다른 셀의 근거도 생략될 수 있습니다. `source_text`는 대응한 OCR 줄·표 셀·블록 원문이고 OCR 일치만으로 이미지 픽셀의 정확성을 보장하지 않습니다. `field_quality`의 경로별 `{status, issue_codes, action, stage, provenance}`는 검사 범위와 미확정 사유를 담습니다. [측정과 한계](wiki/2026-09-27-parse-extract-quality.md)를 함께 보세요.
 
-여기서 쓰는 VLM은 `/api/verify`·일반 추출과 같은 `engine.extract` 설정(`AI_BASE_URL` 등)을 그대로 씁니다 — 하네스는 VLM을 직접 부르지 않고 항상 이 API를 거칩니다. AWS 개발 서버는 OpenRouter의 `qwen/qwen3-vl-32b-instruct`가 10/12 제거(404)되어 Nebius vLLM Qwen3-VL-32B FP8(L40S 2장)로 측정 중이고, 고객사 온프레미스 k8s(운영계 2026-09-30 설치)는 같은 계열 모델을 자체 호스팅한 Qwen3-VL(vLLM)을 씁니다. 고객사와 AWS의 설정 차이는 상위 wiki `2026-10-12-current-state.md`를 참고하세요.
+여기서 쓰는 VLM은 `/api/verify`·일반 추출과 같은 `engine.extract` 설정(`AI_BASE_URL` 등)을 그대로 씁니다 — 하네스는 VLM을 직접 부르지 않고 항상 이 API를 거칩니다. VLM은 Qwen3.8-27B로 통일합니다(2026-10-14): 고객사 온프레미스 k8s는 설치 묶음이 vLLM `qwen3.8-27b`를 띄우고, AWS 개발 서버·로컬은 OpenRouter `qwen/qwen3.8-27b`를 씁니다(이전 `qwen/qwen3-vl-32b-instruct`는 OpenRouter에서 10/12 제거). 선택지 칸 판독(`/api/read-options`)은 `OPTION_VLM_MODEL`을 비워 두면 같은 모델을 씁니다. 고객사와 AWS의 설정 차이는 상위 wiki `2026-10-12-current-state.md`를 참고하세요.
 
 날짜 표기·진료기간의 시작/종료·체크 기호와 물리 표 셀은 [유형별 원문 근거](wiki/2026-09-27-typed-evidence.md)가 확인된 경우에만 `groundings`와 `field_quality.provenance`에 `match`, `evidence_type`, `transform`, `role`, `label`, `normalized_value`, `verified`, `geometry_scope`를 함께 남깁니다. 검증된 빈 셀은 `source_text: ""`, `match: "blank"`, `basis: "image_cell_blank"`로 `null`과 연결하며 숫자 0과 구분합니다. 좌표·라벨·행열 관계가 불분명하면 검토 대상으로 남깁니다.
 
@@ -215,10 +215,11 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | 결과 내보내기 | `GET /api/documents/{document_id}/export`, `GET /api/projects/{project_id}/export` |
 | AO 교차검증 | `POST /api/verify` |
 | Docraft 읽기 전용(하네스) | `POST /api/read` |
+| 선택지 칸 상태 판독(하네스, 진단서·소견서·수술확인서·입퇴원확인서) | `POST /api/read-options` |
 | 문서 잡 취소 | `POST /api/documents/{document_id}/cancel` |
 | 운영자 긴급 중지(전체 취소) | `POST /api/admin/cancel-all?confirm=true` |
 
-업로드·재파싱·추출은 `202`로 접수하며, 문서 조회의 상태(`queued`, `parsing`, `parsed`, `extracting`, `validating`, `needs_review`, `completed`, `failed`, `canceled`)에서 진행 상황을 확인합니다. 교차검증과 읽기 전용 API는 동기 응답입니다. 정확한 요청·응답은 실행 중인 `/docs`를 따릅니다.
+업로드·재파싱·추출은 `202`로 접수하며, 문서 조회의 상태(`queued`, `parsing`, `parsed`, `extracting`, `validating`, `needs_review`, `completed`, `failed`, `canceled`)에서 진행 상황을 확인합니다. `POST /api/read-options`(multipart `image`·`doc_type`·`remaining_ms`)는 한 쪽 이미지(보통 병명 주변 크롭)에서 `EXCLUSIVE_CHECKBOX_GROUPS` 슬롯(임상적추정·최종진단)의 `{text, mark(checked|empty|none|unclear)}`와 `section`만 VLM 한 번으로 읽어 `{doc_type, options, elapsed_ms, diagnostics}`로 돌려줍니다(OCR·재처리 없음, 선택지 묶음 없는 유형·다중 페이지 422, VLM 실패 502). 교차검증과 읽기 전용 API는 동기 응답입니다. 정확한 요청·응답은 실행 중인 `/docs`를 따릅니다.
 
 ### 작업 중지
 
@@ -234,6 +235,7 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `DATABASE_URL`, `DOCRAFT_DATA_DIR` | `.env.example` 참고 | PostgreSQL 연결·원본 저장 |
 | `DOCRAFT_API_KEY` | 빈 값 | 설정 시 `X-API-Key` 인증 활성화 |
 | `AI_MODE`, `AI_BASE_URL`, `AI_API_KEY`, `AI_VLM_MODEL` | `provider`, 빈 URL·키 | 추출·스키마 생성 provider 설정 |
+| `OPTION_VLM_MODEL` | 빈 값(`AI_VLM_MODEL` 사용) | `/api/read-options` 전용 모델 |
 | `AI_TIMEOUT` | `90` | provider 호출 시간 제한(초), 호출별 값과 비교해 큰 쪽(느린 GPU에서는 300 등으로 올림, 고객사 l40s-4 프로파일 300) |
 | `AI_REASONING` | `off` | `off`는 사고 모드를 끔(OpenRouter `reasoning` + vLLM `chat_template_kwargs.enable_thinking`). `on`은 모델 기본값 유지 — OpenRouter에서 사고 모드 없는 모델(qwen3-vl-*-instruct 등)은 `on`이어야 표 호출이 404 나지 않음 |
 | `AI_VISION` | `true` | PDF·이미지의 페이지 이미지를 provider에 첨부 |
@@ -282,7 +284,7 @@ Celery를 쓰려면 `pip install -r requirements-queue.txt` 후 `QUEUE_BACKEND=c
 AI_MODE=provider
 AI_BASE_URL=https://openrouter.ai/api/v1
 AI_API_KEY=<provider-key>
-AI_VLM_MODEL=qwen/qwen3-vl-32b-instruct
+AI_VLM_MODEL=qwen/qwen3.8-27b
 PARSE_PROVIDER=paddle
 PADDLEOCR_BASE_URL=http://127.0.0.1:8080
 ```

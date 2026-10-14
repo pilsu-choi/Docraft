@@ -2,6 +2,8 @@
 okf_version: "0.2"
 ---
 
+- [진단상태 칸 판독 구현](2026-10-14-cert-status-read-impl.md) — 상위 wiki에서 동기화
+- [임상적추정·최종진단 오추출 원인](2026-10-14-cert-diagnosis-status-checkbox-cause.md) — 고객 75건 분석·검증 이력, 상위 wiki에서 동기화
 - [짧은 키 파일럿·확대 측정](2026-10-14-short-keys-pilot.md) — 나머지 필드·금액산정 SHORT_KEYS, 필드 호출 출력 −17%, 기본 켬 dev 반영
 - [응답 harness.timings](2026-10-13-response-timings.md) — 상위 wiki에서 동기화
 - [끊긴 keep-alive 연결 재사용 오류 수정](2026-10-13-stale-keepalive-fix.md) — 공용 HTTP 클라이언트 경합, 유휴 2초·응답 전 끊김 1회 재전송
@@ -185,3 +187,4 @@ okf_version: "0.2"
 - [빽빽한 표 쪽을 행 띠로 나눠 읽기](2026-10-05-dense-page-split.md) — 한 응답에 들지 않는 쪽만 OCR 줄 틈에서 띠로 잘라 읽기, 건국대 41→195행·청담 2·3쪽 0→124행
 - [진료비영수증 키 상한액초과금 정정](2026-10-07-limit-excess-key.md) — Docraft 키 상환액초과금 오기 정정, 입력 별칭 장치 없음
 * [사고 모드 끄기 — vLLM enable_thinking·json_schema 포함](2026-10-13-thinking-off-vllm.md) - AI_REASONING=off가 모든 호출에 reasoning + chat_template_kwargs.enable_thinking=false
+- [고객 AO 추출 항목 변경 대응 (투여량·선택진료료이외총액·입퇴원일자 배열)](2026-10-14-ao-field-change-1014.md) — harness dev 7318fd2·Docraft dev 484fc3b(미push), 날짜 선후 배열·배열 형식 보존, 정답지 200건·채점 별칭

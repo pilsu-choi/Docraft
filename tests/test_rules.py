@@ -340,7 +340,8 @@ def _ao_keys(doc_type):
 def test_schema_covers_every_ao_key(doc_type):
     scalars, tables = _ao_keys(doc_type)
     assert scalars, f"{doc_type} 예시 키를 읽지 못했다"
-    scalars = {"상한액초과금" if key == "상환액초과금" else key for key in scalars}  # AO 2.0.1 예시의 옛 오기 키
+    renamed = {"상환액초과금": "상한액초과금", "선택진료료외총액": "선택진료료이외총액"}  # AO 2.0.1 예시의 옛 키(오기·고객사 항목명 변경 10/14)
+    scalars = {renamed.get(key, key) for key in scalars}
     properties = doctypes.schema(doc_type)["properties"]
     # 표가 있는 문서에서는 표로 나오는 내역 필드는 표로만 정의한다.
     assert scalars <= set(properties), scalars - set(properties)
