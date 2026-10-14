@@ -2,6 +2,8 @@
 okf_version: "0.2"
 ---
 
+- [진료비영수증 고객 오류 보고(10.14) 원인·대응](2026-10-14-receipt-customer-errors-cause.md) — 1·2차 보고 22사례 유형 P1~P8, 인쇄 행 이름·소계·빈 금액 0·보충 채택 규칙·인쇄 행 위치 대조, 97.01→97.14%(상위 wiki 동기화)
+
 - [진단상태 칸 판독 구현](2026-10-14-cert-status-read-impl.md) — 상위 wiki에서 동기화
 - [임상적추정·최종진단 오추출 원인](2026-10-14-cert-diagnosis-status-checkbox-cause.md) — 고객 75건 분석·검증 이력, 상위 wiki에서 동기화
 - [짧은 키 파일럿·확대 측정](2026-10-14-short-keys-pilot.md) — 나머지 필드·금액산정 SHORT_KEYS, 필드 호출 출력 −17%, 기본 켬 dev 반영
