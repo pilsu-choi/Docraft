@@ -27,7 +27,7 @@ def test_short_schema_orders_keys_and_moves_descriptions_to_legend(on):
     assert legend.splitlines() == ["a = 병원명: 기관 이름", "b = 금액", "c = 비고: 메모"]
 
 
-def test_short_schema_is_off_by_default_for_tables_and_over_26_fields(on, monkeypatch):
+def test_short_schema_skips_tables_over_26_fields_and_off_flag(on, monkeypatch):
     table = {"properties": {"x": {"type": "string"}, "표": {"type": "array"}}}
     wide = {"properties": {f"k{i}": {"type": "string"} for i in range(27)}}
     assert engine._short_schema(table) is None and engine._short_schema(wide) is None
@@ -39,6 +39,15 @@ def test_long_keys_drops_unknown_short_keys_and_fills_missing_with_none():
     assert engine._long_keys({"a": "X", "z": "?", "c": ""}, {"a": "병원명", "b": "금액", "c": "비고"}) == {"병원명": "X", "금액": None, "비고": ""}
 
 
+def test_long_keys_keeps_values_the_model_wrote_under_original_keys():
+    assert engine._long_keys({"병원명": "X", "b": "1"}, {"a": "병원명", "b": "금액", "c": "비고"}) == {"병원명": "X", "금액": "1", "비고": None}
+
+
+def test_short_keys_on_by_default(monkeypatch):
+    monkeypatch.delenv("SHORT_KEYS", raising=False)
+    assert engine._short_schema(SCHEMA) is not None
+
+
 def test_read_summary_asks_short_keys_and_maps_back(on, monkeypatch):
     seen = []
     monkeypatch.setattr(engine, "_provider", _fake(seen, {"a": "서울", "b": "", "q": 1}))
@@ -47,6 +56,7 @@ def test_read_summary_asks_short_keys_and_maps_back(on, monkeypatch):
 
 
 def test_read_summary_unchanged_when_off(monkeypatch):
+    monkeypatch.setenv("SHORT_KEYS", "false")
     monkeypatch.setattr(engine, "_provider", _fake([], {"병원명": "서울", "금액": ""}))
     assert engine._read_summary(SCHEMA, []) == {"병원명": "서울", "금액": None, "비고": None}
 

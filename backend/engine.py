@@ -939,8 +939,8 @@ def _short_schema(schema):
 
 
 def _long_keys(reply, keys):
-    """짧은 키 응답 → 키 응답: 모르는 짧은 키는 버리고 빠진 키는 None."""
-    return {key: reply.get(short) for short, key in keys.items()}
+    """짧은 키 응답 → 키 응답: 모르는 짧은 키는 버리고, 짧은 키가 없으면 원래 키로 답한 값, 둘 다 없으면 None."""
+    return {key: reply.get(short, reply.get(key)) for short, key in keys.items()}
 
 
 def _band_page(schema, table_extract):
