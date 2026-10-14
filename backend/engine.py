@@ -171,7 +171,7 @@ def _user(text, images):
     return {"role": "user", "content": [*({"type": "image_url", "image_url": {"url": url}} for url in images), {"type": "text", "text": text}]}
 
 
-def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_tokens=None, kind="other"):
+def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_tokens=None):
     # 호출마다 준 값과 AI_TIMEOUT(기본 90초) 중 큰 값 — 느린 GPU(L40S 요청당 약 16 tok/s)에서는 긴 응답(스키마 생성·
     # 행 많은 표)이 90초를 넘는다.
     timeout = max(timeout or 0, float(os.getenv("AI_TIMEOUT", "90")))
@@ -220,8 +220,6 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_to
             for key, stage in (("prompt_tokens", "vlm_prompt_tokens"), ("completion_tokens", "vlm_completion_tokens")):
                 if isinstance((data.get("usage") or {}).get(key), int):  # 서버가 usage를 안 주면 기록하지 않는다
                     note(stage, data["usage"][key])
-                    note(f"{stage}_{kind}", data["usage"][key])  # 측정 전용(호출 종류별 토큰)
-            note(f"vlm_calls_{kind}", 1)
             choice = data["choices"][0]
             finish_reason = choice.get("finish_reason")
             if finish_reason == "length":
@@ -308,7 +306,7 @@ def refine_tables(blocks, source, deadline=None):
         started = time.monotonic()
         try:
             messages = [_user(TABLE_REFINE_PROMPT + (TABLE_PART_NOTE if partial else "") + json.dumps(cells, ensure_ascii=False), [image])]
-            reply = _provider(messages, timeout=300, kind="refine") if deadline is None else _provider(messages, timeout=300, timeout_cap=remaining(deadline), kind="refine")
+            reply = _provider(messages, timeout=300) if deadline is None else _provider(messages, timeout=300, timeout_cap=remaining(deadline))
             reply = reply.get("corrections", reply)  # models also answer with the bare {cell number: text} object
             fixed = {index: str(reply[str(index)]) for index, text in cells.items() if str(index) in reply and _edit(text, str(reply[str(index)]))}
         except Exception as exc:
@@ -611,7 +609,7 @@ def _read_rows(table, spec, plan, evidence, images, part="", deadline=None, canc
                               fields="\n".join(f"{index}. {key}: {text}" for index, (key, text) in enumerate(columns.items(), 1)),
                               order=", ".join(f"{index}={key}" for index, key in enumerate(names, 1)))
     row = {"type": "array", "minItems": len(names), "maxItems": len(names), "items": {"type": ["string", "null"]}}
-    reply = _provider(kind="rows", messages=[{"role": "system", "content": ROWS_SYSTEM}, _user(prompt, images)], timeout_cap=remaining(deadline),
+    reply = _provider([{"role": "system", "content": ROWS_SYSTEM}, _user(prompt, images)], timeout_cap=remaining(deadline),
                       json_schema={"type": "object", "properties": {"rows": {"type": "array", "items": row}}, "required": ["rows"]},
                       max_tokens=_reply_cap(evidence, len(names)))
     rows = reply.get("rows") if isinstance(reply, dict) else None
@@ -960,7 +958,7 @@ def _locate(images, lines=(), deadline=None, cancel=None, on_call=None):
     table is read as rowmajor (`extract` notes `band_fallback`)."""
     _begin_call(cancel, on_call)
     try:
-        return bandkit.boxes(_provider([_user(bandkit.LOCATE_PROMPT, images)], timeout_cap=remaining(deadline), max_tokens=500, kind="locate"), lines)
+        return bandkit.boxes(_provider([_user(bandkit.LOCATE_PROMPT, images)], timeout_cap=remaining(deadline), max_tokens=500), lines)
     except (RuntimeError, ValueError) as exc:
         if cancel is not None and cancel.is_set():
             raise
@@ -1040,7 +1038,7 @@ def _read_keyed(spec, images, strip, doc_type=bandkit.RECEIPT, cap=KEYED_CAP, pl
     compact = COMPACT_NOTE if ai_settings()["compact_reply"] else ""
     messages = [{"role": "system", "content": EXTRACT_SYSTEM + TABLE_NOTE + VISION_NOTE + compact},
                 _user(bandkit.prompt(spec, strip, ai_settings()["band_header_note"], doc_type, plan), images)]
-    reply = _provider(messages, timeout_cap=remaining(deadline), max_tokens=cap, kind="band")
+    reply = _provider(messages, timeout_cap=remaining(deadline), max_tokens=cap)
     if dump and ai_settings()["band_dump_dir"]:
         _band_dump(*dump, images, messages, reply)
     if not isinstance(reply, dict) or not isinstance(reply.get("rows"), list):
@@ -1060,7 +1058,7 @@ def _read_summary(schema, images, deadline=None, cancel=None, on_call=None):
     ask = json.dumps(short[0] if short else schema, ensure_ascii=False) + (f"\nReply with these short keys:\n{short[1]}" if short else "")
     reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + VISION_NOTE + (COMPACT_NOTE if compact else "")},
                        _user(bandkit.SUMMARY_PROMPT.format(schema=ask), images)],
-                      timeout_cap=remaining(deadline), max_tokens=_fields_cap(schema) if compact else 1500, kind="summary")
+                      timeout_cap=remaining(deadline), max_tokens=_fields_cap(schema) if compact else 1500)
     if not isinstance(reply, dict):
         raise RuntimeError("금액산정 블록 응답이 JSON object가 아닙니다.")
     if short:
@@ -1102,7 +1100,7 @@ def _read_chunk(schema, chunk, index, count, source, budget, deadline=None, canc
         _user(f"Schema:\n{json.dumps(ask, ensure_ascii=False)}\n\n" + (f"Reply with these short keys:\n{short[1]}\n\n" if short else "")
               + f"Source blocks:\n{evidence}", images),
     ]
-    result = _provider(messages, timeout_cap=left, kind="fields", **compact) if left is not None else _provider(messages, kind="fields", **compact)
+    result = _provider(messages, timeout_cap=left, **compact) if left is not None else _provider(messages, **compact)
     if not isinstance(result, dict):
         raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
     return _long_keys(result, short[2]) if short else result
