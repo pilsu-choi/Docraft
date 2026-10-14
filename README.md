@@ -215,10 +215,11 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | 결과 내보내기 | `GET /api/documents/{document_id}/export`, `GET /api/projects/{project_id}/export` |
 | AO 교차검증 | `POST /api/verify` |
 | Docraft 읽기 전용(하네스) | `POST /api/read` |
+| 선택지 칸 상태 판독(하네스, 진단서·소견서·수술확인서·입퇴원확인서) | `POST /api/read-options` |
 | 문서 잡 취소 | `POST /api/documents/{document_id}/cancel` |
 | 운영자 긴급 중지(전체 취소) | `POST /api/admin/cancel-all?confirm=true` |
 
-업로드·재파싱·추출은 `202`로 접수하며, 문서 조회의 상태(`queued`, `parsing`, `parsed`, `extracting`, `validating`, `needs_review`, `completed`, `failed`, `canceled`)에서 진행 상황을 확인합니다. 교차검증과 읽기 전용 API는 동기 응답입니다. 정확한 요청·응답은 실행 중인 `/docs`를 따릅니다.
+업로드·재파싱·추출은 `202`로 접수하며, 문서 조회의 상태(`queued`, `parsing`, `parsed`, `extracting`, `validating`, `needs_review`, `completed`, `failed`, `canceled`)에서 진행 상황을 확인합니다. `POST /api/read-options`(multipart `image`·`doc_type`·`remaining_ms`)는 한 쪽 이미지(보통 병명 주변 크롭)에서 `EXCLUSIVE_CHECKBOX_GROUPS` 슬롯(임상적추정·최종진단)의 `{text, mark(checked|empty|none|unclear)}`와 `section`만 VLM 한 번으로 읽어 `{doc_type, options, elapsed_ms, diagnostics}`로 돌려줍니다(OCR·재처리 없음, 선택지 묶음 없는 유형·다중 페이지 422, VLM 실패 502). 교차검증과 읽기 전용 API는 동기 응답입니다. 정확한 요청·응답은 실행 중인 `/docs`를 따릅니다.
 
 ### 작업 중지
 
@@ -234,6 +235,7 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `DATABASE_URL`, `DOCRAFT_DATA_DIR` | `.env.example` 참고 | PostgreSQL 연결·원본 저장 |
 | `DOCRAFT_API_KEY` | 빈 값 | 설정 시 `X-API-Key` 인증 활성화 |
 | `AI_MODE`, `AI_BASE_URL`, `AI_API_KEY`, `AI_VLM_MODEL` | `provider`, 빈 URL·키 | 추출·스키마 생성 provider 설정 |
+| `OPTION_VLM_MODEL` | 빈 값(`AI_VLM_MODEL` 사용) | `/api/read-options` 전용 모델 |
 | `AI_TIMEOUT` | `90` | provider 호출 시간 제한(초), 호출별 값과 비교해 큰 쪽(느린 GPU에서는 300 등으로 올림, 고객사 l40s-4 프로파일 300) |
 | `AI_REASONING` | `off` | `off`는 사고 모드를 끔(OpenRouter `reasoning` + vLLM `chat_template_kwargs.enable_thinking`). `on`은 모델 기본값 유지 — OpenRouter에서 사고 모드 없는 모델(qwen3-vl-*-instruct 등)은 `on`이어야 표 호출이 404 나지 않음 |
 | `AI_VISION` | `true` | PDF·이미지의 페이지 이미지를 provider에 첨부 |
