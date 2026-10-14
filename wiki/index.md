@@ -187,3 +187,4 @@ okf_version: "0.2"
 - [빽빽한 표 쪽을 행 띠로 나눠 읽기](2026-10-05-dense-page-split.md) — 한 응답에 들지 않는 쪽만 OCR 줄 틈에서 띠로 잘라 읽기, 건국대 41→195행·청담 2·3쪽 0→124행
 - [진료비영수증 키 상한액초과금 정정](2026-10-07-limit-excess-key.md) — Docraft 키 상환액초과금 오기 정정, 입력 별칭 장치 없음
 * [사고 모드 끄기 — vLLM enable_thinking·json_schema 포함](2026-10-13-thinking-off-vllm.md) - AI_REASONING=off가 모든 호출에 reasoning + chat_template_kwargs.enable_thinking=false
+- [고객 AO 추출 항목 변경 대응 (투여량·선택진료료이외총액·입퇴원일자 배열)](2026-10-14-ao-field-change-1014.md) — harness dev 7318fd2·Docraft dev 484fc3b(미push), 날짜 선후 배열·배열 형식 보존, 정답지 200건·채점 별칭
