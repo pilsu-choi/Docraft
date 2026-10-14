@@ -153,9 +153,10 @@ def ai_settings() -> dict:
     # strips: 항목 표를 자르는 띠 수. strip_edge(BAND_STRIP_EDGE, px): 세부내역서 OCR 행 띠 크롭을 원본 해상도까지 그리는 긴 변 상한(0=끔, 기존
     # VISION_MAX_EDGE·배율 그대로). dump_dir(BAND_DUMP_DIR, 진단용): 띠 읽기에 보낸 이미지·프롬프트·응답을 남길 폴더(비우면 끔).
     # compact_reply: 띠·금액산정·나머지 필드 응답을 한 줄 JSON·상한 토큰으로 줄인다(응답이 달라질 수 있어 기본 끔).
+    # short_keys: 표 없는 나머지 필드·금액산정 읽기에서 한글 키 대신 a, b, c… 짧은 키로 묻고 답받아 출력 토큰을 줄인다(기본 끔).
     return {"band_prelocate": _flag("BAND_PRELOCATE", "true"), "band_speculate": _flag("BAND_SPECULATE", "true"),
             "band_strips": max(1, limit("BAND_STRIPS", 3, 8)), "band_strip_edge": limit("BAND_STRIP_EDGE", 0, 8000) or None,
-            "band_dump_dir": os.getenv("BAND_DUMP_DIR", "").strip() or None, "band_strip_rows": limit("BAND_STRIP_ROWS", 0, 60) or None, "compact_reply": _flag("COMPACT_REPLY", "false"), "mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
+            "band_dump_dir": os.getenv("BAND_DUMP_DIR", "").strip() or None, "band_strip_rows": limit("BAND_STRIP_ROWS", 0, 60) or None, "compact_reply": _flag("COMPACT_REPLY", "false"), "short_keys": _flag("SHORT_KEYS", "false"), "mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
             "integrity_review": integrity_review, "table_extract": table_extract, "band_doc_types": band_doc_types,
             "repetition_penalty": float(penalty) if penalty else None, "table_recheck_ratio": table_recheck_ratio, "print_register": print_register, "band_header_note": band_header_note}
 
