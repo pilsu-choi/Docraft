@@ -791,6 +791,12 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
                     cell["review"] = True
                 elif item and item["action"] == "RECHECK":
                     cell["recheck"] = True
+    for key, table in _tables(target):  # 내부 열(투여량)은 판정·룰에만 쓰고 응답에서 뺀다
+        table["rows"] = [[cell for column, cell in _cells(table, row) if not doctypes.is_internal(doc_type, key, column)]
+                         for row in table.get("rows") or []]
+        if table.get("headers"):
+            table["headers"] = [name for name in table["headers"] if not doctypes.is_internal(doc_type, key, name)]
+    docraft, quality = doctypes.public_fields(doc_type, docraft), doctypes.public_quality(doc_type, quality)
     target["verify"] = {"doc_type": doc_type, "docraft": docraft, "reprocess": recovery, "counts": counts, "checks": checks,
                         "checks_after": checks_after, "trace": trace,
                         "review": mark_review(doc_type, target, checks_after, only), "field_quality": quality}

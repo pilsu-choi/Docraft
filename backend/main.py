@@ -29,7 +29,7 @@ from jsonschema.exceptions import SchemaError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import bind_request, new_request_id, public_ai_settings
-from . import engine, jobs, latency, master, reprocess, verify
+from . import doctypes, engine, jobs, latency, master, reprocess, verify
 from .db import FILES, audit, connect, decode, init_db, now
 from .parsers import ParseError, parse
 
@@ -964,6 +964,7 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
     except Exception as exc:
         logger.exception("read failed: doc_type=%s", doc_type)
         raise HTTPException(502, f"읽기에 실패했습니다: {exc}") from exc
+    fields, quality = doctypes.public_fields(doc_type, fields), doctypes.public_quality(doc_type, quality)  # 내부 열(투여량) 제외
     if only is not None:
         fields = {key: value for key, value in fields.items() if key in only}
         groundings = {key: value for key, value in groundings.items() if key in only}
