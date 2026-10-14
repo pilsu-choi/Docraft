@@ -578,3 +578,4 @@
 - **Creation** (2026-10-13): [끊긴 keep-alive 연결 재사용 오류 수정](2026-10-13-stale-keepalive-fix.md) — Docraft 3d407d4·harness-v2 ad26222.
 - **Creation** (2026-10-14): [2026-10-14-short-keys-pilot.md](2026-10-14-short-keys-pilot.md) — SHORT_KEYS 파일럿·45건 측정·기본 켬 dev 반영, 상위 wiki에서 동기화.
 - **Creation** (2026-10-14): [고객 AO 추출 항목 변경 대응](2026-10-14-ao-field-change-1014.md) — 세부내역서 투여량 제거·선택진료료이외총액, 진단서 4종 입퇴원일자 배열. harness 7318fd2·Docraft 484fc3b dev 병합(미push), 세부 정답지 200건 수정, make_report.py 별칭.
+- **Creation** (2026-10-14): [진료비영수증 고객 오류 보고 원인·대응](2026-10-14-receipt-customer-errors-cause.md) — 상위 wiki 동기화.
