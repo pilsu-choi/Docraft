@@ -183,7 +183,7 @@ _SPEC = {  # 진단서 계열 4종은 AO 스키마가 같다(값이 없는 표�
         "급여_급여총액": ("amount", "급여(본인부담+공단부담+전액본인부담) 합계의 인쇄값. 급여 합계 칸이 없으면 "
                                  "null(직접 계산 금지). 비급여를 포함한 총액(진료비총액 개념)과는 다르다. 숫자만. " + TOTAL_HINT),
         "선택진료료총액": ("amount", "선택진료료 합계. 숫자만. " + TOTAL_HINT),
-        "선택진료료외총액": ("amount", "선택진료료 외 합계. 숫자만. " + TOTAL_HINT),
+        "선택진료료이외총액": ("amount", "선택진료료 외 합계. 숫자만. " + TOTAL_HINT),
         "비급여총액": ("amount", "비급여 합계. 숫자만. " + TOTAL_HINT),
     }, {"항목내역": _DETAIL_ITEM}),
     "약제비영수증": ({
@@ -284,6 +284,27 @@ def schema(doc_type: str) -> dict:
                       "required": list(cols)},
         }
     return {"title": doc_type, "type": "object", "properties": properties, "required": list(properties)}
+
+
+# 판독·행 계산(단가×투여량×횟수×일수)에는 쓰지만 고객사 항목에서 빠져 응답에는 싣지 않는 표 열(2026-10-14)
+INTERNAL_COLUMNS = {("세부내역서", "항목내역"): {"투여량"}}
+
+
+def is_internal(doc_type: str, table: str, column: str) -> bool:
+    return column in INTERNAL_COLUMNS.get((doc_type, table), ())
+
+
+def public_quality(doc_type: str, quality: dict) -> dict:
+    """칸 품질 사본에서 내부 열(``표/행/열`` 경로)을 뺀다."""
+    return {path: item for path, item in quality.items()
+            if not (path.count("/") == 2 and is_internal(doc_type, *path.split("/")[::2]))}
+
+
+def public_fields(doc_type: str, fields: dict) -> dict:
+    """정규 표현 필드 사본에서 내부 열을 뺀다."""
+    return {key: [{col: val for col, val in row.items() if not is_internal(doc_type, key, col)} for row in value]
+            if isinstance(value, list) and all(isinstance(row, dict) for row in value) else value
+            for key, value in fields.items()}
 
 
 def spec(doc_type: str) -> dict:

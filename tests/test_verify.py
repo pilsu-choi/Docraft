@@ -1008,3 +1008,41 @@ def test_receipt_institution_type_desc_tells_judge_only_the_checked_option_count
     key = "의료기관정보-요양기관종류"
     desc = verify._describe("진료비영수증", key, {"ao": "의원급·보건기관", "docraft": "종합병원"})["desc"]
     assert "체크박스" in desc and "표시 없는" in desc
+
+
+# --- 고객사 항목 변경(2026-10-14): 세부내역서 투여량 제외·선택진료료이외총액 --------------------------
+
+
+def test_detail_total_key_is_renamed_and_dose_stays_internal_to_the_definition():
+    spec = doctypes.spec("세부내역서")
+    assert "선택진료료이외총액" in spec["fields"] and "선택진료료외총액" not in spec["fields"]
+    assert rules.TOTALS["세부내역서"]["항목내역"]["선택진료료외"] == "선택진료료이외총액"  # 합계 행 열 → 합계 필드
+    assert "투여량" in spec["tables"]["항목내역"]  # 판독·행 계산용 열은 정의에 남는다
+
+
+def test_public_output_drops_internal_columns_of_every_exposed_shape():
+    fields = {"항목내역": [{"항목": "주사", "투여량": "2", "횟수": "1"}], "환자성명": "홍길동"}
+    quality = {"항목내역/0/투여량": {"status": "PASS"}, "항목내역/0/횟수": {"status": "PASS"}, "환자성명": {"status": "PASS"}}
+
+    assert doctypes.public_fields("세부내역서", fields) == {"항목내역": [{"항목": "주사", "횟수": "1"}], "환자성명": "홍길동"}
+    assert set(doctypes.public_quality("세부내역서", quality)) == {"항목내역/0/횟수", "환자성명"}
+    assert doctypes.public_fields("진료비영수증", fields) == fields  # 다른 유형은 건드리지 않는다
+
+
+def test_run_computes_with_the_dose_column_but_omits_it_from_the_response(monkeypatch):
+    headers = ["항목", "단가", "투여량", "횟수", "일수", "총액"]
+    row = ["주사", "100", "2", "3", "1", "600"]
+    ao = {"documents": [{"doc_type": "세부내역서", "extracted_fields": [], "extracted_tables": [{
+        "key": "항목내역", "headers": headers, "rows": [[{"key": h, "value": v, "predicted_value": v, "confidence": 0.9}
+                                                    for h, v in zip(headers, row)]]}]}]}
+    docraft = {"항목내역": [dict(zip(headers, row))]}
+    real_stub(monkeypatch, docraft, {})
+
+    document = verify.run("scan.png", ao, doc_type="세부내역서")["documents"][0]
+    table = document["extracted_tables"][0]
+
+    assert table["headers"] == ["항목", "단가", "횟수", "일수", "총액"]
+    assert [cell["key"] for cell in table["rows"][0]] == table["headers"]
+    assert "투여량" not in document["verify"]["docraft"]["항목내역"][0]
+    assert not any(path.endswith("/투여량") for path in document["verify"]["field_quality"])
+    assert not any(check["rule"] == "row_arith" for check in document["verify"]["checks"])  # 투여량 곱이 맞아 행 산술 이상 없음
