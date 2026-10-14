@@ -718,6 +718,61 @@ def test_apply_clears_a_subtotal_column_read_as_full_self_pay():
     assert [row["전액본인부담"] for row in out["항목내역"]] == [None, None, None]
 
 
+def test_apply_moves_a_subtotal_column_to_benefit_in_any_non_benefit_column():
+    """소계 열(본인+공단) 값이 전액본인부담·선택진료료외 어디로 읽혔든 급여로 옮긴다. 본인+공단과 다른 값은 건드리지 않는다."""
+    rows = [["항목", "본인부담금", "공단부담금", "소계", "전액본인부담"]]
+    read = {"항목내역": [{"항목": "진찰료", "본인부담금": "2726", "공단부담금": "10904", "선택진료료외": "13630"},
+                     {"항목": "식대", "본인부담금": "35910", "공단부담금": "35910", "선택진료료외": "71820"},
+                     {"항목": "검사료", "본인부담금": "100", "공단부담금": "200", "선택진료료외": "9000"}]}
+
+    out = rules.apply("진료비영수증", read, [block(rows=rows, kind="table")])
+
+    assert [row["급여"] for row in out["항목내역"]][:2] == ["13630", "71820"]
+    assert [row["선택진료료외"] for row in out["항목내역"]] == [None, None, "9000"]
+
+
+def test_apply_without_a_subtotal_header_keeps_a_value_equal_to_self_plus_insurer():
+    read = {"항목내역": [{"항목": "진찰료", "본인부담금": "100", "공단부담금": "200", "전액본인부담": "300"}]}
+
+    out = rules.apply("진료비영수증", read, [block(rows=[["항목", "본인부담금", "공단부담금", "전액본인부담"]], kind="table")])
+
+    assert out["항목내역"][0]["전액본인부담"] == "300"
+
+
+def _names(rows):
+    return [(row["항목"], row.get("본인부담금")) for row in rules.apply("진료비영수증", {"항목내역": rows}, [])["항목내역"]]
+
+
+def test_apply_drops_the_subtotal_row_after_the_drug_and_injection_pairs():
+    """행위료·약품비 바로 아래 소계 행은 라벨이 소계·속계이거나 없어도 뺀다. 마취료가 소계 값을 받지 않는다."""
+    for label in ("소계", "속계", "약품비소계", ""):
+        rows = [{"항목": "주사료_행위료", "본인부담금": "100"}, {"항목": "주사료_약품비", "본인부담금": "200"},
+                {"항목": label, "본인부담금": "300"}, {"항목": "마취료", "본인부담금": "50"}]
+        assert _names(rows) == [("주사료_행위료", "100"), ("주사료_약품비", "200"), ("마취료", "50")], label
+
+
+def test_apply_drops_the_subtotal_row_after_a_single_row_pair_only_on_a_nonzero_match():
+    rows = [{"항목": "투약및조제료_약품비", "본인부담금": "200"}, {"항목": "소계", "본인부담금": "200"}, {"항목": "마취료", "본인부담금": "50"}]
+    assert [name for name, _ in _names(rows)] == ["투약및조제료_약품비", "마취료"]
+    zeros = [{"항목": "주사료_행위료", "본인부담금": "0"}, {"항목": "주사료_약품비", "본인부담금": "0"}, {"항목": "", "본인부담금": "0"}]
+    assert len(_names(zeros)) == 3  # 모두 0인 우연한 일치는 소계가 아니다
+
+
+def test_apply_keeps_the_bare_total_row_at_the_end_and_other_rows_after_the_pair():
+    rows = [{"항목": "주사료_행위료", "본인부담금": "100"}, {"항목": "주사료_약품비", "본인부담금": "200"},
+            {"항목": "계", "본인부담금": "300"}]
+    assert _names(rows)[-1] == ("합계", "300")
+    rows = [{"항목": "주사료_행위료", "본인부담금": "100"}, {"항목": "주사료_약품비", "본인부담금": "200"},
+            {"항목": "마취료", "본인부담금": "300"}]
+    assert len(_names(rows)) == 3  # 이름 있는 표준 행은 합이 같아도 소계가 아니다
+
+
+def test_subtotal_rows_are_kept_for_detail_statements():
+    rows = [{"항목": "주사료_행위료", "총액": "100"}, {"항목": "주사료_약품비", "총액": "200"}, {"항목": "소계", "총액": "300"}]
+    out = rules.apply("세부내역서", {"항목내역": rows}, [])
+    assert [row["항목"] for row in out["항목내역"]] == ["주사료_행위료", "주사료_약품비", "소계"]
+
+
 def test_headers_find_the_item_row_even_when_cells_are_merged():
     blocks = [{"type": "table", "rows": [["환자등록번호", "환자성명"], ["이비인후과 항목", "급여", "비급여"],
                                           ["본인부담금", "공단부담금", "전액본인부담"]]}]

@@ -789,12 +789,14 @@ def _header_columns(doc_type, out, blocks):
         if (grouped is True if doc_type == "진료비영수증"
                 else doc_type == "세부내역서" and column == "급여" and grouped is not False):
             columns.append(column)
-    if doc_type == "진료비영수증" and any("소계" in cell for cell in cells):  # 일부 본인부담의 소계 열(한방 서식)
-        rows = [row for row in out.get(ITEM_TABLE) or [] if _money(row.get("전액본인부담"))]
-        added = sum(_near(_money(row["전액본인부담"]), sum(_money(row.get(column)) or 0 for column in ("본인부담금", "공단부담금")))
-                    for row in rows)
-        if added * 2 > len(rows):  # 과반이 본인+공단이면 소계를 옮겨 적은 것이다(오독 행이 섞여도)
-            columns.append("전액본인부담")
+    rows, landed = out.get(ITEM_TABLE) or [], []
+    if doc_type == "진료비영수증" and any("소계" in cell for cell in cells):  # 일부 본인부담의 소계 열(공단부담금 오른쪽): 값은 급여다
+        for column in ("전액본인부담", "비급여", "선택진료료", "선택진료료외"):
+            hits = [row for row in rows if (value := _money(row.get(column)))
+                    and _near(value, sum(_money(row.get(name)) or 0 for name in ("본인부담금", "공단부담금")))]
+            if hits and len(hits) * 2 > sum(bool(_money(row.get(column))) for row in rows):  # 과반이 본인+공단이면 소계를 옮겨 적은 것이다(오독 행이 섞여도)
+                landed += [(row, column, row[column]) for row in hits]
+                columns += ["전액본인부담"] if column == "전액본인부담" else []
     at, stacked = table_layout.header_positions(blocks, list(doctypes.spec(doc_type)["tables"][ITEM_TABLE])) if doc_type == "세부내역서" and blocks else ({}, set())
     if doc_type == "세부내역서" and blocks and (sum(key in at for key in ("원내코드", "EDI코드")) if at else sum("코드" in cell for cell in cells)) < 2:
         for row in out.get(ITEM_TABLE) or []:  # 코드 열이 하나인 서식: 그 코드는 EDI코드다(모델이 원내코드에 적었거나 두 칸에 적었다)
@@ -806,8 +808,11 @@ def _header_columns(doc_type, out, blocks):
         columns += [column for column, words in HEADER_COLUMNS.items() if not _has_header(cells, words)]
     if doc_type == "세부내역서" and any(re.sub(r"[\s/]", "", cell) in MARK_HEADERS for cell in cells) and not any("비급여" in cell for cell in cells):
         columns.append("비급여")
-    for row in out.get(ITEM_TABLE) or []:
+    for row in rows:
         row.update(dict.fromkeys(columns))
+    for row, column, value in landed:  # 소계 값은 급여 칸으로(급여가 비었거나 같을 때)
+        if not _money(row.get("급여")) or _near(_money(row["급여"]), _money(value)):
+            row["급여"], row[column] = value, None
 
 
 def _receipt_column(cells):
@@ -944,6 +949,25 @@ def _column_moves(found):
     seen = Counter(pair for moves in found for pair in moves.items())
     sources = Counter(column for column, _ in seen)
     return {column: target for (column, target), count in seen.items() if count >= 2 and sources[column] == 1}
+
+
+_SUBTOTAL = re.compile(r"\w*[소속]계")  # 소계 라벨('약품비소계'·OCR 오독 '속계'). 맨 끝 '계'·'소계비'는 합계 행이라 아니다
+
+
+def _subtotal_rows(out):
+    """투약및조제료·주사료의 행위료·약품비 바로 아래에 인쇄된 소계 행(라벨이 소계·속계이거나 비었고, 금액이 위 두 행(한 행뿐이면 그 행)의
+    합과 0이 아닌 열에서 같다)을 뺀다. 이름 보정(``_receipt_table``)이 소계 값을 다음 표준 항목(마취료)에 주지 않게 그 앞에서 한다.
+    금액이 모두 0인 행은 우연히 합과 같아도 소계로 보지 않는다."""
+    rows = out.get(ITEM_TABLE) or []
+    drop = set()
+    for index, row in enumerate(rows):
+        label = _key(row.get("항목") or "")
+        group = (item(rows[index - 1].get("항목")) or "").partition("_")[0] if index else ""
+        above = [line for line in rows[max(0, index - 2):index] if (item(line.get("항목")) or "").startswith(group + "_")]
+        if group in ("투약및조제료", "주사료") and (not label or _SUBTOTAL.fullmatch(label)) and above and any(
+                (value := _money(row.get(column))) and value == sum(_money(line.get(column)) or 0 for line in above) for column in ITEM_COLUMNS):
+            drop.add(index)
+    out[ITEM_TABLE] = [row for index, row in enumerate(rows) if index not in drop]
 
 
 def _receipt_table(doc_type, out, blocks):
@@ -2193,6 +2217,8 @@ def apply(doc_type: str, result: dict, blocks: list[dict]) -> dict:
     _fill(doc_type, out, blocks or [])
     _notes(doc_type, out, blocks or [])
     _split_cells(out)
+    if doc_type == "진료비영수증":
+        _subtotal_rows(out)
     _receipt_table(doc_type, out, blocks or [])
     for key in set(_ungrounded(doc_type, out, blocks or [])) & set(UNPRINTED_TOTALS):
         out[key] = None  # 베꼈거나 설명되지 않는 합계(계산으로 설명되는 값은 둔다, 2026-10-05). 합계 행이 있으면 _totals가 다시 채운다

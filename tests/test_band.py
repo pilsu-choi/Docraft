@@ -14,7 +14,7 @@ import pytest
 from backend import band, doctypes, engine, latency, rules, verify
 
 ITEM = doctypes.schema("진료비영수증")["properties"]["항목내역"]
-DEV_PROMPT_SHA256 = "c96e890181e9aca410a145426f917b644d0e8da37e2422bb1b3df819a079f953"  # BAND_HEADER_NOTE 도입 전 dev(0751745) 띠 프롬프트
+DEV_PROMPT_SHA256 = "1ba6a34b84be5a60999fee5a3af49242b4c881c45d535352f4205d424fe163e9"  # BAND_HEADER_NOTE 끈 띠 프롬프트(영수증 소계 행 안내를 band 와 맞춘 뒤 갱신)
 KEYS = band.short_keys(ITEM)  # a..g = 본인부담금 … 비급여
 GRID = {"item_grid": [100, 300, 700, 800], "header": [100, 300, 700, 340], "first_row": [100, 340, 700, 380],
         "total": [100, 760, 700, 800], "summary": [720, 300, 1000, 800]}
@@ -105,7 +105,7 @@ def test_prompt_lists_short_keys_the_standard_names_and_the_all_keys_rule():
 def test_header_note_is_only_added_when_switched_on_and_off_keeps_the_dev_prompt():
     on, off = band.prompt(ITEM, engine.BAND_NOTE[0], True), band.prompt(ITEM, engine.BAND_NOTE[0])
     assert band.HEADER_NOTE not in off and on.replace(band.HEADER_NOTE + "\n", "") == off  # 꺼짐 = dev 프롬프트 그대로
-    assert hashlib.sha256(off.encode()).hexdigest() == DEV_PROMPT_SHA256  # dev 0751745 의 band.prompt(ITEM, BAND_NOTE[0]) 와 바이트 동일
+    assert hashlib.sha256(off.encode()).hexdigest() == DEV_PROMPT_SHA256  # 꺼짐 프롬프트 고정
     assert "'선택진료료 / 이외'" in on and "0 under 비급여" in on  # 스키마 비급여 설명(묶음 제목이면 0)과 같은 관례
     assert "묶는 제목이면 0" in ITEM["items"]["properties"]["비급여"]["description"]
 
