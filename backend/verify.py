@@ -11,14 +11,17 @@ AO 응답은 API 형식(``documents[].extracted_fields/_tables/_groups``)과 UI 
 (``result.fields/tables/groups``)을 모두 받는다. 형식 판별은 ``document``·``_keys``가 한 곳에서 한다.
 """
 
+import base64
 import json
 import logging
+import mimetypes
 import re
 import time
 from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 
+from .config import ai_settings
 from . import doctypes, engine, latency, print_register, reprocess, rules
 from .parsers import parse
 
@@ -803,3 +806,32 @@ def run(image: str, ao: dict, doc_type: str | None = None, hint_paths: list[str]
     logger.info("verify: doc_type=%s fields=%d disputes=%d checks=%d counts=%s elapsed=%.2fs",
                 doc_type, len(ao_flat), len(disputes), len(checks), counts, time.monotonic() - started)
     return output
+
+
+OPTION_MARKS = ("checked", "empty", "none", "unclear")
+OPTION_PROMPT = """문서의 '병명'(상병) 항목 주변을 잘라낸 이미지다.
+'병명' 항목(병명 라벨 칸과 그 행) 안에 인쇄된 진단 상태 선택지만 본다. 다른 항목의 체크 표시·글자와 작성방법 안내문은 쓰지 않는다.
+판단(Y/N)은 하지 말고 보이는 그대로만 적는다.
+- section: '병명' 라벨 칸이 이미지 안에 보이면 true
+- 임상적추정·최종진단 각 자리에 {"text": 그 선택지로 인쇄된 글자를 그대로(없으면 ""), "mark": 상태}
+  mark: "checked"(다른 쪽과 달리 채워지거나 체크·#·*·V·손글씨 등 선택 표시) / "empty"(빈 칸·원·괄호, 두 칸이 같은 모양이면 둘 다 empty) / "none"(칸·표시 없음) / "unclear"(도장·잡음·겹침으로 판단 불가)
+JSON만 출력: {"section":bool,"임상적추정":{"text":"","mark":""},"최종진단":{"text":"","mark":""}}"""
+
+
+def read_options(path, doc_type, deadline=None, cancel=None):
+    """선택지 묶음(``doctypes.EXCLUSIVE_CHECKBOX_GROUPS``)의 칸 상태만 VLM 한 번으로 읽는다 — OCR·재처리·그라운딩 없음.
+
+    ``{"section": bool, 슬롯: {"text", "mark"}}``를 돌려준다. 답이 JSON이 아니면 한 번 더 부른다. 묶음 없는 유형은 ValueError."""
+    slots = doctypes.EXCLUSIVE_CHECKBOX_GROUPS.get(doc_type)
+    if not slots: raise ValueError(f"선택지 묶음이 없는 문서 유형입니다: {doc_type}")
+    slot = {"type": "object", "properties": {"text": {"type": "string"}, "mark": {"enum": list(OPTION_MARKS)}}, "required": ["text", "mark"]}
+    schema = {"type": "object", "properties": {"section": {"type": "boolean"}, **dict.fromkeys(slots, slot)}, "required": ["section", *slots]}
+    image = f"data:{mimetypes.guess_type(path)[0] or 'image/png'};base64,{base64.b64encode(Path(path).read_bytes()).decode()}"
+    messages = [engine._user(OPTION_PROMPT, [image])]
+    for attempt in (1, 2):
+        _check(cancel)
+        try:
+            return engine._provider(messages, timeout=120, timeout_cap=latency.remaining(deadline), json_schema=schema, max_tokens=300,
+                                    model=ai_settings()["option_model"])
+        except json.JSONDecodeError:
+            if attempt == 2: raise

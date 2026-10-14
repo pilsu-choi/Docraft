@@ -119,6 +119,7 @@ def _flag(name: str, default: str) -> bool:
 def ai_settings() -> dict:
     base_url = os.getenv("AI_BASE_URL", "").rstrip("/")
     model = os.getenv("AI_VLM_MODEL") or os.getenv("AI_MODEL", "")
+    option_model = os.getenv("OPTION_VLM_MODEL", "").strip() or model  # /api/read-options model; empty = AI_VLM_MODEL
     mode = os.getenv("AI_MODE", "provider")
     key = os.getenv("AI_API_KEY", "")
     configured = mode == "local" or bool(base_url and key and model)
@@ -156,7 +157,7 @@ def ai_settings() -> dict:
     # short_keys: 표 없는 나머지 필드·금액산정 읽기에서 한글 키 대신 a, b, c… 짧은 키로 묻고 답받아 출력 토큰을 줄인다(기본 켬 — 2026-10-14 45건: 필드 호출 출력 −17%, 정확도 반복 실행 차이 수준).
     return {"band_prelocate": _flag("BAND_PRELOCATE", "true"), "band_speculate": _flag("BAND_SPECULATE", "true"),
             "band_strips": max(1, limit("BAND_STRIPS", 3, 8)), "band_strip_edge": limit("BAND_STRIP_EDGE", 0, 8000) or None,
-            "band_dump_dir": os.getenv("BAND_DUMP_DIR", "").strip() or None, "band_strip_rows": limit("BAND_STRIP_ROWS", 0, 60) or None, "compact_reply": _flag("COMPACT_REPLY", "false"), "short_keys": _flag("SHORT_KEYS", "true"), "mode": mode, "base_url": base_url, "api_key": key, "model": model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
+            "band_dump_dir": os.getenv("BAND_DUMP_DIR", "").strip() or None, "band_strip_rows": limit("BAND_STRIP_ROWS", 0, 60) or None, "compact_reply": _flag("COMPACT_REPLY", "false"), "short_keys": _flag("SHORT_KEYS", "true"), "mode": mode, "base_url": base_url, "api_key": key, "model": model, "option_model": option_model, "configured": configured, "chunk_chars": chunk_chars, "vision": vision, "table_refine": table_refine, "reasoning": reasoning,
             "integrity_review": integrity_review, "table_extract": table_extract, "band_doc_types": band_doc_types,
             "repetition_penalty": float(penalty) if penalty else None, "table_recheck_ratio": table_recheck_ratio, "print_register": print_register, "band_header_note": band_header_note}
 

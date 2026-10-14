@@ -1,5 +1,10 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-14 진단상태 칸 판독
+
+- **Creation** (2026-10-14): [진단상태 칸 판독 구현](2026-10-14-cert-status-read-impl.md) — 상위 wiki에서 동기화
+- **Creation** (2026-10-14): [임상적추정·최종진단 오추출 원인](2026-10-14-cert-diagnosis-status-checkbox-cause.md) — 상위 wiki에서 동기화
+
 ## 2026-10-13 속도 개선·L40S 동시 처리 상향
 
 - **Creation** (2026-10-13): [harness·Docraft 속도 개선과 L40S 동시 처리 상향](2026-10-13-speed-opt-gpu-concurrency.md) — 상위 wiki에서 동기화

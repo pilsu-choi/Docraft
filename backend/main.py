@@ -978,6 +978,38 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
             "elapsed_ms": elapsed_ms, "reprocess": recovery, "diagnostics": dict(stages)}
 
 
+@app.post("/api/read-options", dependencies=[Depends(auth)])
+async def read_options(request: Request, image: UploadFile = File(...), doc_type: str = Form(...), remaining_ms: int | None = Form(None)):
+    """진단서류 한 쪽 이미지에서 선택지 칸(임상적추정·최종진단)의 표시 상태만 VLM 한 번으로 읽는다 — Y/N 판단은 하지 않는다.
+
+    선택지 묶음이 없는 유형·다중 페이지는 422, VLM 실패는 502다. 하네스의 진단상태 칸 판독이 쓴다."""
+    deadline = reprocess.deadline_for(remaining_ms)
+    if time.monotonic() >= deadline:
+        raise HTTPException(408, "요청 처리 예산이 만료되었습니다.")
+    try:
+        doc_type = verify.resolve_doc_type(doc_type)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if doc_type not in verify.doctypes.EXCLUSIVE_CHECKBOX_GROUPS: raise HTTPException(422, f"선택지 묶음이 없는 문서 유형입니다: {doc_type}")
+
+    def run_options(path, cancel=None):
+        return verify.read_options(path, doc_type, deadline=deadline, cancel=cancel)
+
+    try:
+        with latency.track() as stages:
+            options, filename, started = await process_image(request, image, run_options)
+    except verify.Cancelled as exc:
+        return cancelled_response(exc, "read-options", doc_type)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("read-options failed: doc_type=%s", doc_type)
+        raise HTTPException(502, f"선택지 판독에 실패했습니다: {exc}") from exc
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+    logger.info("read-options finished: filename=%s doc_type=%s elapsed_ms=%d", filename, doc_type, elapsed_ms)
+    return {"doc_type": doc_type, "options": options, "elapsed_ms": elapsed_ms, "diagnostics": dict(stages)}
+
+
 @app.post("/api/admin/cancel-all", dependencies=[Depends(auth)])
 def cancel_all(confirm: bool = False):
     """운영자 긴급 중지: 대기·처리 중인 문서 잡을 모두 취소하고, 진행 중인 모든 /api/verify·/api/read 호출을

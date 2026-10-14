@@ -171,7 +171,7 @@ def _user(text, images):
     return {"role": "user", "content": [*({"type": "image_url", "image_url": {"url": url}} for url in images), {"type": "text", "text": text}]}
 
 
-def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_tokens=None):
+def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_tokens=None, model=None):
     # 호출마다 준 값과 AI_TIMEOUT(기본 90초) 중 큰 값 — 느린 GPU(L40S 요청당 약 16 tok/s)에서는 긴 응답(스키마 생성·
     # 행 많은 표)이 90초를 넘는다.
     timeout = max(timeout or 0, float(os.getenv("AI_TIMEOUT", "90")))
@@ -180,7 +180,7 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_to
     settings = ai_settings()
     if not settings["configured"] or settings["mode"] == "local":
         raise ProviderConfigurationError("AI provider가 설정되지 않았습니다. AI_BASE_URL, AI_API_KEY, AI_VLM_MODEL을 확인해 주세요.")
-    body = {"model": settings["model"], "messages": messages, "temperature": 0, "response_format": {"type": "json_object"}}
+    body = {"model": model or settings["model"], "messages": messages, "temperature": 0, "response_format": {"type": "json_object"}}
     if json_schema is not None:
         # The server constrains the reply to the schema (vLLM structured outputs, OpenRouter json_schema). OpenRouter routes
         # only to providers honoring every sent parameter (require_parameters). vLLM ignores the unknown `provider` field.
@@ -198,7 +198,7 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_to
         body["repetition_penalty"] = settings["repetition_penalty"]
     prompt_chars = sum(len(_message_text(m.get("content"))) for m in messages)
     images = sum(1 for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url")
-    logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", settings["model"], len(messages), images, prompt_chars)
+    logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", model or settings["model"], len(messages), images, prompt_chars)
     started = time.monotonic()
     with provider_slot(None if timeout_cap is None else started + timeout_cap), \
             http_client(0 if timeout_cap is not None else 2).stream("POST", f"{settings['base_url']}/chat/completions", timeout=timeout, headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body) as response:
