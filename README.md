@@ -114,7 +114,7 @@ flowchart TD
 
 `/api/read` 응답에는 기존 `fields`와 함께 `groundings`가 있습니다. 필드 근거는 `{ "page": 1, "bbox": [x1, y1, x2, y2], "source_text": "OCR 원문", "confidence": 1.0, "basis": "image_pixel" }` 형태입니다. `page`는 1부터 시작하며 `bbox`는 요청 이미지의 픽셀 좌표입니다. 90°·180°·270° 돌아간 스캔은 바로 세워 다시 읽지만 `bbox`·`page_size`는 그대로 요청 이미지(EXIF 회전 반영) 기준이고, 블록의 `orientation`이 바로 세우려고 반시계로 돌린 각도입니다([스캔 방향 정규화](wiki/2026-10-02-scan-orientation.md)). 표 근거는 최종 `fields`의 행 순서와 같은 목록이며 각 행은 열 이름에서 근거로 이어지는 객체입니다. 규칙이 만든 값, 추출값과 대응하지 않는 값, 중복되어 어느 원본 행인지 알 수 없는 값은 근거를 생략합니다. 표 행은 모든 정규화된 셀이 원본 행과 유일하게 맞을 때만 근거를 전달하므로 한 셀이 교정된 행은 다른 셀의 근거도 생략될 수 있습니다. `source_text`는 대응한 OCR 줄·표 셀·블록 원문이고 OCR 일치만으로 이미지 픽셀의 정확성을 보장하지 않습니다. `field_quality`의 경로별 `{status, issue_codes, action, stage, provenance}`는 검사 범위와 미확정 사유를 담습니다. [측정과 한계](wiki/2026-09-27-parse-extract-quality.md)를 함께 보세요.
 
-여기서 쓰는 VLM은 `/api/verify`·일반 추출과 같은 `engine.extract` 설정(`AI_BASE_URL` 등)을 그대로 씁니다 — 하네스는 VLM을 직접 부르지 않고 항상 이 API를 거칩니다. AWS 개발 서버는 OpenRouter의 `qwen/qwen3-vl-32b-instruct`가 10/12 제거(404)되어 Nebius vLLM Qwen3-VL-32B FP8(L40S 2장)로 측정 중이고, 고객사 온프레미스 k8s(운영계 2026-09-30 설치)는 같은 계열 모델을 자체 호스팅한 Qwen3-VL(vLLM)을 씁니다. 고객사와 AWS의 설정 차이는 상위 wiki `2026-10-12-current-state.md`를 참고하세요.
+여기서 쓰는 VLM은 `/api/verify`·일반 추출과 같은 `engine.extract` 설정(`AI_BASE_URL` 등)을 그대로 씁니다 — 하네스는 VLM을 직접 부르지 않고 항상 이 API를 거칩니다. VLM은 Qwen3.8-27B로 통일합니다(2026-10-14): 고객사 온프레미스 k8s는 설치 묶음이 vLLM `qwen3.8-27b`를 띄우고, AWS 개발 서버·로컬은 OpenRouter `qwen/qwen3.8-27b`를 씁니다(이전 `qwen/qwen3-vl-32b-instruct`는 OpenRouter에서 10/12 제거). 선택지 칸 판독(`/api/read-options`)은 `OPTION_VLM_MODEL`을 비워 두면 같은 모델을 씁니다. 고객사와 AWS의 설정 차이는 상위 wiki `2026-10-12-current-state.md`를 참고하세요.
 
 날짜 표기·진료기간의 시작/종료·체크 기호와 물리 표 셀은 [유형별 원문 근거](wiki/2026-09-27-typed-evidence.md)가 확인된 경우에만 `groundings`와 `field_quality.provenance`에 `match`, `evidence_type`, `transform`, `role`, `label`, `normalized_value`, `verified`, `geometry_scope`를 함께 남깁니다. 검증된 빈 셀은 `source_text: ""`, `match: "blank"`, `basis: "image_cell_blank"`로 `null`과 연결하며 숫자 0과 구분합니다. 좌표·라벨·행열 관계가 불분명하면 검토 대상으로 남깁니다.
 
@@ -284,7 +284,7 @@ Celery를 쓰려면 `pip install -r requirements-queue.txt` 후 `QUEUE_BACKEND=c
 AI_MODE=provider
 AI_BASE_URL=https://openrouter.ai/api/v1
 AI_API_KEY=<provider-key>
-AI_VLM_MODEL=qwen/qwen3-vl-32b-instruct
+AI_VLM_MODEL=qwen/qwen3.8-27b
 PARSE_PROVIDER=paddle
 PADDLEOCR_BASE_URL=http://127.0.0.1:8080
 ```
