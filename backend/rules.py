@@ -955,17 +955,17 @@ _SUBTOTAL = re.compile(r"\w*[소속]계")  # 소계 라벨('약품비소계'·OC
 
 
 def _subtotal_rows(out):
-    """투약및조제료·주사료의 행위료·약품비 바로 아래에 인쇄된 소계 행(라벨이 소계·속계이거나 비었고, 금액이 위 두 행(한 행뿐이면 그 행)의
-    합과 0이 아닌 열에서 같다)을 뺀다. 이름 보정(``_receipt_table``)이 소계 값을 다음 표준 항목(마취료)에 주지 않게 그 앞에서 한다.
-    금액이 모두 0인 행은 우연히 합과 같아도 소계로 보지 않는다."""
+    """투약및조제료·주사료의 행위료·약품비 바로 아래에 인쇄된 소계 행을 뺀다 — 라벨이 소계·속계면 그 자리만으로, 라벨이 비었으면 금액이
+    위 두 행(한 행뿐이면 그 행)의 합과 0이 아닌 열에서 같을 때. 이름 보정(``_receipt_table``)이 소계 값을 다음 표준 항목(마취료)에 주지
+    않게 그 앞에서 한다. 라벨 없는 행은 금액이 모두 0이면 우연히 합과 같아도 소계로 보지 않는다."""
     rows = out.get(ITEM_TABLE) or []
     drop = set()
     for index, row in enumerate(rows):
         label = _key(row.get("항목") or "")
         group = (item(rows[index - 1].get("항목")) or "").partition("_")[0] if index else ""
         above = [line for line in rows[max(0, index - 2):index] if (item(line.get("항목")) or "").startswith(group + "_")]
-        if group in ("투약및조제료", "주사료") and (not label or _SUBTOTAL.fullmatch(label)) and above and any(
-                (value := _money(row.get(column))) and value == sum(_money(line.get(column)) or 0 for line in above) for column in ITEM_COLUMNS):
+        if group in ("투약및조제료", "주사료") and above and (_SUBTOTAL.fullmatch(label) if label else any(
+                (value := _money(row.get(column))) and value == sum(_money(line.get(column)) or 0 for line in above) for column in ITEM_COLUMNS)):
             drop.add(index)
     out[ITEM_TABLE] = [row for index, row in enumerate(rows) if index not in drop]
 

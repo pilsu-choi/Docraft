@@ -755,7 +755,10 @@ def test_apply_drops_the_subtotal_row_after_a_single_row_pair_only_on_a_nonzero_
     rows = [{"항목": "투약및조제료_약품비", "본인부담금": "200"}, {"항목": "소계", "본인부담금": "200"}, {"항목": "마취료", "본인부담금": "50"}]
     assert [name for name, _ in _names(rows)] == ["투약및조제료_약품비", "마취료"]
     zeros = [{"항목": "주사료_행위료", "본인부담금": "0"}, {"항목": "주사료_약품비", "본인부담금": "0"}, {"항목": "", "본인부담금": "0"}]
-    assert len(_names(zeros)) == 3  # 모두 0인 우연한 일치는 소계가 아니다
+    assert len(_names(zeros)) == 3  # 라벨 없이 모두 0인 우연한 일치는 소계가 아니다
+    zeros[-1]["항목"] = "투약및조제료_소계"
+    zeros[:2] = [{"항목": "투약및조제료_행위료", "본인부담금": "0"}, {"항목": "투약및조제료_약품비", "본인부담금": "0"}]
+    assert len(_names(zeros)) == 2  # 라벨이 소계면 금액이 0이어도 그 자리의 소계 행이다
 
 
 def test_apply_keeps_the_bare_total_row_at_the_end_and_other_rows_after_the_pair():
