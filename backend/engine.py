@@ -926,6 +926,23 @@ def _fields_cap(schema):
     return 60 * len(schema.get("properties", {})) + 100
 
 
+def _short_schema(schema):
+    """(a, b, c… 짧은 키로 바꾼 스키마, 'a = 키: 설명' 안내, {짧은 키: 키}). 스칼라만 있고 26개 이하인 스키마(`SHORT_KEYS`)가 아니면 None."""
+    props = schema.get("properties", {})
+    if not ai_settings()["short_keys"] or len(props) > 26 or any(prop.get("type") == "array" for prop in props.values()):
+        return None
+    keys = {chr(97 + i): key for i, key in enumerate(props)}
+    slim = {**schema, "properties": {short: {k: v for k, v in props[key].items() if k != "description"} for short, key in keys.items()}}
+    slim.pop("required", None)
+    legend = "\n".join(f"{short} = {key}: {props[key].get('description', '')}".rstrip(": ") for short, key in keys.items())
+    return slim, legend, keys
+
+
+def _long_keys(reply, keys):
+    """짧은 키 응답 → 키 응답: 모르는 짧은 키는 버리고, 짧은 키가 없으면 원래 키로 답한 값, 둘 다 없으면 None."""
+    return {key: reply.get(short, reply.get(key)) for short, key in keys.items()}
+
+
 def _band_page(schema, table_extract):
     """True when `extract` reads `schema`'s one table by band (`BAND_DOC_TYPES` with a `bandkit.PROFILES` entry) once its
     document is one page with an image."""
@@ -1037,11 +1054,15 @@ def _read_summary(schema, images, deadline=None, cancel=None, on_call=None):
     cell is null and is not filled from the whole-page read. Raises RuntimeError when the reply is no JSON object."""
     _begin_call(cancel, on_call)
     compact = ai_settings()["compact_reply"]
+    short = _short_schema(schema)
+    ask = json.dumps(short[0] if short else schema, ensure_ascii=False) + (f"\nReply with these short keys:\n{short[1]}" if short else "")
     reply = _provider([{"role": "system", "content": EXTRACT_SYSTEM + VISION_NOTE + (COMPACT_NOTE if compact else "")},
-                       _user(bandkit.SUMMARY_PROMPT.format(schema=json.dumps(schema, ensure_ascii=False)), images)],
+                       _user(bandkit.SUMMARY_PROMPT.format(schema=ask), images)],
                       timeout_cap=remaining(deadline), max_tokens=_fields_cap(schema) if compact else 1500)
     if not isinstance(reply, dict):
         raise RuntimeError("금액산정 블록 응답이 JSON object가 아닙니다.")
+    if short:
+        reply = _long_keys(reply, short[2])
     return {key: None if reply.get(key) == "" else reply.get(key) for key in schema["properties"]}
 
 
@@ -1068,18 +1089,21 @@ def _read_chunk(schema, chunk, index, count, source, budget, deadline=None, canc
     if on_call is not None:
         on_call()
     compact = {}
+    short = _short_schema(schema)
+    ask = short[0] if short else schema
     if ai_settings()["compact_reply"]:  # 한 줄 JSON, 스키마로 묶은 응답, 표가 없으면 필드 수만큼의 상한
         system += COMPACT_NOTE
-        compact = {"json_schema": schema, **({} if any(prop.get("type") == "array" for prop in schema.get("properties", {}).values())
+        compact = {"json_schema": ask, **({} if any(prop.get("type") == "array" for prop in schema.get("properties", {}).values())
                                              else {"max_tokens": _fields_cap(schema)})}
     messages = [
         {"role": "system", "content": system},
-        _user(f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\nSource blocks:\n{evidence}", images),
+        _user(f"Schema:\n{json.dumps(ask, ensure_ascii=False)}\n\n" + (f"Reply with these short keys:\n{short[1]}\n\n" if short else "")
+              + f"Source blocks:\n{evidence}", images),
     ]
     result = _provider(messages, timeout_cap=left, **compact) if left is not None else _provider(messages, **compact)
     if not isinstance(result, dict):
         raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
-    return result
+    return _long_keys(result, short[2]) if short else result
 
 
 def _read_chunks(schema, chunks, source, budget, deadline=None, cancel=None, on_call=None):

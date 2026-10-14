@@ -255,6 +255,7 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `BAND_DUMP_DIR` | 비움(끔) | 진단용. 켜면 `band` 띠 읽기마다 보낸 이미지·프롬프트·응답을 `{dir}/{요청 id}/{띠}_{이미지}.jpg`·`{띠}.prompt.txt`·`{띠}.reply.json`으로 남긴다(영수증·세부내역서). 요청 id는 로그의 `[rid]`(하네스가 준 `X-Request-ID`), 요청 밖이면 원본 파일 SHA-1 앞 12자. AWS 서버에서는 `.env`에 `BAND_DUMP_DIR=/data/band-dump`로 두면 backend·worker가 이미 마운트한 `./data:/data` 아래라 호스트 `/mnt/data/docraft/data/band-dump/`에서 보인다(볼륨 추가 불필요). 끄면 동작 불변 |
 | `BAND_STRIP_ROWS` | (세부내역서 12) | 세부내역서 OCR 행 띠당 행 수(실험값, 최대 60). 비우면 유형 설정값(12)을 쓴다. 영수증 띠에는 쓰지 않는다 |
 | `COMPACT_REPLY` | `false` | 띠·금액산정·나머지 필드 응답을 한 줄 JSON으로 요청하고, 나머지 필드 호출은 서버 JSON 스키마로 묶고 필드 수로 정한 출력 상한(필드당 60+100 토큰)을 둠. 응답이 달라질 수 있어 기본 끔 |
+| `SHORT_KEYS` | `true` | 표 없는 나머지 필드·금액산정 읽기를 한글 키 대신 a, b, c… 짧은 키로 묻고 답을 원래 키로 되돌림(필드 26개 이하·표 없는 스키마만). 2026-10-14 45건 필드 호출 출력 −17%, 정확도는 반복 실행 차이 수준 |
 | `PRINT_REGISTER` | `false` | `true`이면 `band`로 읽은 바로 선 1쪽 진료비영수증에서, 금액 층이 양식 칸선과 반 행가량 통째로 밀려 찍혀 이웃 행에 붙어 읽힌 값을 OCR 줄 좌표로 되돌림(`backend/print_register.py`). 문서마다 이동량 하나를 합계 줄 기준점으로 정하고 인쇄 줄 단위로 옮기며, 모호하거나 도착 칸이 차 있으면 손대지 않음. 결과는 진단 값 `print_register`([인쇄 정합 이식](wiki/2026-10-09-receipt-print-register-port.md)) |
 | `BAND_HEADER_NOTE` | `true` | 켜져 있으면 `band` 띠 읽기 프롬프트에 머리글 글자가 줄·칸으로 쪼개 인쇄된 서식('선택진료료 / 이외')을 같은 칸끼리 이어 읽고, 외·이외(⑤)는 선택진료료외, 하위 칸을 묶는 비급여 제목은 0으로 두라는 안내(`band.HEADER_NOTE`)를 붙임. `false`면 프롬프트는 도입 전(dev 0751745)과 같음 |
 | `VLM_CONCURRENCY` | `8` | provider(VLM) 동시 호출 수(서버 전체), 시한까지 자리가 안 나면 408(0이면 제한 없음). vLLM `--max-num-seqs`에서 같은 vLLM을 쓰는 다른 서비스(harness) 몫을 뺀 값에 맞춘다 |
