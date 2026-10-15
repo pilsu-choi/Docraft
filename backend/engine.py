@@ -192,8 +192,8 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_to
         # a reasoning mode (404), so such a model there runs with AI_REASONING=on.
         body["reasoning"] = {"enabled": False}
         body["chat_template_kwargs"] = {"enable_thinking": False}
-    if max_tokens:
-        body["max_tokens"] = max_tokens
+    # 상한 없는 호출도 반복 출력이 끝없이 이어지지 않게 표 응답 상한 + 생각 몫으로 막는다. vLLM 은 남은 문맥보다 큰 값을 줄여 쓴다.
+    body["max_tokens"] = max_tokens or TABLE_REPLY_TOKENS + THINK_TOKENS
     if settings["repetition_penalty"] is not None:
         body["repetition_penalty"] = settings["repetition_penalty"]
     prompt_chars = sum(len(_message_text(m.get("content"))) for m in messages)
@@ -306,7 +306,9 @@ def refine_tables(blocks, source, deadline=None):
         started = time.monotonic()
         try:
             messages = [_user(TABLE_REFINE_PROMPT + (TABLE_PART_NOTE if partial else "") + json.dumps(cells, ensure_ascii=False), [image])]
-            reply = _provider(messages, timeout=300) if deadline is None else _provider(messages, timeout=300, timeout_cap=remaining(deadline))
+            cap = _echo_cap(json.dumps(cells, ensure_ascii=False))
+            reply = (_provider(messages, timeout=300, max_tokens=cap) if deadline is None
+                     else _provider(messages, timeout=300, timeout_cap=remaining(deadline), max_tokens=cap))
             reply = reply.get("corrections", reply)  # models also answer with the bare {cell number: text} object
             fixed = {index: str(reply[str(index)]) for index, text in cells.items() if str(index) in reply and _edit(text, str(reply[str(index)]))}
         except Exception as exc:
@@ -921,9 +923,20 @@ def _row_bands(page_blocks, columns, per):
     return bands
 
 
-def _fields_cap(schema):
-    """Reply token cap of a call reading `schema`'s scalar fields as one JSON object (`COMPACT_REPLY`): 60 per field + 100."""
-    return 60 * len(schema.get("properties", {})) + 100
+def _fields_cap(schema, evidence=""):
+    """Reply token cap of a call reading `schema` as one JSON object (`COMPACT_REPLY`): 60 per scalar field + 100, plus each
+    table (array) field's rows cap over `evidence` (`_reply_cap`, within TABLE_REPLY_TOKENS; TABLE_REPLY_TOKENS when the
+    evidence prints no amounts to count rows by, e.g. an image-only read)."""
+    props = schema.get("properties", {}).values()
+    tables = [prop for prop in props if prop.get("type") == "array"]
+    rows = (lambda columns: min(TABLE_REPLY_TOKENS, _reply_cap(evidence, columns))) if ROW_AMOUNT.search(evidence) else (lambda _: TABLE_REPLY_TOKENS)
+    return 60 * (len(props) - len(tables)) + 100 + sum(rows(len(prop.get("items", {}).get("properties", {}))) for prop in tables)
+
+
+def _echo_cap(text, items=0):
+    """Reply token cap of a call answering about `text` it was given (cell corrections, verdicts): 2 per character + 100 per
+    item + 100 within TABLE_REPLY_TOKENS, plus THINK_TOKENS."""
+    return min(TABLE_REPLY_TOKENS, 2 * len(text) + 100 * items + 100) + THINK_TOKENS
 
 
 def _short_schema(schema):
@@ -1088,13 +1101,13 @@ def _read_chunk(schema, chunk, index, count, source, budget, deadline=None, canc
         )
     if on_call is not None:
         on_call()
-    compact = {}
     short = _short_schema(schema)
     ask = short[0] if short else schema
-    if ai_settings()["compact_reply"]:  # 한 줄 JSON, 스키마로 묶은 응답, 표가 없으면 필드 수만큼의 상한
+    # 상한: 한 줄 JSON 은 필드·표 행 수만큼, 들여쓴 JSON 은 그 두 배 + 생각 몫
+    compact = {"max_tokens": 2 * _fields_cap(schema, evidence) + THINK_TOKENS}
+    if ai_settings()["compact_reply"]:  # 한 줄 JSON, 스키마로 묶은 응답
         system += COMPACT_NOTE
-        compact = {"json_schema": ask, **({} if any(prop.get("type") == "array" for prop in schema.get("properties", {}).values())
-                                             else {"max_tokens": _fields_cap(schema)})}
+        compact = {"json_schema": ask, "max_tokens": _fields_cap(schema, evidence)}
     messages = [
         {"role": "system", "content": system},
         _user(f"Schema:\n{json.dumps(ask, ensure_ascii=False)}\n\n" + (f"Reply with these short keys:\n{short[1]}\n\n" if short else "")
