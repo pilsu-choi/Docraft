@@ -109,6 +109,7 @@ HEADER_WORDS = tuple(_TABLES["header_words"])
 MARK_HEADERS = frozenset(_TABLES["mark_headers"])
 ITEM_ALIASES = tuple((re.compile(pattern), canonical) for pattern, canonical in _SHARED["item_aliases"])
 RECEIPT_ITEM_NAMES = frozenset(_SHARED["receipt_item_names"])
+PRINTED_ITEM_NAMES = frozenset(_SHARED["printed_item_names"])  # 정답지·고객 문서로 확인한 인쇄명(기호 뗀 글자) — 별칭·오독 교정 대상이 아니다
 ITEM_ORDER = tuple(_SHARED["item_order"])  # 법정 서식 항목 행 순서(위치가 서식마다 갈리는 행은 없다)
 DATE_ORDER = tuple(map(tuple, _TABLES["date_order"]))
 ISSUED = tuple(_TABLES["issued"])
@@ -1113,6 +1114,8 @@ def item(name) -> str | None:
 @lru_cache(maxsize=8192)
 def _item(text):
     text = _plain(text)
+    if text in PRINTED_ITEM_NAMES:  # 인쇄명 사전의 이름(정액수가(완화치료)·재활및물리치료)은 인쇄 그대로
+        return text
     bare = _alias(_ITEM_GROUP.sub("", text, count=1))
     name = _alias(text) if bare is None or _plain(bare) not in _PRINTED else bare
     name = _PRINTED.get(_plain(name or ""), name)
