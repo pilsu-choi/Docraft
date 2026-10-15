@@ -219,7 +219,7 @@ def test_table_refine_crop_of_a_turned_page_is_sent_upright(tmp_path, monkeypatc
                         "AI_API_KEY": "key", "AI_VLM_MODEL": "vlm"}.items():
         monkeypatch.setenv(name, value)
     sent = []
-    monkeypatch.setattr(engine, "_provider", lambda messages, timeout: sent.append(messages) or {})
+    monkeypatch.setattr(engine, "_provider", lambda messages, timeout, **_: sent.append(messages) or {})
     engine.refine_tables([block], str(path))
     url = sent[0][0]["content"][0]["image_url"]["url"]
     with Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))) as image:

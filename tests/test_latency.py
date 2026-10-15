@@ -166,7 +166,7 @@ def test_split_refine_merges_to_the_unsplit_result(monkeypatch, tmp_path):
               {"type": "table", "page": 1, "bbox": [0, 0, 50, 50], "page_size": [100, 100], "text": _table([["합계", "1O"]])}]
     sent = []
 
-    def provider(messages, timeout, timeout_cap=None):
+    def provider(messages, timeout, timeout_cap=None, max_tokens=None):
         text = messages[0]["content"][-1]["text"]
         cells = json.loads(text[text.rindex("\n\n") + 2:].removeprefix(engine.TABLE_PART_NOTE))
         sent.append(cells)
