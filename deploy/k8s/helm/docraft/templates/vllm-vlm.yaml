@@ -2,9 +2,29 @@
 {{- $fn := include "dft.fullname" . -}}
 {{- $v := .Values.vllmVlm -}}
 {{- include "dft.requireGpuNode" (dict "ctx" . "gpu" $v) }}
+{{- if not (has ($v.parallel | default "tensor") (list "tensor" "data" "replicas")) }}
+{{- fail "vllmVlm.parallel 은 tensor, data, replicas 중 하나다" }}
+{{- end }}
+{{- $replicas := eq $v.parallel "replicas" -}}
+{{- /* 파드마다 쓸 값: replicas 는 카드마다 한 장씩(카드 지정이면 그 번호, device plugin 이면 1장), 그 밖은 파드 하나가 전부 */ -}}
+{{- $pods := list -}}
+{{- if $replicas -}}
+{{- $pinned := ne (toString ($v.deviceIds | default "")) "" -}}
+{{- range $i := until (include "dft.gpuCount" $v | int) -}}
+{{- $p := deepCopy $v -}}
+{{- $_ := set $p "deviceIds" "" -}}
+{{- if $pinned }}{{- $_ := set $p "deviceIds" (index (splitList "," (toString $v.deviceIds)) $i | trim) -}}{{- end -}}
+{{- $_ := set $p "gpuCount" 1 -}}
+{{- $pods = append $pods (dict "name" (printf "%s-vllm-vlm-%d" $fn $i) "card" (toString $i) "v" $p) -}}
+{{- end -}}
+{{- else -}}
+{{- $pods = list (dict "name" (printf "%s-vllm-vlm" $fn) "card" "" "v" $v) -}}
+{{- end }}
 # =============================================================================
 # vLLM OpenAI 서버 — Qwen3.8-27B(FP8 기본, hostPath 가중치, 폐쇄망 반입 번들).
 # backend 의 AI_BASE_URL/AI_VLM_MODEL 은 templates/config.yaml 에서 이 Service 로 연결한다.
+# parallel: replicas 면 이 Service 는 Envoy 라우터(templates/vllm-router.yaml)를 가리키고, 카드마다 뜬 vLLM 파드는
+# headless Service(-vllm-vlm-pods)로 Envoy 가 찾는다 — 한 벌이 멈추거나 바뀌어도 나머지 벌은 계속 받는다.
 # =============================================================================
 apiVersion: v1
 kind: Service
@@ -13,26 +33,48 @@ metadata:
   labels: {{- include "dft.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
+  selector: {{- include "dft.selector" (dict "ctx" . "component" (ternary "vllm-router" "vllm-vlm" $replicas)) | nindent 4 }}
+  ports: [{ name: http, port: 8000, targetPort: http }]
+{{- if $replicas }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-vllm-vlm-pods
+  labels: {{- include "dft.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
   selector: {{- include "dft.selector" (dict "ctx" . "component" "vllm-vlm") | nindent 4 }}
   ports: [{ name: http, port: 8000, targetPort: http }]
+{{- end }}
+{{- range $pod := $pods }}
+{{- $p := $pod.v }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $fn }}-vllm-vlm
-  labels: {{- include "dft.labels" . | nindent 4 }}
+  name: {{ $pod.name }}
+  labels: {{- include "dft.labels" $ | nindent 4 }}
 spec:
   replicas: 1
   # GPU 카드를 신·구 파드가 동시에 잡을 수 없다.
   strategy: { type: Recreate }
   selector:
-    matchLabels: {{- include "dft.selector" (dict "ctx" . "component" "vllm-vlm") | nindent 6 }}
+    matchLabels:
+      {{- include "dft.selector" (dict "ctx" $ "component" "vllm-vlm") | nindent 6 }}
+      {{- with $pod.card }}
+      docraft/vllm-card: {{ . | quote }}
+      {{- end }}
   template:
     metadata:
-      labels: {{- include "dft.selector" (dict "ctx" . "component" "vllm-vlm") | nindent 8 }}
+      labels:
+        {{- include "dft.selector" (dict "ctx" $ "component" "vllm-vlm") | nindent 8 }}
+        {{- with $pod.card }}
+        docraft/vllm-card: {{ . | quote }}
+        {{- end }}
     spec:
-      {{- include "dft.gpuScheduling" . | nindent 6 }}
-      {{- with .Values.image.pullSecrets }}
+      {{- include "dft.gpuScheduling" $ | nindent 6 }}
+      {{- with $.Values.image.pullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
       enableServiceLinks: false
@@ -40,44 +82,42 @@ spec:
       # (harness-v2 deploy/models/README.md 와 같은 전제).
       securityContext: { seccompProfile: { type: RuntimeDefault } }
       initContainers:
-        {{- include "dft.gpuCheck" (dict "ctx" . "image" (include "dft.image" (dict "ctx" . "name" "vllm")) "gpu" $v) | nindent 8 }}
+        {{- include "dft.gpuCheck" (dict "ctx" $ "image" (include "dft.image" (dict "ctx" $ "name" "vllm")) "gpu" $p) | nindent 8 }}
       containers:
         - name: vllm
-          image: {{ include "dft.image" (dict "ctx" . "name" "vllm") }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "dft.image" (dict "ctx" $ "name" "vllm") }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
           command: ["vllm", "serve"]
           args:
             - /models/vlm
-            - --served-model-name={{ $v.servedModelName }}
-            # 병렬 장수(parallel: tensor 는 한 벌을 나눔, data 는 카드마다 한 벌) — device plugin 모드는 gpuCount, 카드 지정 모드는 deviceIds 개수다
-            # (dft.gpuCount, harness-v2 embedding 모델과 같은 패턴).
-            {{- if eq $v.parallel "data" }}
-            - --data-parallel-size={{ include "dft.gpuCount" $v }}
-            {{- else if eq ($v.parallel | default "tensor") "tensor" }}
-            - --tensor-parallel-size={{ include "dft.gpuCount" $v }}
+            - --served-model-name={{ $p.servedModelName }}
+            # 병렬 장수(parallel: tensor 는 한 벌을 나눔, data 는 한 파드에서 카드마다 한 벌, replicas 는 파드마다 한 장) —
+            # device plugin 모드는 gpuCount, 카드 지정 모드는 deviceIds 개수다(dft.gpuCount, harness-v2 embedding 모델과 같은 패턴).
+            {{- if eq $p.parallel "data" }}
+            - --data-parallel-size={{ include "dft.gpuCount" $p }}
             {{- else }}
-            {{- fail "vllmVlm.parallel 은 tensor 또는 data 다" }}
+            - --tensor-parallel-size={{ include "dft.gpuCount" $p }}
             {{- end }}
-            - --gpu-memory-utilization={{ $v.gpuMemoryUtilization }}
-            {{- with $v.maxModelLen }}
+            - --gpu-memory-utilization={{ $p.gpuMemoryUtilization }}
+            {{- with $p.maxModelLen }}
             - --max-model-len={{ . }}
             {{- end }}
-            {{- with $v.dtype }}
+            {{- with $p.dtype }}
             - --dtype={{ . }}
             {{- end }}
-            {{- range $v.extraArgs }}
+            {{- range $p.extraArgs }}
             - {{ . }}
             {{- end }}
           env:
             # 키를 인자가 아니라 환경변수로 준다 — 인자는 노드의 ps 에 보인다.
             - name: VLLM_API_KEY
-              valueFrom: { secretKeyRef: { name: {{ include "dft.secretName" . }}, key: AI_API_KEY, optional: true } }
+              valueFrom: { secretKeyRef: { name: {{ include "dft.secretName" $ }}, key: AI_API_KEY, optional: true } }
             # 폐쇄망 — 허브에 나가지 않는다. hostPath 경로로 부르므로 받을 것도 없다.
             - { name: HF_HUB_OFFLINE, value: "1" }
             - { name: TRANSFORMERS_OFFLINE, value: "1" }
             - { name: VLLM_NO_USAGE_STATS, value: "1" }
             - { name: DO_NOT_TRACK, value: "1" }
-            {{- include "dft.gpuEnv" $v | nindent 12 }}
+            {{- include "dft.gpuEnv" $p | nindent 12 }}
           ports: [{ name: http, containerPort: 8000 }]
           securityContext: { allowPrivilegeEscalation: false }
           # 27B·32B 가중치 로딩 + 컴파일까지 여유를 넉넉히 둔다(최대 20분).
@@ -86,58 +126,55 @@ spec:
             periodSeconds: 10
             failureThreshold: 120
           readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 10, timeoutSeconds: 5 }
+          {{- if $p.stallSeconds }}
+          # 멈춤 감지 — /health 는 프로세스만 보아 엔진이 멈춘 것을 못 잡는다. 받은 요청(실행·대기)이 있는데
+          # 처리한 토큰 수(prompt + generation 누적)가 stallSeconds 동안 그대로면 실패로 보고 재시작한다.
+          # 바쁘기만 한 엔진은 토큰이 늘어 실패하지 않는다. /metrics 를 못 읽어도 실패다(API 서버 멈춤).
+          livenessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - |
+                  import json, re, sys, time, urllib.request
+                  text = urllib.request.urlopen("http://127.0.0.1:8000/metrics", timeout=10).read().decode()
+                  def total(name):
+                      return sum(float(x) for x in re.findall(r"^" + re.escape(name) + r"(?:\{[^}]*\})? (\S+)$", text, re.M))
+                  busy = total("vllm:num_requests_running") + total("vllm:num_requests_waiting")
+                  done = total("vllm:prompt_tokens_total") + total("vllm:generation_tokens_total")
+                  now, path = time.time(), "/tmp/vllm-stall.json"
+                  try:
+                      last = json.load(open(path))
+                  except (OSError, ValueError):
+                      last = {}
+                  if not busy or done != last.get("done"):
+                      json.dump({"done": done, "since": now}, open(path, "w"))
+                      sys.exit(0)
+                  stalled = now - last["since"]
+                  print(f"vllm stall: {stalled:.0f}s 동안 토큰 진행 없음(요청 {busy:.0f}건)")
+                  sys.exit(1 if stalled >= {{ $p.stallSeconds }} else 0)
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 3
+          {{- else }}
           livenessProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3 }
-          resources: {{- include "dft.gpuResources" (dict "res" $v.resources "gpu" $v) | nindent 12 }}
+          {{- end }}
+          resources: {{- include "dft.gpuResources" (dict "res" $p.resources "gpu" $p) | nindent 12 }}
           volumeMounts:
             - name: models
               mountPath: /models/vlm
-              subPath: {{ $v.modelDir }}
+              subPath: {{ $p.modelDir }}
               readOnly: true
             - { name: shm, mountPath: /dev/shm }
-        {{- if $v.statsLogInterval }}
-        # 엔진 상태 로그. vLLM 0.29 는 data parallel 이면 API 서버를 벌 수만큼 띄우고, 그때는 자체 상태 로그
-        # (Running/Waiting/KV cache)를 끈다. 처리 경로는 그대로 두고 /metrics 를 읽어 엔진마다 찍는다(바쁠 때 매 주기, 한가하면 5분마다).
-        - name: stats
-          image: {{ include "dft.image" (dict "ctx" . "name" "vllm") }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["python3", "-u", "-c"]
-          args:
-            - |
-              import re, time, urllib.request
-              pat = re.compile(r'^vllm:(num_requests_running|num_requests_waiting|kv_cache_usage_perc|num_preemptions_total)\{[^}]*engine="(\d+)"[^}]*\} (\S+)')
-              last = 0.0
-              while True:
-                  time.sleep({{ $v.statsLogInterval }})
-                  try:
-                      text = urllib.request.urlopen("http://127.0.0.1:8000/metrics", timeout=5).read().decode()
-                  except Exception as exc:
-                      print(f"vllm stats: /metrics 실패 {exc}")
-                      continue
-                  stats = {}
-                  for line in text.splitlines():
-                      if m := pat.match(line):
-                          e = stats.setdefault(m[2], {})
-                          e[m[1]] = max(e.get(m[1], 0.0), float(m[3]))
-                  busy = any(e.get("num_requests_running") or e.get("num_requests_waiting") for e in stats.values())
-                  if stats and (busy or time.time() - last >= 300):
-                      last = time.time()
-                      print("vllm stats: " + " | ".join(
-                          f"engine {k}: running {e.get('num_requests_running', 0):.0f}, waiting {e.get('num_requests_waiting', 0):.0f}, "
-                          f"kv {e.get('kv_cache_usage_perc', 0) * 100:.1f}%, preempt {e.get('num_preemptions_total', 0):.0f}"
-                          for k, e in sorted(stats.items(), key=lambda kv: int(kv[0]))))
-          securityContext: { allowPrivilegeEscalation: false }
-          resources:
-            requests: { cpu: 10m, memory: 32Mi }
-            limits:   { memory: 128Mi }
-        {{- end }}
       volumes:
         - name: models
-          {{- if .Values.models.volume.existingClaim }}
-          persistentVolumeClaim: { claimName: {{ .Values.models.volume.existingClaim }}, readOnly: true }
+          {{- if $.Values.models.volume.existingClaim }}
+          persistentVolumeClaim: { claimName: {{ $.Values.models.volume.existingClaim }}, readOnly: true }
           {{- else }}
-          hostPath: { path: {{ .Values.models.volume.hostPath }}, type: Directory }
+          hostPath: { path: {{ $.Values.models.volume.hostPath }}, type: Directory }
           {{- end }}
         # PyTorch 프로세스 간 공유 메모리.
         - name: shm
           emptyDir: { medium: Memory, sizeLimit: 8Gi }
+{{- end }}
 {{- end }}

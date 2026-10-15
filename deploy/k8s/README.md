@@ -125,6 +125,18 @@ BF16 + 텐서 병렬로 바꾸려면 `vllmVlm.modelDir`을 BF16 가중치 서브
 띄운다(`--data-parallel-size`, 주소·Service 는 하나 그대로, vLLM 이 요청을 나눠 준다). 벌끼리 통신하지 않아 처리량이 장수에
 비례한다. `--max-num-seqs`는 벌마다 적용된다. 기본 `tensor`는 한 벌을 장수로 나눈다(`--tensor-parallel-size`).
 
+운영에서는 `vllmVlm.parallel: replicas`를 쓴다. 카드마다 vLLM 파드를 하나씩 띄우고(파드당 1장, `-vllm-vlm-<n>`), Envoy 라우터
+(`-vllm-router`, `images.envoy`)가 처리 중 요청이 가장 적은 파드로 나눠 준다. backend 가 보는 주소(`-vllm-vlm` Service)는 그대로다.
+
+- 한 벌이 멈추거나 재시작·교체돼도 나머지 벌은 계속 받는다(`data`는 파드 하나라 같이 내려간다).
+- 라우터는 `/health` 검사로 떨어진 파드를 빼고, 연결 단계 실패만 다른 파드로 다시 보낸다(처리 중 요청은 다시 보내지 않는다).
+  요청 기록은 `kubectl logs deploy/<릴리스>-docraft-vllm-router`(응답 코드·소요·보낸 파드), 파드별 집계는 라우터 `:9901/clusters`.
+- 파드마다 API 서버가 하나라 vLLM 엔진 상태 로그(`Running`/`Waiting`/`GPU KV cache usage`)가 그대로 찍힌다.
+- `resources`·`--max-num-seqs`는 파드마다 적용된다.
+
+모든 방식에 멈춤 감지(`vllmVlm.stallSeconds`, 기본 180초)가 붙는다. 받은 요청이 있는데 처리한 토큰 수가 그 시간 동안 그대로면 liveness
+가 실패해 그 파드를 재시작한다(`/health`만으로는 엔진 멈춤을 못 잡는다). 0 이면 `/health`만 본다.
+
 ## hostPath 모델 디렉터리 구조 (반입 번들이 채운다)
 
 ```
