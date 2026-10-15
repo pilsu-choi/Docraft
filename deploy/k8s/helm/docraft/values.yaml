@@ -304,6 +304,9 @@ vllmVlm:
   resources:
     requests: { cpu: "2", memory: 16Gi }
     limits:   { memory: 32Gi }
+  # 엔진 상태 로그 주기(초, 0 이면 끔) — 같은 파드의 stats 컨테이너가 /metrics 를 읽어 엔진마다 실행·대기 요청 수·KV cache 사용률·
+  # 밀려남 횟수를 찍는다(kubectl logs ... -c stats). data parallel 에서 vLLM 자체 상태 로그가 꺼지는 것을 메운다.
+  statsLogInterval: 10
 
 # 모든 파드에 공통으로 붙일 스케줄링 설정(gpu.* 와 별도로, GPU 파드에도 함께 병합된다)
 nodeSelector: {}
