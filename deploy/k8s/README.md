@@ -151,6 +151,13 @@ models.volume.hostPath (기본 /opt/docraft/models)/
 자동 다운로드)도 같은 방식으로 미리 채워야 한다(폐쇄망에서는 자동 다운로드가 안 된다) — 비워 두면 PVC를 새로
 만들며, 이 경우 임시 파드를 붙여 `kubectl cp`로 채운 뒤 설치한다.
 
+## 진단·디스크 (2026-10-15)
+
+- **Envoy 접근 로그**(`parallel: replicas`): 한 줄에 `rid=`(backend가 보낸 `X-Request-ID`=`<rid>#<호출번호>`)·`in=`/`out=`(바이트)·`try=`(시도 횟수)·`upstream=`·`fail=`(전송 실패 사유). 응답 헤더 `x-upstream-host`(`%UPSTREAM_REMOTE_ADDRESS%`)로 backend 로그의 `upstream=`이 채워진다. 형식 변경은 `kubectl logs deploy/<릴리스>-docraft-vllm-router`로 확인한다.
+- **실패 입력 보존**: `backend.failedKeepDays`(7, 0이면 끔)·`backend.failedMaxMb`(2048) → ConfigMap `FAILED_KEEP_DAYS`·`FAILED_MAX_MB`. 위치는 data PVC의 `/data/failed/`이므로 `persistence.data.size`(기본 10Gi)가 `failedMaxMb`보다 충분히 커야 한다. `backend.vlmSlowMs`는 느린 VLM 호출의 INFO 기준. 자세한 내용은 [루트 README 실패 진단과 재현](../../README.md).
+- **디스크**: 모든 컨테이너에 `resources.requests/limits.ephemeral-storage`, 모든 `emptyDir`(shm 제외 메모리 볼륨 포함)에 `sizeLimit`(`ephemeral.tmp` 2Gi·`ephemeral.masterSource` 1Gi)을 둔다. vLLM·PaddleOCR 벤더 이미지는 컨테이너 쓰기층(`~/.cache` 컴파일 캐시·`/tmp`)과 로그가 ephemeral-storage로 잡히므로 한도를 크게(vLLM 30Gi, vlm-server 30Gi) 두었다 — 너무 줄이면 kubelet이 파드를 퇴거시킨다. 노드 `/`의 여유(고객사 L40S 노드 약 38GB)보다 `limits` 합이 크면 안 된다는 점만 지키면 되고, `requests` 합은 노드에서 실제로 예약되므로 0.5배 이하로 유지한다.
+- **버전 확인**: `curl <backend>/api/health`의 `version`은 이미지 빌드 인자 `DOCRAFT_COMMIT`(미지정 시 `unknown`). 번들 빌드(`harness-installer/build-bundle.sh`의 `docker build ... backend/Dockerfile`)에서 `--build-arg DOCRAFT_COMMIT=<docraft 커밋>`을 넘겨야 채워진다.
+
 ## 알려진 불확실성 (우산 차트에서 확인 필요)
 
 - `paddleocrVl.gpuMemoryUtilization` 기본 0.25: L40S 48GB 실측값이 아니라 추정치다.

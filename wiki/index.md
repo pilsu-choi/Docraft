@@ -2,6 +2,7 @@
 okf_version: "0.2"
 ---
 
+- [판독 실패 진단성 개선](2026-10-15-failure-observability.md) — 타임아웃 408 통일·실패 한 줄·VLM 호출 rid/upstream·실패 입력 보존/replay·Envoy 로그·ephemeral-storage 한도
 - [진료비영수증 고객 오류 보고(10.14) 원인·대응](2026-10-14-receipt-customer-errors-cause.md) — 1·2차 보고 22사례 유형 P1~P8, 인쇄 행 이름·소계·빈 금액 0·보충 채택 규칙·인쇄 행 위치 대조, 97.01→97.14%(상위 wiki 동기화)
 
 - [진단상태 칸 판독 구현](2026-10-14-cert-status-read-impl.md) — 상위 wiki에서 동기화
