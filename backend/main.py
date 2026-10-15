@@ -856,7 +856,7 @@ async def process_image(request: Request, image: UploadFile, fn, *args, multipag
                 await asyncio.wait({task}, timeout=1)
             return task.result(), filename, started
         except Exception:
-            if call: call.snapshot(target)
+            if call: await asyncio.to_thread(call.snapshot, target)
             raise
         finally:
             INFLIGHT -= 1

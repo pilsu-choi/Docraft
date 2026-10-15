@@ -10,7 +10,10 @@ import json
 import logging
 import re
 import shutil
+import threading
 import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -24,6 +27,11 @@ from .db import ROOT
 
 logger = logging.getLogger("docraft.failures")
 FAILED = ROOT / "failed"
+
+_saver = ThreadPoolExecutor(1, thread_name_prefix="failed-save")
+_pending = threading.BoundedSemaphore(32)  # 디스크가 멈춰도 대기 중인 입력(이미지)이 메모리에 무한정 쌓이지 않게
+_pruned = float("-inf")
+PRUNE_INTERVAL_S = 60  # prune 은 폴더 전체를 훑는다 — 프로세스당 분당 한 번만
 
 
 class ProviderError(RuntimeError):
@@ -114,7 +122,7 @@ class Call:
     def fail(self, exc, stages, label):
         """실패 한 줄을 남기고, 입력을 보존하고, 응답할 HTTPException을 돌려준다. 호출자가 ``raise ... from exc``로 올린다."""
         status, kind, timeout_s = classify(exc)
-        info = {"rid": request_id(), "endpoint": self.endpoint, "doc_type": self.doc_type, "status": status, "stage": stages.get("_stage"),
+        info = {"rid": request_id(), "endpoint": self.endpoint, "doc_type": self.doc_type, "status": status, "stage": next((c.docraft_stage for c in _chain(exc) if hasattr(c, "docraft_stage")), None),
                 "kind": kind, "timeout_s": timeout_s, "budget_ms": self.remaining_ms,
                 "remaining_s": round(self.deadline - time.monotonic(), 1), "elapsed_ms": round((time.monotonic() - self.started) * 1000),
                 "vlm_calls": stages.get("vlm_calls", 0), "upstream": stages.get("_upstream")}
@@ -123,20 +131,28 @@ class Call:
         logger.log(logging.ERROR if kind == "error" else logging.WARNING, "%s failed: %s | %s: %s | %s", self.endpoint, line,
                    type(exc).__name__, exc, totals, exc_info=exc if kind == "error" else None)
         logger.debug("%s failure traceback", self.endpoint, exc_info=exc)
-        self._save(info, line, stages, exc)
+        if self.upload is not None:  # 디스크 쓰기는 이벤트 루프 밖 단일 워커에서 — 저장 실패·지연이 응답을 막지 않는다
+            if _pending.acquire(blocking=False):
+                _saver.submit(self._save, info, line, list(stages.get("_vlm_replies", [])), f"{type(exc).__name__}: {exc}").add_done_callback(lambda _: _pending.release())
+            else:
+                logger.warning("실패 입력 보존 건너뜀: 저장 대기 32건 초과(rid=%s)", info["rid"])
         return response(exc, label)
 
-    def _save(self, info, line, stages, exc):
-        """입력·폼 값·실패 한 줄·받아 둔 VLM 응답을 ``failed/<날짜>/<rid>/``에 둔다. 저장이 실패해도 원래 오류를 가리지 않는다."""
-        if self.upload is None:
-            return
+    def _save(self, info, line, replies, error):
+        """입력·폼 값·실패 한 줄·받아 둔 VLM 응답을 ``failed/<날짜>/<rid>-<HHMMSS>-<uuid>/``에 둔다. 저장이 실패해도 원래 오류를 가리지 않는다."""
+        global _pruned
         try:
-            folder = FAILED / datetime.now().strftime("%Y%m%d") / (re.sub(r"[^\w.-]", "_", info["rid"])[:80] or "unknown")
+            now = datetime.now()
+            rid = re.sub(r"[^\w.-]", "_", info["rid"])[:80]
+            rid = "norid" if not rid.strip("._") else rid  # `.`·`..` 같은 점뿐인 이름은 failed/ 바깥·루트로 샌다
+            folder = FAILED / now.strftime("%Y%m%d") / f"{rid}-{now:%H%M%S}-{uuid.uuid4().hex[:6]}"  # 하네스 rid 는 페이지·재시도마다 같다
             folder.mkdir(parents=True, exist_ok=True)
             (folder / f"input{self.upload[0]}").write_bytes(self.upload[1])
-            meta = {**info, "line": line, "error": f"{type(exc).__name__}: {exc}", "params": self.params, "saved_at": datetime.now().isoformat()}
+            meta = {**info, "line": line, "error": error, "params": self.params, "saved_at": datetime.now().isoformat()}
             (folder / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
-            (folder / "vlm_replies.json").write_text(json.dumps(stages.get("_vlm_replies", []), ensure_ascii=False, indent=1), encoding="utf-8")
-            prune()
+            (folder / "vlm_replies.json").write_text(json.dumps(replies, ensure_ascii=False, indent=1), encoding="utf-8")
+            if time.monotonic() - _pruned >= PRUNE_INTERVAL_S:
+                _pruned = time.monotonic()
+                prune()
         except Exception as save_error:
             logger.warning("failed-input save skipped: %s", save_error)

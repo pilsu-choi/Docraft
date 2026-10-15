@@ -1,5 +1,9 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-15 릴리스 전 리뷰 수정
+
+- **Creation** (2026-10-15): [릴리스 전 리뷰 수정](2026-10-15-review-fixes.md) — ephemeral requests 축소·failed 폴더명·저장 비동기·stage 오염·keep 링 버퍼
+
 ## 2026-10-15 고가용성 2파드
 
 - **Creation** (2026-10-15): [backend·vLLM 라우터 2파드 고가용성](2026-10-15-ha-replicas.md) — 차트 복제본·동시성 파드 분할·prune 경합 수정
