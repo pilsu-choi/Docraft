@@ -94,6 +94,42 @@ spec:
               subPath: {{ $v.modelDir }}
               readOnly: true
             - { name: shm, mountPath: /dev/shm }
+        {{- if $v.statsLogInterval }}
+        # 엔진 상태 로그. vLLM 0.29 는 data parallel 이면 API 서버를 벌 수만큼 띄우고, 그때는 자체 상태 로그
+        # (Running/Waiting/KV cache)를 끈다. 처리 경로는 그대로 두고 /metrics 를 읽어 엔진마다 찍는다(바쁠 때 매 주기, 한가하면 5분마다).
+        - name: stats
+          image: {{ include "dft.image" (dict "ctx" . "name" "vllm") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python3", "-u", "-c"]
+          args:
+            - |
+              import re, time, urllib.request
+              pat = re.compile(r'^vllm:(num_requests_running|num_requests_waiting|kv_cache_usage_perc|num_preemptions_total)\{[^}]*engine="(\d+)"[^}]*\} (\S+)')
+              last = 0.0
+              while True:
+                  time.sleep({{ $v.statsLogInterval }})
+                  try:
+                      text = urllib.request.urlopen("http://127.0.0.1:8000/metrics", timeout=5).read().decode()
+                  except Exception as exc:
+                      print(f"vllm stats: /metrics 실패 {exc}")
+                      continue
+                  stats = {}
+                  for line in text.splitlines():
+                      if m := pat.match(line):
+                          e = stats.setdefault(m[2], {})
+                          e[m[1]] = max(e.get(m[1], 0.0), float(m[3]))
+                  busy = any(e.get("num_requests_running") or e.get("num_requests_waiting") for e in stats.values())
+                  if stats and (busy or time.time() - last >= 300):
+                      last = time.time()
+                      print("vllm stats: " + " | ".join(
+                          f"engine {k}: running {e.get('num_requests_running', 0):.0f}, waiting {e.get('num_requests_waiting', 0):.0f}, "
+                          f"kv {e.get('kv_cache_usage_perc', 0) * 100:.1f}%, preempt {e.get('num_preemptions_total', 0):.0f}"
+                          for k, e in sorted(stats.items(), key=lambda kv: int(kv[0]))))
+          securityContext: { allowPrivilegeEscalation: false }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits:   { memory: 128Mi }
+        {{- end }}
       volumes:
         - name: models
           {{- if .Values.models.volume.existingClaim }}
