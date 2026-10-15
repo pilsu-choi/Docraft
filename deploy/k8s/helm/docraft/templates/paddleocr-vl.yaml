@@ -127,8 +127,8 @@ spec:
           command: ["sh", "-c", "until curl -fsS http://paddleocr-vlm-server:8080/health >/dev/null; do echo 'vlm-server 대기...'; sleep 5; done"]
           securityContext: { allowPrivilegeEscalation: false }
           resources:
-            requests: { cpu: 10m, memory: 32Mi }
-            limits:   { memory: 128Mi }
+            requests: { cpu: 10m, memory: 32Mi, ephemeral-storage: 16Mi }
+            limits:   { memory: 128Mi, ephemeral-storage: 64Mi }
       containers:
         - name: api
           image: {{ include "dft.image" (dict "ctx" . "name" "paddleocrVl") }}

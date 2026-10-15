@@ -191,7 +191,7 @@ runtimeClassName: {{ . }}
     {{- include "dft.gpuEnv" $gpu | nindent 4 }}
   securityContext:
     allowPrivilegeEscalation: false
-  resources: {{- include "dft.gpuResources" (dict "res" (dict "requests" (dict "cpu" "50m" "memory" "64Mi") "limits" (dict "memory" "256Mi")) "gpu" $gpu) | nindent 4 }}
+  resources: {{- include "dft.gpuResources" (dict "res" (dict "requests" (dict "cpu" "50m" "memory" "64Mi" "ephemeral-storage" "64Mi") "limits" (dict "memory" "256Mi" "ephemeral-storage" "256Mi")) "gpu" $gpu) | nindent 4 }}
 {{- end -}}
 
 {{/* 보안 컨텍스트 — Pod Security "restricted". backend/worker/frontend 처럼 자체 이미지에만

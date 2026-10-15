@@ -10,6 +10,9 @@ ENV PYTHONPATH=/app \
 COPY requirements.txt requirements-queue.txt ./
 RUN pip install --no-cache-dir -r requirements-queue.txt
 
+# 빌드한 커밋(docker build --build-arg DOCRAFT_COMMIT=$(git rev-parse --short HEAD)). /api/health 의 version.
+ARG DOCRAFT_COMMIT=unknown
+ENV DOCRAFT_COMMIT=$DOCRAFT_COMMIT
 COPY backend ./backend
 
 EXPOSE 8000
