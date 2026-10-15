@@ -5,6 +5,7 @@
 연결 거부도 502다: 408/502 모두 호출자(하네스)에서는 같은 "판독 불가" 처리이고, 503은 재시도 지시로 읽혀 쓰지 않는다.
 """
 
+import glob
 import json
 import logging
 import re
@@ -78,10 +79,16 @@ def prune(root=None):
     for day in root.iterdir():
         if day.name <= cutoff:
             shutil.rmtree(day, ignore_errors=True)
-    entries = sorted((entry for day in root.iterdir() for entry in day.iterdir()), key=lambda entry: entry.stat().st_mtime)
-    sizes = [sum(f.stat().st_size for f in entry.rglob("*") if f.is_file()) for entry in entries]
-    total, cap = sum(sizes), limit("FAILED_MAX_MB", 2048, 1_000_000) << 20
-    for entry, size in zip(entries, sizes):
+    entries = []
+    for entry in glob.glob(str(root / "*" / "*")):  # glob 은 다른 파드가 지운 폴더를 건너뛴다(PVC 공유)
+        try:
+            entry = Path(entry)
+            entries.append((entry.stat().st_mtime, entry, sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())))
+        except FileNotFoundError:
+            continue
+    entries.sort(key=lambda item: item[0])
+    total, cap = sum(size for *_, size in entries), limit("FAILED_MAX_MB", 2048, 1_000_000) << 20
+    for _, entry, size in entries:
         if total <= cap:
             break
         shutil.rmtree(entry, ignore_errors=True)

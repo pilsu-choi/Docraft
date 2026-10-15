@@ -91,7 +91,8 @@ metadata:
   name: {{ $fn }}-vllm-router
   labels: {{- include "dft.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ $r.replicas }}
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
   selector:
     matchLabels: {{- include "dft.selector" (dict "ctx" . "component" "vllm-router") | nindent 6 }}
   template:

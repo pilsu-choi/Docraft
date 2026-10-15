@@ -51,6 +51,9 @@ auth:
 
 # ── 백엔드(FastAPI) ────────────────────────────────────────────────────
 backend:
+  # 2 이상이면 파드 하나가 죽거나(OOMKilled 등) 재시작해도 서비스가 이어진다. 작업 상태는 Postgres(조건부 UPDATE)라 파드끼리
+  # 겹쳐 돌아도 안전하다. 아래 vlmConcurrency·ocrConcurrency·tablePageConcurrency 와 queue.concurrency 는 전체 합계이고
+  # 파드마다 올림 나눈 몫이 들어간다. resources 는 파드마다 적용된다.
   replicas: 1
   port: 8000
   service:
@@ -326,6 +329,8 @@ vllmVlm:
   stallSeconds: 180
   # parallel: replicas 의 Envoy 라우터.
   router:
+    # 라우터는 상태가 없다 — 2 이상이면 한 파드가 죽어도 vLLM 호출이 이어진다(least_request 는 라우터마다 자기 연결 기준).
+    replicas: 1
     # 응답 바이트가 이만큼 오지 않으면 연결을 끊는다(비스트리밍 응답은 다 만들 때까지 조용하다 — backend AI_TIMEOUT 보다 길게).
     idleTimeoutSeconds: 900
     resources:

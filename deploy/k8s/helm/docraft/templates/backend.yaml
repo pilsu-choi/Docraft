@@ -38,6 +38,8 @@ metadata:
   labels: {{- include "dft.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.backend.replicas }}
+  # 교체 중에도 한 파드는 계속 받는다(새 파드가 Ready 가 된 뒤에 옛 파드를 내린다).
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
   selector:
     matchLabels: {{- include "dft.selector" (dict "ctx" . "component" "backend") | nindent 6 }}
   template:

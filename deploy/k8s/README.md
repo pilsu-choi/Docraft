@@ -168,3 +168,9 @@ models.volume.hostPath (기본 /opt/docraft/models)/
   `deploy/paddleocr_vl_docker/pipeline_config_vllm.yaml`), `paddleocr-vlm-server` Service 이름을 릴리스
   접두사 없이 고정했다 — 우산 차트에서 같은 네임스페이스에 이 차트를 두 번 이상 설치하면 충돌한다(현재는
   단일 설치만 지원).
+
+## backend·라우터 복제본 (고가용성)
+
+`backend.replicas: 2`, `vllmVlm.router.replicas: 2` 로 한 파드가 죽어도(OOMKilled 등) 서비스가 이어진다(노드가 하나면 파드 수준 이중화). `RollingUpdate`(maxUnavailable 0, maxSurge 1).
+`backend.vlmConcurrency`·`ocrConcurrency`·`tablePageConcurrency`·`queue.concurrency` 는 **전체 합계**이고 파드마다 `ceil(합계/replicas)` 가 들어간다. `resources` 는 파드마다다.
+작업 선점은 DB 조건부 UPDATE 라 파드가 겹쳐도 한 번만 실행되고, `cancel-all`·`verify_inflight`·같은 페이지 결과 공유는 파드별이다. Postgres 접속은 요청마다 열고 닫으므로 `backend.replicas` × (스레드 40 + 큐 동시성) 만큼 접속 몫이 늘어난다.
