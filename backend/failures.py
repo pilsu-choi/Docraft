@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import shutil
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +29,7 @@ logger = logging.getLogger("docraft.failures")
 FAILED = ROOT / "failed"
 
 _saver = ThreadPoolExecutor(1, thread_name_prefix="failed-save")
+_pending = threading.BoundedSemaphore(32)  # 디스크가 멈춰도 대기 중인 입력(이미지)이 메모리에 무한정 쌓이지 않게
 _pruned = float("-inf")
 PRUNE_INTERVAL_S = 60  # prune 은 폴더 전체를 훑는다 — 프로세스당 분당 한 번만
 
@@ -130,7 +132,10 @@ class Call:
                    type(exc).__name__, exc, totals, exc_info=exc if kind == "error" else None)
         logger.debug("%s failure traceback", self.endpoint, exc_info=exc)
         if self.upload is not None:  # 디스크 쓰기는 이벤트 루프 밖 단일 워커에서 — 저장 실패·지연이 응답을 막지 않는다
-            _saver.submit(self._save, info, line, list(stages.get("_vlm_replies", [])), f"{type(exc).__name__}: {exc}")
+            if _pending.acquire(blocking=False):
+                _saver.submit(self._save, info, line, list(stages.get("_vlm_replies", [])), f"{type(exc).__name__}: {exc}").add_done_callback(lambda _: _pending.release())
+            else:
+                logger.warning("실패 입력 보존 건너뜀: 저장 대기 32건 초과(rid=%s)", info["rid"])
         return response(exc, label)
 
     def _save(self, info, line, replies, error):

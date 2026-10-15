@@ -391,3 +391,17 @@ def test_chart_passes_the_observability_settings_to_the_backend_and_envoy(render
     for token in ("%REQ(X-REQUEST-ID)%", "%UPSTREAM_TRANSPORT_FAILURE_REASON%", "%BYTES_RECEIVED%", "%BYTES_SENT%", "%UPSTREAM_REQUEST_ATTEMPT_COUNT%"):
         assert token in log
     assert route["response_headers_to_add"][0]["header"] == {"key": "x-upstream-host", "value": "%UPSTREAM_REMOTE_ADDRESS%"}
+
+
+def test_failed_save_queue_is_bounded(monkeypatch, tmp_path):
+    """디스크가 멈춰 저장이 밀리면 대기 32건을 넘는 보존은 건너뛰고 경고만 남긴다(메모리 무한 증가 방지)."""
+    import threading
+    from backend import failures
+    gate = threading.Event()
+    monkeypatch.setattr(failures.Call, "_save", lambda self, *a: gate.wait(5))
+    sem = threading.BoundedSemaphore(2)
+    monkeypatch.setattr(failures, "_pending", sem)
+    call = failures.Call.__new__(failures.Call)
+    taken = [sem.acquire(blocking=False) for _ in range(3)]
+    assert taken == [True, True, False]
+    sem.release(); sem.release(); gate.set()
