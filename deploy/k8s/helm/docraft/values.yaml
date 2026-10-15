@@ -34,6 +34,8 @@ images:
   paddleocrVl:        { repository: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-vl,               tag: latest-nvidia-gpu-offline }
   # Qwen3-VL 서빙. harness와 같은 이미지·태그를 써서 반입 번들에 한 번만 싣는다.
   vllm:               { repository: vllm/vllm-openai, tag: v0.29.0 }
+  # vllmVlm.parallel: replicas 의 라우터(templates/vllm-router.yaml). CPU 만 쓴다.
+  envoy:              { repository: envoyproxy/envoy-distroless, tag: v1.35.0 }
 
 # ── 비밀값 ──────────────────────────────────────────────────────────────
 auth:
@@ -281,9 +283,11 @@ vllmVlm:
   # 그대로 두거나 같이 조정).
   gpuCount: 1
   # 카드를 나누는 방식. tensor(기본) = 위 장수로 모델 한 벌을 나눠 띄운다(--tensor-parallel-size).
-  # data = 카드마다 모델을 한 벌씩 띄우고 vLLM 이 요청을 나눠 준다(--data-parallel-size, 주소는 하나 그대로).
-  # 한 장에 들어가는 모델(예: Qwen3.8-27B FP8 은 L40S 한 장)이면 data 가 처리량이 높다 — 벌끼리 통신하지 않는다.
-  # --max-num-seqs 는 벌마다 적용된다.
+  # data = 파드 하나에서 카드마다 모델을 한 벌씩 띄우고 vLLM 이 요청을 나눠 준다(--data-parallel-size).
+  # replicas = 카드마다 파드를 하나씩 띄우고(파드당 1장) Envoy 라우터(router)가 처리 중 요청이 적은 파드로 나눠 준다.
+  #   한 벌이 멈추거나 재시작해도 나머지 벌은 계속 받는다 — 운영 기본(2026-10-15 운영계 vLLM 지연 뒤 결정).
+  # 한 장에 들어가는 모델(예: Qwen3.8-27B FP8 은 L40S 한 장)이면 data·replicas 가 처리량이 높다 — 벌끼리 통신하지 않는다.
+  # --max-num-seqs·resources 는 벌(replicas 는 파드)마다 적용된다. 주소(Service -vllm-vlm)는 세 방식 모두 하나다.
   parallel: tensor
   # 쓸 GPU 카드 번호(쉼표 구분). **비우면(기본) device plugin 이 위 gpuCount 장을 준다.** 값을
   # 넣으면 device plugin 을 우회해 그 번호의 카드를 직접 붙인다 — 장수는 개수로 정해지고
@@ -304,9 +308,16 @@ vllmVlm:
   resources:
     requests: { cpu: "2", memory: 16Gi }
     limits:   { memory: 32Gi }
-  # 엔진 상태 로그 주기(초, 0 이면 끔) — 같은 파드의 stats 컨테이너가 /metrics 를 읽어 엔진마다 실행·대기 요청 수·KV cache 사용률·
-  # 밀려남 횟수를 찍는다(kubectl logs ... -c stats). data parallel 에서 vLLM 자체 상태 로그가 꺼지는 것을 메운다.
-  statsLogInterval: 10
+  # 멈춤 감지(초, 0 이면 /health 만 본다) — 받은 요청이 있는데 처리한 토큰 수가 이 시간 동안 그대로면 그 파드를 재시작한다.
+  # 바쁘기만 한 엔진은 토큰이 늘어 걸리지 않는다. 판정까지 최대 이 값 + 90초(검사 30초 × 3회).
+  stallSeconds: 180
+  # parallel: replicas 의 Envoy 라우터.
+  router:
+    # 응답 바이트가 이만큼 오지 않으면 연결을 끊는다(비스트리밍 응답은 다 만들 때까지 조용하다 — backend AI_TIMEOUT 보다 길게).
+    idleTimeoutSeconds: 900
+    resources:
+      requests: { cpu: 200m, memory: 64Mi }
+      limits:   { memory: 512Mi }
 
 # 모든 파드에 공통으로 붙일 스케줄링 설정(gpu.* 와 별도로, GPU 파드에도 함께 병합된다)
 nodeSelector: {}
