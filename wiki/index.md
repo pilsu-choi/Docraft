@@ -190,3 +190,4 @@ okf_version: "0.2"
 - [진료비영수증 키 상한액초과금 정정](2026-10-07-limit-excess-key.md) — Docraft 키 상환액초과금 오기 정정, 입력 별칭 장치 없음
 * [사고 모드 끄기 — vLLM enable_thinking·json_schema 포함](2026-10-13-thinking-off-vllm.md) - AI_REASONING=off가 모든 호출에 reasoning + chat_template_kwargs.enable_thinking=false
 - [고객 AO 추출 항목 변경 대응 (투여량·선택진료료이외총액·입퇴원일자 배열)](2026-10-14-ao-field-change-1014.md) — harness dev 7318fd2·Docraft dev 484fc3b(미push), 날짜 선후 배열·배열 형식 보존, 정답지 200건·채점 별칭
+- [영수증 같은 인쇄 행 판정 통일·인쇄명 사전 우선](2026-10-15-receipt-row-identity.md) — 하네스 문서 동기화, Docraft rules._item 사전 우선·공용 yaml
