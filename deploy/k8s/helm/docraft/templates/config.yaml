@@ -11,6 +11,11 @@ data:
   LOG_LEVEL: {{ .Values.backend.logLevel | quote }}
   # k8s 에서는 컨테이너 stdout 이 로그 수집 대상이다 — 파일 기록은 끈다(backend/config.py LOG_FILE="").
   LOG_FILE: ""
+  # 실패한 /api/read* 입력 보존(PVC /data/failed — 고객 문서가 클러스터 밖으로 나가지 않는다). 0 이면 보존 안 함.
+  FAILED_KEEP_DAYS: {{ .Values.backend.failedKeepDays | quote }}
+  FAILED_MAX_MB: {{ .Values.backend.failedMaxMb | quote }}
+  # 이보다 오래 걸린 VLM 호출은 INFO 로 한 줄 남는다(밀리초).
+  VLM_SLOW_MS: {{ .Values.backend.vlmSlowMs | quote }}
   QUEUE_BACKEND: {{ .Values.queue.backend | quote }}
   QUEUE_NAME: {{ .Values.queue.name | quote }}
   QUEUE_CONCURRENCY: {{ .Values.queue.concurrency | quote }}

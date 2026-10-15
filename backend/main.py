@@ -29,7 +29,7 @@ from jsonschema.exceptions import SchemaError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import bind_request, new_request_id, public_ai_settings
-from . import doctypes, engine, jobs, latency, master, reprocess, verify
+from . import doctypes, engine, failures, jobs, latency, master, reprocess, verify
 from .db import FILES, audit, connect, decode, init_db, now
 from .parsers import ParseError, parse
 
@@ -55,6 +55,10 @@ DETAIL_STAGES = ("ocr_wait_ms", "ocr_ms", "lines_ms", "upright_ms", "refine_ms",
 @asynccontextmanager
 async def lifespan(_app):
     init_db()
+    try:
+        failures.prune()
+    except OSError as exc:
+        logger.warning("failed-input prune skipped: %s", exc)
     await asyncio.to_thread(master.ready)  # 첫 요청 전에 마스터 사전 캐시를 미리 채운다(이벤트 루프 밖에서)
     recover()
     yield
@@ -199,7 +203,7 @@ def schema_row(row): return decode(row, ("json_schema",))
 
 
 @app.get("/api/health")
-def health(): return {"status": "ok", "ai": public_ai_settings(), "verify_inflight": INFLIGHT}
+def health(): return {"status": "ok", "version": os.getenv("DOCRAFT_COMMIT", "unknown"), "ai": public_ai_settings(), "verify_inflight": INFLIGHT}
 
 
 @app.get("/api/ai/status", dependencies=[Depends(auth)])
@@ -501,7 +505,7 @@ def generate(project_id: str, data: GenerateInput):
         try: definition = engine.generate_schema_from_documents(data.prompt, docs)
         except Exception as exc:
             logger.exception("schema generation failed: project=%s", project_id)
-            raise HTTPException(502, f"AI 스키마 생성 실패: {exc}")
+            raise failures.response(exc, "AI 스키마 생성", client_input=False) from exc
         try:
             created = persist_schema(db, project_id, data.name, definition)
         except SchemaError as exc: raise HTTPException(502, f"AI가 유효하지 않은 JSON Schema를 반환했습니다: {exc.message}")
@@ -813,12 +817,18 @@ def cancelled_response(exc, action, doc_type):
     return Response(status_code=499)
 
 
-async def process_image(request: Request, image: UploadFile, fn, *args, multipage=False):
+def diagnostics(stages):
+    """응답 ``diagnostics``: 단계 시간·횟수. ``_``로 시작하는 값(실패 한 줄·보존용 내부 기록)은 내보내지 않는다."""
+    return {name: value for name, value in stages.items() if not name.startswith("_")}
+
+
+async def process_image(request: Request, image: UploadFile, fn, *args, multipage=False, call=None):
     """이미지 업로드(``multipage``가 아니면 단일 페이지만)를 저장하고 ``fn(경로, *args, cancel=cancel)``을 이벤트 루프 밖 스레드에서 돌린다.
 
     /api/verify·/api/read가 함께 쓰는 업로드·임시파일·다중 페이지 검사·취소·in-flight 계수 처리다.
     파싱·추출·Judge로 수 분 걸리므로 스레드에서 돌린다 — 안 그러면 health까지 막혀 동시 요청이 줄을 선다.
     클라이언트가 끊기면 다음 단계(추출·Judge) 전에 ``cancel``을 세워 ``fn``이 ``verify.Cancelled``로 멈추게 한다.
+    ``fn``이 실패하면 임시폴더가 지워지기 전에 ``call``(failures.Call)이 입력을 잡아 둔다(재현용 보존).
     ``(fn의 결과, 저장 파일명, 시작 시각(monotonic))``을 돌려준다.
     """
     filename = Path(image.filename or "upload").name
@@ -845,6 +855,9 @@ async def process_image(request: Request, image: UploadFile, fn, *args, multipag
                 if await request.is_disconnected(): cancel.set()
                 await asyncio.wait({task}, timeout=1)
             return task.result(), filename, started
+        except Exception:
+            if call: call.snapshot(target)
+            raise
         finally:
             INFLIGHT -= 1
             with _inflight_lock: INFLIGHT_EVENTS.discard(cancel)
@@ -881,19 +894,17 @@ async def verify_result(request: Request, image: UploadFile = File(...), ao_resu
     def run_verify(path, cancel=None):
         return verify.run(path, ao, doc_type, hints, cancel=cancel, deadline=deadline,
                           auto_reprocess=auto_reprocess)
+    call = failures.Call("verify", doc_type, remaining_ms, deadline, {"ao_result": ao_result, "doc_type": doc_type, "hint_paths": hint_paths,
+                                                                      "remaining_ms": remaining_ms, "auto_reprocess": auto_reprocess})
     try:
-        result, filename, started = await process_image(request, image, run_verify)
+        with latency.track() as stages:
+            result, filename, started = await process_image(request, image, run_verify, call=call)
     except verify.Cancelled as exc:
         return cancelled_response(exc, "verify", doc_type)
     except HTTPException:  # process_image가 낸 415·413·422(다중 페이지)는 그대로 올린다
         raise
-    except ValueError as exc:  # ParseError 포함
-        raise HTTPException(422, str(exc)) from exc
-    except TimeoutError as exc:
-        raise HTTPException(408, str(exc)) from exc
     except Exception as exc:
-        logger.exception("verify failed: doc_type=%s", doc_type)
-        raise HTTPException(502, f"교차검증에 실패했습니다: {exc}") from exc
+        raise call.fail(exc, stages, "교차검증") from exc
     block = verify.document(result)["verify"]
     block["elapsed_ms"] = round((time.monotonic() - started) * 1000)
     logger.info("verify finished: filename=%s counts=%s elapsed_ms=%d", filename, block["counts"], block["elapsed_ms"])
@@ -917,6 +928,8 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
     deadline = reprocess.deadline_for(remaining_ms)
     if time.monotonic() >= deadline:
         raise HTTPException(408, "요청 처리 예산이 만료되었습니다.")
+    call = failures.Call("read", doc_type, remaining_ms, deadline, {"doc_type": doc_type, "keys": keys, "row_filter": row_filter,
+                                                                    "remaining_ms": remaining_ms, "auto_reprocess": auto_reprocess})
     try:
         doc_type = verify.resolve_doc_type(doc_type)
         wanted = json.loads(keys) if keys else None
@@ -952,18 +965,13 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
 
     try:
         with latency.track() as stages:
-            (fields, groundings, quality, recovery), filename, started = await process_image(request, image, run_read, multipage=True)
+            (fields, groundings, quality, recovery), filename, started = await process_image(request, image, run_read, multipage=True, call=call)
     except verify.Cancelled as exc:
         return cancelled_response(exc, "read", doc_type)
     except HTTPException:  # process_image가 낸 415·413·422(다중 페이지)는 그대로 올린다
         raise
-    except ValueError as exc:  # ParseError 포함
-        raise HTTPException(422, str(exc)) from exc
-    except TimeoutError as exc:
-        raise HTTPException(408, str(exc)) from exc
     except Exception as exc:
-        logger.exception("read failed: doc_type=%s", doc_type)
-        raise HTTPException(502, f"읽기에 실패했습니다: {exc}") from exc
+        raise call.fail(exc, stages, "읽기") from exc
     fields, quality = doctypes.public_fields(doc_type, fields), doctypes.public_quality(doc_type, quality)  # 내부 열(투여량) 제외
     if only is not None:
         fields = {key: value for key, value in fields.items() if key in only}
@@ -975,7 +983,7 @@ async def read_document(request: Request, image: UploadFile = File(...), doc_typ
                 " ".join(f"{name}={stages.get(name, 0)}" for name in (*READ_STAGES, "gap_ms", *DETAIL_STAGES))
                 + "".join(f" {name}={stages[name]}" for name in TABLE_STAGES if name in stages))
     return {"doc_type": doc_type, "fields": fields, "groundings": groundings, "field_quality": quality,
-            "elapsed_ms": elapsed_ms, "reprocess": recovery, "diagnostics": dict(stages)}
+            "elapsed_ms": elapsed_ms, "reprocess": recovery, "diagnostics": diagnostics(stages)}
 
 
 @app.post("/api/read-options", dependencies=[Depends(auth)])
@@ -995,19 +1003,19 @@ async def read_options(request: Request, image: UploadFile = File(...), doc_type
     def run_options(path, cancel=None):
         return verify.read_options(path, doc_type, deadline=deadline, cancel=cancel)
 
+    call = failures.Call("read-options", doc_type, remaining_ms, deadline, {"doc_type": doc_type, "remaining_ms": remaining_ms})
     try:
         with latency.track() as stages:
-            options, filename, started = await process_image(request, image, run_options)
+            options, filename, started = await process_image(request, image, run_options, call=call)
     except verify.Cancelled as exc:
         return cancelled_response(exc, "read-options", doc_type)
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("read-options failed: doc_type=%s", doc_type)
-        raise HTTPException(502, f"선택지 판독에 실패했습니다: {exc}") from exc
+        raise call.fail(exc, stages, "선택지 판독") from exc
     elapsed_ms = round((time.monotonic() - started) * 1000)
     logger.info("read-options finished: filename=%s doc_type=%s elapsed_ms=%d", filename, doc_type, elapsed_ms)
-    return {"doc_type": doc_type, "options": options, "elapsed_ms": elapsed_ms, "diagnostics": dict(stages)}
+    return {"doc_type": doc_type, "options": options, "elapsed_ms": elapsed_ms, "diagnostics": diagnostics(stages)}
 
 
 @app.post("/api/admin/cancel-all", dependencies=[Depends(auth)])

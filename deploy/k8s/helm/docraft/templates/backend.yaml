@@ -61,8 +61,8 @@ spec:
           command: ["sh", "-c", "cp -r /opt/master/. /master/"]
           {{- include "dft.containerSecurity" (dict "readOnly" false) | nindent 10 }}
           resources:
-            requests: { cpu: 100m, memory: 128Mi }
-            limits:   { memory: 512Mi }
+            requests: { cpu: 100m, memory: 128Mi, ephemeral-storage: 64Mi }
+            limits:   { memory: 512Mi, ephemeral-storage: 1Gi }
           volumeMounts:
             - { name: master-source, mountPath: /master }
       {{- end }}
@@ -97,9 +97,9 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim: { claimName: {{ $fn }}-data }
-        - { name: tmp, emptyDir: {} }
+        - { name: tmp, emptyDir: { sizeLimit: {{ .Values.ephemeral.tmp }} } }
         {{- if .Values.master.sourceImage.repository }}
-        - { name: master-source, emptyDir: {} }
+        - { name: master-source, emptyDir: { sizeLimit: {{ .Values.ephemeral.masterSource }} } }
         {{- end }}
 {{- if .Values.worker.enabled }}
 ---
@@ -134,8 +134,8 @@ spec:
           command: ["sh", "-c", "cp -r /opt/master/. /master/"]
           {{- include "dft.containerSecurity" (dict "readOnly" false) | nindent 10 }}
           resources:
-            requests: { cpu: 100m, memory: 128Mi }
-            limits:   { memory: 512Mi }
+            requests: { cpu: 100m, memory: 128Mi, ephemeral-storage: 64Mi }
+            limits:   { memory: 512Mi, ephemeral-storage: 1Gi }
           volumeMounts:
             - { name: master-source, mountPath: /master }
       {{- end }}
@@ -156,8 +156,8 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim: { claimName: {{ $fn }}-data }
-        - { name: tmp, emptyDir: {} }
+        - { name: tmp, emptyDir: { sizeLimit: {{ .Values.ephemeral.tmp }} } }
         {{- if .Values.master.sourceImage.repository }}
-        - { name: master-source, emptyDir: {} }
+        - { name: master-source, emptyDir: { sizeLimit: {{ .Values.ephemeral.masterSource }} } }
         {{- end }}
 {{- end }}

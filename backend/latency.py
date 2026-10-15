@@ -46,13 +46,34 @@ def http_client(retries=0):
     return httpx.Client(transport=_RetryStaleTransport(retries=retries, limits=limits))
 
 
+class Timeout(TimeoutError):
+    """시간 초과의 종류(``kind``)와 적용한 timeout(초)을 싣는다 — 종류가 없는 TimeoutError는 ``deadline``(요청 시한 소진)으로 본다.
+    call_timeout(호출 한 번의 timeout) | deadline(요청 시한) | slot_wait(OCR·VLM 자리 대기) | shared_wait(같은 페이지 결과 대기) |
+    connect_timeout | pool_timeout."""
+
+    def __init__(self, message, kind="deadline", timeout_s=None):
+        super().__init__(message)
+        self.kind, self.timeout_s = kind, timeout_s
+
+
+@contextmanager
+def remote_call(timeout, deadline=None):
+    """원격 호출 안의 httpx 시간 초과를 ``Timeout``으로 바꾼다(httpx.ReadTimeout은 TimeoutError가 아니다). 요청 ``deadline``이 이미 지났거나
+    1초 안이면 호출 timeout이 시한으로 잘린 것이라 종류는 deadline이다."""
+    try:
+        yield
+    except httpx.TimeoutException as exc:
+        kind = "deadline" if deadline is not None and time.monotonic() >= deadline - 1 else {httpx.ConnectTimeout: "connect_timeout", httpx.PoolTimeout: "pool_timeout"}.get(type(exc), "call_timeout")
+        raise Timeout(f"{type(exc).__name__} after {timeout:.1f}s", kind, round(timeout, 1)) from exc
+
+
 def remaining(deadline):
     """시한까지 남은 초(시한이 없으면 None). 이미 지났으면 TimeoutError."""
     if deadline is None:
         return None
     left = deadline - time.monotonic()
     if left <= 0:
-        raise TimeoutError("request deadline exceeded")
+        raise Timeout("request deadline exceeded")
     return left
 
 
@@ -84,11 +105,32 @@ def note(name, value, add=True):
                 stats[name] = stats.get(name, 0) + value if add else value
 
 
+def tick(name):
+    """``track`` 중이면 ``name`` 카운터를 1 올린 새 값(이 요청의 몇 번째인지), 아니면 None."""
+    stats = _stats.get()
+    if stats is not None:
+        with _lock:
+            stats[name] = stats.get(name, 0) + 1
+            return stats[name]
+
+
+def keep(name, item, limit=20):
+    """``track`` 중이면 ``name`` 목록에 ``item``을 덧붙인다(앞쪽부터 ``limit``개까지) — 실패한 요청의 부분 응답을 남길 때 쓴다."""
+    stats = _stats.get()
+    if stats is not None:
+        with _lock:
+            items = stats.setdefault(name, [])
+            if len(items) < limit:
+                items.append(item)
+
 @contextmanager
 def timed(name):
     started = time.monotonic()
     try:
         yield
+    except BaseException:
+        note("_stage", name.removesuffix("_ms"), add=None)  # 예외가 처음 지나는(가장 안쪽) 단계 — 실패 한 줄의 stage
+        raise
     finally:
         note(name, round((time.monotonic() - started) * 1000))
 
@@ -129,7 +171,7 @@ def _slot(name, default, deadline, stage):
     acquired = gate.acquire(timeout=remaining(deadline))
     note(f"{stage}_wait_ms", round((time.monotonic() - started) * 1000))
     if not acquired:
-        raise TimeoutError(f"{stage} queue deadline exceeded")
+        raise Timeout(f"{stage} queue deadline exceeded", "slot_wait")
     try:
         with timed(f"{stage}_ms"):
             yield
@@ -175,7 +217,7 @@ def shared(key, compute, deadline=None):
         if leader:
             break
         if not flight.wait(remaining(deadline)):
-            raise TimeoutError("shared read deadline exceeded")
+            raise Timeout("shared read deadline exceeded", "shared_wait")
     try:
         value = compute()
         with _lock:

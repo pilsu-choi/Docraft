@@ -21,7 +21,8 @@ from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit, request_id
 from . import band as bandkit, doctypes, print_register, rules, table_layout
-from .latency import http_client, note, parallel, provider_slot, remaining, spawn, timed
+from .failures import ProviderError, classify
+from .latency import Timeout, http_client, keep, note, parallel, provider_slot, remaining, remote_call, spawn, tick, timed
 
 logger = logging.getLogger(__name__)
 
@@ -197,46 +198,65 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_to
     if settings["repetition_penalty"] is not None:
         body["repetition_penalty"] = settings["repetition_penalty"]
     prompt_chars = sum(len(_message_text(m.get("content"))) for m in messages)
-    images = sum(1 for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url")
-    logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", model or settings["model"], len(messages), images, prompt_chars)
+    urls = [part["image_url"]["url"] for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url"]
+    rid, seq = request_id(), tick("_vlm_seq")
+    call_id = f"{rid}#{seq}" if seq else rid
+    summary = f"call={call_id} model={model or settings['model']} images={len(urls)}/{sum(map(len, urls)) // 1024}KB prompt_chars={prompt_chars} timeout_s={timeout:.1f}"
+    logger.debug("provider call: %s", summary)
     started = time.monotonic()
-    with provider_slot(None if timeout_cap is None else started + timeout_cap), \
-            http_client(0 if timeout_cap is not None else 2).stream("POST", f"{settings['base_url']}/chat/completions", timeout=timeout, headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body) as response:
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            logger.error("provider HTTP error: status=%s elapsed=%.2fs", response.status_code, time.monotonic() - started)
-            raise RuntimeError(f"AI provider 요청 실패 (HTTP {response.status_code})") from exc
-        # httpx timeout은 바이트 사이 간격만 잰다. OpenRouter는 응답 전까지 keep-alive 공백을 흘려 보내므로 시한은 직접 잰다.
-        raw = b""
-        for chunk in response.iter_bytes():
-            raw += chunk
-            if timeout_cap is not None and time.monotonic() - started > max(0.1, timeout_cap):
-                raise TimeoutError("AI provider 응답이 요청 시한을 넘었습니다.")
-        elapsed = time.monotonic() - started
-        note("vlm_calls", 1)
-        try:
-            data = json.loads(raw)
-            for key, stage in (("prompt_tokens", "vlm_prompt_tokens"), ("completion_tokens", "vlm_completion_tokens")):
-                if isinstance((data.get("usage") or {}).get(key), int):  # 서버가 usage를 안 주면 기록하지 않는다
-                    note(stage, data["usage"][key])
-            choice = data["choices"][0]
-            finish_reason = choice.get("finish_reason")
-            if finish_reason == "length":
-                logger.warning("provider response truncated: finish_reason=length elapsed=%.2fs", elapsed)
-                raise RuntimeError("AI provider 응답이 토큰 제한으로 잘렸습니다.")
-            content = choice["message"]["content"].strip()
-        except (KeyError, IndexError, TypeError, AttributeError) as exc:
-            logger.error("provider response format error: %s elapsed=%.2fs", exc, elapsed)
-            raise RuntimeError("AI provider 응답 형식을 해석할 수 없습니다.") from exc
-        logger.debug("provider response: elapsed=%.2fs finish_reason=%s len=%d", elapsed, finish_reason, len(content))
-        if content.startswith("```"):
-            content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.I)
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            logger.error("provider json decode failed: len=%d finish_reason=%s tail=%r", len(content), finish_reason, content[-200:])
-            raise
+    deadline = None if timeout_cap is None else started + timeout_cap
+    upstream = None
+    try:
+        with provider_slot(deadline), \
+                remote_call(timeout, deadline), \
+                http_client(0 if timeout_cap is not None else 2).stream(
+                    "POST", f"{settings['base_url']}/chat/completions", timeout=timeout, json=body,
+                    headers={"Authorization": f"Bearer {settings['api_key']}", **({"X-Request-ID": call_id} if rid != "-" else {})}) as response:
+            upstream = response.headers.get("x-upstream-host")  # Envoy 라우터가 응답한 vLLM 파드(ip:port)를 실어 준다
+            if upstream:
+                note("_upstream", upstream, add=False)
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise ProviderError(f"AI provider 요청 실패 (HTTP {response.status_code})", f"http_{response.status_code}") from exc
+            # httpx timeout은 바이트 사이 간격만 잰다. OpenRouter는 응답 전까지 keep-alive 공백을 흘려 보내므로 시한은 직접 잰다.
+            raw = b""
+            for chunk in response.iter_bytes():
+                raw += chunk
+                if timeout_cap is not None and time.monotonic() - started > max(0.1, timeout_cap):
+                    raise Timeout("AI provider 응답이 요청 시한을 넘었습니다.", "deadline", round(timeout_cap, 1))
+            elapsed = time.monotonic() - started
+            note("vlm_calls", 1)
+            keep("_vlm_replies", {"call": call_id, "elapsed_ms": round(elapsed * 1000), "upstream": upstream, "raw": raw.decode("utf-8", "replace")[:20000]})
+            finish_reason = completion_tokens = None
+            try:
+                data = json.loads(raw)
+                for key, stage in (("prompt_tokens", "vlm_prompt_tokens"), ("completion_tokens", "vlm_completion_tokens")):
+                    if isinstance((data.get("usage") or {}).get(key), int):  # 서버가 usage를 안 주면 기록하지 않는다
+                        note(stage, data["usage"][key])
+                completion_tokens = (data.get("usage") or {}).get("completion_tokens")
+                choice = data["choices"][0]
+                finish_reason = choice.get("finish_reason")
+                if finish_reason == "length":
+                    raise ProviderError("AI provider 응답이 토큰 제한으로 잘렸습니다.", "truncated")
+                content = choice["message"]["content"].strip()
+            except (KeyError, IndexError, TypeError, AttributeError) as exc:
+                raise ProviderError("AI provider 응답 형식을 해석할 수 없습니다.", "format") from exc
+    except Exception as exc:
+        # 호출 하나의 실패(시간 초과·HTTP 오류·잘림·형식)를 INFO 이상으로 한 줄 남긴다. 요청 전체의 한 줄은 failures.Call.fail 몫이다.
+        logger.warning("vlm call failed: %s elapsed=%.1fs kind=%s upstream=%s %s: %s", summary, time.monotonic() - started,
+                       classify(exc)[1], upstream, type(exc).__name__, exc)
+        raise
+    slow = elapsed * 1000 > limit("VLM_SLOW_MS", 15000, 3_600_000)
+    logger.log(logging.INFO if slow else logging.DEBUG, "vlm call %s: %s elapsed=%.1fs finish_reason=%s completion_tokens=%s upstream=%s",
+               "slow" if slow else "done", summary, elapsed, finish_reason, completion_tokens, upstream)
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.I)
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        logger.error("provider json decode failed: len=%d finish_reason=%s tail=%r", len(content), finish_reason, content[-200:])
+        raise
 
 
 TABLE_CELL = re.compile(r"(<t[dh][^>]*>)(.*?)(</t[dh]>)", re.S)
