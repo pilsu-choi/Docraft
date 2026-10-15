@@ -10,7 +10,7 @@ import threading
 import time
 from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from copy import deepcopy
 from functools import lru_cache
 
@@ -115,21 +115,23 @@ def tick(name):
 
 
 def keep(name, item, limit=20):
-    """``track`` 중이면 ``name`` 목록에 ``item``을 덧붙인다(앞쪽부터 ``limit``개까지) — 실패한 요청의 부분 응답을 남길 때 쓴다."""
+    """``track`` 중이면 ``name`` 목록에 ``item``을 덧붙인다(마지막 ``limit``개만 남긴다) — 실패한 요청의 부분 응답을 남길 때 쓴다."""
     stats = _stats.get()
     if stats is not None:
         with _lock:
             items = stats.setdefault(name, [])
-            if len(items) < limit:
-                items.append(item)
+            items.append(item)
+            del items[:-limit]
 
 @contextmanager
 def timed(name):
     started = time.monotonic()
     try:
         yield
-    except BaseException:
-        note("_stage", name.removesuffix("_ms"), add=None)  # 예외가 처음 지나는(가장 안쪽) 단계 — 실패 한 줄의 stage
+    except BaseException as exc:
+        if not hasattr(exc, "docraft_stage"):  # 단계를 요청 집계가 아닌 예외에 붙인다 — 안쪽에서 복구된 예외가 나중의 진짜 실패 stage 를 오염시키지 않는다
+            with suppress(AttributeError):  # __slots__ 예외도 원래 오류를 가리지 않는다
+                exc.docraft_stage = name.removesuffix("_ms")  # 처음 지나는(가장 안쪽) 단계
         raise
     finally:
         note(name, round((time.monotonic() - started) * 1000))

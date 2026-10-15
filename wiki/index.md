@@ -3,6 +3,7 @@ okf_version: "0.2"
 ---
 
 - [backend·vLLM 라우터 2파드 고가용성](2026-10-15-ha-replicas.md) — 동시성 합계 나눔·RollingUpdate·기동 작업 경합 점검
+- [릴리스 전 리뷰 수정](2026-10-15-review-fixes.md) — ephemeral requests 축소·failed 폴더명·저장 비동기·stage 오염·VLM 응답 마지막 20개
 - [판독 실패 진단성 개선](2026-10-15-failure-observability.md) — 타임아웃 408 통일·실패 한 줄·VLM 호출 rid/upstream·실패 입력 보존/replay·Envoy 로그·ephemeral-storage 한도
 - [진료비영수증 고객 오류 보고(10.14) 원인·대응](2026-10-14-receipt-customer-errors-cause.md) — 1·2차 보고 22사례 유형 P1~P8, 인쇄 행 이름·소계·빈 금액 0·보충 채택 규칙·인쇄 행 위치 대조, 97.01→97.14%(상위 wiki 동기화)
 

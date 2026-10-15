@@ -125,10 +125,15 @@ def test_diagnostics_hide_internal_notes(monkeypatch, png):  # noqa: F811
 @pytest.fixture
 def failed_dir(monkeypatch, tmp_path):
     monkeypatch.setattr(failures, "FAILED", tmp_path / "failed")
+    monkeypatch.setattr(failures, "_pruned", float("-inf"))
     return tmp_path / "failed"
 
 
-def fail_read(monkeypatch, tmp_path, exc=latency.Timeout("w", "slot_wait")):
+def flush_saves():
+    failures._saver.submit(lambda: None).result()
+
+
+def fail_read(monkeypatch, tmp_path, exc=latency.Timeout("w", "slot_wait"), rid="job/1:a b"):
     def boom(*args, **kwargs):
         latency.keep("_vlm_replies", {"call": "r#1", "raw": "{\"partial\": true}"})
         raise exc
@@ -137,8 +142,10 @@ def fail_read(monkeypatch, tmp_path, exc=latency.Timeout("w", "slot_wait")):
     monkeypatch.setattr(verify, "read", boom)
     path = _image(tmp_path)
     with open(path, "rb") as handle:
-        return client.post("/api/read", headers={"X-Request-ID": "job/1:a b"}, files={"image": (path.name, handle, "image/png")},
-                           data={"doc_type": "진단서", "keys": json.dumps(["진단일"], ensure_ascii=False), "remaining_ms": "5000"})
+        response = client.post("/api/read", headers={"X-Request-ID": rid}, files={"image": (path.name, handle, "image/png")},
+                               data={"doc_type": "진단서", "keys": json.dumps(["진단일"], ensure_ascii=False), "remaining_ms": "5000"})
+    flush_saves()
+    return response
 
 
 def test_failed_read_keeps_inputs_meta_and_partial_replies(monkeypatch, tmp_path, failed_dir):
@@ -150,6 +157,52 @@ def test_failed_read_keeps_inputs_meta_and_partial_replies(monkeypatch, tmp_path
     assert (folder / "input.png").read_bytes() == (tmp_path / "scan.png").read_bytes()
     assert meta["params"]["keys"] == '["진단일"]' and meta["params"]["remaining_ms"] == 5000 and meta["kind"] == "slot_wait" and "kind=slot_wait" in meta["line"]
     assert json.loads((folder / "vlm_replies.json").read_text(encoding="utf-8"))[0]["raw"] == '{"partial": true}'
+
+
+@pytest.mark.parametrize("rid", [".", "..", "...", "_._"])
+def test_dot_only_request_ids_never_become_the_folder_name(monkeypatch, tmp_path, failed_dir, rid):
+    assert fail_read(monkeypatch, tmp_path, rid=rid).status_code == 408
+
+    folder = next(failed_dir.glob("*/*"))
+    assert folder.parent.parent == failed_dir and folder.name.startswith("norid-") and (folder / "input.png").exists()
+
+
+def test_same_request_id_failures_keep_separate_folders(monkeypatch, tmp_path, failed_dir):
+    for _ in range(3):  # 하네스 rid(job.txn.doc)는 페이지·재시도마다 같다
+        fail_read(monkeypatch, tmp_path, rid="job.1.doc")
+
+    folders = list(failed_dir.glob("*/*"))
+    assert len(folders) == 3 and all(f.name.startswith("job.1.doc-") for f in folders)
+
+
+def test_fail_returns_before_the_save_and_the_save_still_happens(monkeypatch, tmp_path, failed_dir):
+    import threading
+
+    gate, started = threading.Event(), threading.Event()
+    real = failures.Call._save
+
+    def slow(self, *args):
+        started.set()
+        gate.wait(5)
+        real(self, *args)
+
+    monkeypatch.setattr(failures.Call, "_save", slow)
+    call = failures.Call("read", None, None, time.monotonic() + 5, upload=(".png", b"x"))
+    began = time.monotonic()
+    error = call.fail(RuntimeError("boom"), {}, "읽기")
+    assert time.monotonic() - began < 0.5 and error.status_code == 502 and not failed_dir.exists()
+    gate.set()
+    flush_saves()
+    assert (next(failed_dir.glob("*/*")) / "input.png").read_bytes() == b"x"
+
+
+def test_prune_runs_at_most_once_a_minute(monkeypatch, tmp_path, failed_dir):
+    runs = []
+    monkeypatch.setattr(failures, "prune", lambda: runs.append(1))
+    for _ in range(3):
+        fail_read(monkeypatch, tmp_path)
+
+    assert len(runs) == 1
 
 
 def test_keeping_is_off_at_zero_days(monkeypatch, tmp_path, failed_dir):
@@ -293,6 +346,30 @@ def test_every_container_has_ephemeral_storage_and_every_emptydir_a_size_limit(r
                 assert "ephemeral-storage" in container["resources"][side], (name, container["name"], side)
         for volume in spec.get("volumes", []):
             assert "emptyDir" not in volume or "sizeLimit" in volume["emptyDir"], (name, volume["name"])
+
+
+EPHEMERAL_REQUEST_BUDGET_GI = 6  # 3장 replicas 프로파일의 ephemeral-storage requests 합 상한 — 노드 allocatable(고객사 ~38GB)에 걸려 Pending 되지 않게
+
+
+def gi(quantity):
+    return float(quantity[:-2]) * {"Gi": 1, "Mi": 1 / 1024}[quantity[-2:]]
+
+
+def test_ephemeral_storage_requests_of_a_three_card_profile_stay_within_budget():
+    if not shutil.which("helm"):
+        pytest.skip("helm 없음")
+    out = subprocess.run(["helm", "template", "t", str(CHART), "--set", "vllmVlm.enabled=true", "--set", "vllmVlm.parallel=replicas",
+                          "--set", "vllmVlm.gpuCount=3", "--set", "paddleocrVl.enabled=true", "--set", "paddleocrVl.apiReplicas=3",
+                          "--set", "paddleocrLines.enabled=true", "--set", "frontend.enabled=true", "--set", "worker.enabled=true",
+                          "--set", "backend.replicas=2", "--set", "master.sourceImage.repository=m", "--set", "master.sourceImage.tag=1"],
+                         check=True, capture_output=True, text=True).stdout
+    total = 0
+    for doc in (d for d in yaml.safe_load_all(out) if d and d["kind"] == "Deployment"):
+        spec = doc["spec"]["template"]["spec"]
+        request = lambda c: gi(c["resources"]["requests"]["ephemeral-storage"])
+        pod = max(sum(map(request, spec["containers"])), *map(request, spec.get("initContainers", [])), 0)  # 파드 유효 request = max(init, 컨테이너 합)
+        total += pod * doc["spec"].get("replicas", 1)
+    assert total <= EPHEMERAL_REQUEST_BUDGET_GI, total
 
 
 def test_vllm_keeps_a_high_ephemeral_limit_for_compile_caches(rendered):
