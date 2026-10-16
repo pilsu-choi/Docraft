@@ -591,3 +591,7 @@
 - **Creation** (2026-10-14): [2026-10-14-short-keys-pilot.md](2026-10-14-short-keys-pilot.md) — SHORT_KEYS 파일럿·45건 측정·기본 켬 dev 반영, 상위 wiki에서 동기화.
 - **Creation** (2026-10-14): [고객 AO 추출 항목 변경 대응](2026-10-14-ao-field-change-1014.md) — 세부내역서 투여량 제거·선택진료료이외총액, 진단서 4종 입퇴원일자 배열. harness 7318fd2·Docraft 484fc3b dev 병합(미push), 세부 정답지 200건 수정, make_report.py 별칭.
 - **Creation** (2026-10-14): [진료비영수증 고객 오류 보고 원인·대응](2026-10-14-receipt-customer-errors-cause.md) — 상위 wiki 동기화.
+- **Creation** (2026-10-15): [영수증 같은 인쇄 행 판정 통일·인쇄명 사전 우선](2026-10-15-receipt-row-identity.md) — 하네스·상위 wiki 동기화.
+- **Update** (2026-10-15): [영수증 같은 인쇄 행 판정 통일·AO 중복 행 정리](2026-10-15-receipt-row-identity.md) — 혈액성분제료 사전 추가(사용자 결정).
+- **Update** (2026-10-15): [영수증 같은 인쇄 행 판정 통일·AO 중복 행 정리](2026-10-15-receipt-row-identity.md) — 정답지 인쇄명 6개 사전 추가, 증명료 제외, Kakao 정답지 수정, 시행령 문구 결정 대기.
+- **Update** (2026-10-15): [영수증 같은 인쇄 행 판정 통일·AO 중복 행 정리](2026-10-15-receipt-row-identity.md) — 정답지 시행령 문구 6건 → 선별급여(사용자 결정).
