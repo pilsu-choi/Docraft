@@ -61,3 +61,15 @@ status: active
 
 - harness `7f086d0`, `49676e1`, `c4496cc`, `e160979` (브랜치 `fix/receipt-row-identity`, dev 미병합·미push)
 - Docraft `c9e0740`, `63d235a` (브랜치 `fix/receipt-printed-name`, 워크트리 `.worktrees/receipt-printed-name`, dev 미병합·미push) — `rules._item` 사전 우선, 공용 yaml 동일. `tests/test_rules.py` 489 통과.
+
+## dev 병합 (2026-10-16)
+
+- 브랜치·워크트리: `fix/receipt-row-identity`(harness)·`fix/receipt-printed-name`(Docraft), 각 `.worktrees/` — 병합 후 정리.
+- 최신 dev(harness `a00e35f`·Docraft `fe9bb38`)를 먼저 받아 충돌 해결:
+  - harness `parser_fill.py`: `__all__`에 `parsed_cells`(dev)·`printed_rows`(브랜치)를 함께 둠. `printed_rows`는 dev에서 머리글 판정을 모은 `_item_tables`를 쓰도록 맞춤(브랜치의 따로 쓴 머리글 판정 제거).
+  - Docraft `tests/test_grounding_cache.py`: 기억 전 구현을 옮긴 기준 함수 `reference_item`에 인쇄명 사전 우선 단계가 빠져 9건 실패 → 같은 단계 추가(사전 우선은 사용자 결정 사항).
+- 검증(로컬):
+  - harness 빠른 회귀: 2886 통과, 실패 21. 실패 21건은 origin/dev에서도 같은 목록(로컬 샘플 폴더의 입퇴원·수술확인서 JSON 2건 — 환경 문제).
+  - Docraft 전체: 4239 통과, 실패 0(compose Postgres). dev 4235 통과.
+  - 공유 `receipt_items.yaml` 두 저장소 동일.
+- 결과: harness dev `d5b9c21`, Docraft dev `f6ee2fc` push. installer 고정 커밋은 아직 `a00e35f`·`fe9bb38` — 다음 앱 번들에서 올린다. AWS 회귀는 생략(사용자 즉시 반영 요청).
