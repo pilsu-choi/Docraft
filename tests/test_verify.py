@@ -28,6 +28,7 @@ def test_judge_caps_provider_call_to_the_remaining_request_budget(monkeypatch):
 
     assert verify.judge("scan.png", "진단서", {}, deadline=time.monotonic() + 5) == {}
     assert seen[0]["timeout"] == 300 and 0 < seen[0]["timeout_cap"] <= 5
+    assert seen[0]["max_tokens"] == engine._echo_cap("{}")  # 판정 응답도 받은 분쟁 크기만큼으로 막는다
 
     with pytest.raises(TimeoutError):
         verify.judge("scan.png", "진단서", {}, deadline=time.monotonic() - 1)

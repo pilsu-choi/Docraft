@@ -11,9 +11,14 @@ data:
   LOG_LEVEL: {{ .Values.backend.logLevel | quote }}
   # k8s 에서는 컨테이너 stdout 이 로그 수집 대상이다 — 파일 기록은 끈다(backend/config.py LOG_FILE="").
   LOG_FILE: ""
+  # 실패한 /api/read* 입력 보존(PVC /data/failed — 고객 문서가 클러스터 밖으로 나가지 않는다). 0 이면 보존 안 함.
+  FAILED_KEEP_DAYS: {{ .Values.backend.failedKeepDays | quote }}
+  FAILED_MAX_MB: {{ .Values.backend.failedMaxMb | quote }}
+  # 이보다 오래 걸린 VLM 호출은 INFO 로 한 줄 남는다(밀리초).
+  VLM_SLOW_MS: {{ .Values.backend.vlmSlowMs | quote }}
   QUEUE_BACKEND: {{ .Values.queue.backend | quote }}
   QUEUE_NAME: {{ .Values.queue.name | quote }}
-  QUEUE_CONCURRENCY: {{ .Values.queue.concurrency | quote }}
+  QUEUE_CONCURRENCY: {{ include "dft.perPod" (dict "total" .Values.queue.concurrency "replicas" .Values.backend.replicas) | quote }}
   JOB_LEASE_SECONDS: {{ .Values.queue.leaseSeconds | quote }}
   AI_MODE: provider
   # vllmVlm(in-cluster) 이 이기고, 둘 다 껐으면 빈 값 — backend/config.py 의 ai_settings() 가 "미설정"으로
@@ -28,9 +33,10 @@ data:
   TABLE_EXTRACT: {{ .Values.backend.tableExtract | default "band" | quote }}
   BAND_DOC_TYPES: {{ .Values.backend.bandDocTypes | default "진료비영수증,세부내역서" | quote }}
   PRINT_REGISTER: {{ .Values.backend.printRegister | default false | quote }}
-  VLM_CONCURRENCY: {{ .Values.backend.vlmConcurrency | default 8 | quote }}
-  OCR_CONCURRENCY: {{ .Values.backend.ocrConcurrency | default 2 | quote }}
-  TABLE_PAGE_CONCURRENCY: {{ .Values.backend.tablePageConcurrency | default 4 | quote }}
+  # 동시성 값은 전체 합계다 — backend 복제본마다 나눈 몫(dft.perPod)이 들어가고, 앱이 uvicorn 프로세스(WEB_CONCURRENCY)마다 다시 나눈다.
+  VLM_CONCURRENCY: {{ include "dft.perPod" (dict "total" (.Values.backend.vlmConcurrency | default 8) "replicas" .Values.backend.replicas) | quote }}
+  OCR_CONCURRENCY: {{ include "dft.perPod" (dict "total" (.Values.backend.ocrConcurrency | default 2) "replicas" .Values.backend.replicas) | quote }}
+  TABLE_PAGE_CONCURRENCY: {{ include "dft.perPod" (dict "total" (.Values.backend.tablePageConcurrency | default 4) "replicas" .Values.backend.replicas) | quote }}
   BAND_PRELOCATE: {{ .Values.backend.bandPrelocate | quote }}
   BAND_SPECULATE: {{ .Values.backend.bandSpeculate | quote }}
   # uvicorn 프로세스 수(uvicorn 이 직접 읽는다). OCR·VLM 동시 호출 상한은 프로세스마다 나눈다(README WEB_CONCURRENCY).

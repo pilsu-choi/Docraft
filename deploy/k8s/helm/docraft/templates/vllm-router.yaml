@@ -1,0 +1,133 @@
+{{- if and .Values.vllmVlm.enabled (eq .Values.vllmVlm.parallel "replicas") }}
+{{- $fn := include "dft.fullname" . -}}
+{{- $r := .Values.vllmVlm.router -}}
+# =============================================================================
+# vLLM 라우터(Envoy) — parallel: replicas 에서 카드마다 뜬 vLLM 파드 앞에 선다.
+#   · least_request: 처리 중 요청이 가장 적은 파드로 보낸다(모든 요청이 여기를 지나므로 정확하다).
+#   · active health check(/health): 떨어진 파드를 뺀다. outlier detection: 연속 5xx·연결 실패 파드를 잠시 뺀다.
+#   · backend 는 연결을 재사용해도 요청마다 파드가 골라진다(Service 연결 단위 분산의 쏠림이 없다).
+# 시한은 backend(AI_TIMEOUT·요청 시한)가 정한다 — 여기서는 route timeout 을 끄고 오래 조용한 연결만 끊는다.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fn }}-vllm-router
+  labels: {{- include "dft.labels" . | nindent 4 }}
+data:
+  envoy.yaml: |
+    admin:
+      address: { socket_address: { address: 0.0.0.0, port_value: 9901 } }
+    static_resources:
+      listeners:
+        - name: vllm
+          address: { socket_address: { address: 0.0.0.0, port_value: 8000 } }
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: vllm
+                    request_timeout: 0s
+                    stream_idle_timeout: {{ $r.idleTimeoutSeconds }}s
+                    access_log:
+                      - name: envoy.access_loggers.stdout
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                          log_format:
+                            text_format_source:
+                              inline_string: "[%START_TIME%] %REQ(:METHOD)% %REQ(:PATH)% %RESPONSE_CODE% %RESPONSE_FLAGS% %DURATION%ms rid=%REQ(X-REQUEST-ID)% in=%BYTES_RECEIVED% out=%BYTES_SENT% try=%UPSTREAM_REQUEST_ATTEMPT_COUNT% upstream=%UPSTREAM_HOST% fail=%UPSTREAM_TRANSPORT_FAILURE_REASON%\n"
+                    route_config:
+                      virtual_hosts:
+                        - name: vllm
+                          domains: ["*"]
+                          routes:
+                            - match: { prefix: "/" }
+                              # 어느 vLLM 파드가 답했는지 backend 로그(upstream=)에 남기게 응답 헤더로 알려 준다. backend 는 호출마다
+                              # X-Request-ID(<rid>#<호출 번호>)를 보내므로 위 접근 로그의 rid= 와 backend 로그가 한 번에 맞는다.
+                              response_headers_to_add:
+                                - header: { key: x-upstream-host, value: "%UPSTREAM_REMOTE_ADDRESS%" }
+                                  append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                              route:
+                                cluster: vllm
+                                timeout: 0s
+                                idle_timeout: {{ $r.idleTimeoutSeconds }}s
+                                # 연결 단계 실패(파드가 막 내려감·아직 안 빠짐)만 다른 파드로 다시 보낸다 — 요청이 vLLM 에 닿기 전이라 중복 처리가 없다.
+                                retry_policy:
+                                  retry_on: connect-failure,refused-stream
+                                  num_retries: 2
+                                  retry_host_predicate: [{ name: envoy.retry_host_predicates.previous_hosts, typed_config: { "@type": type.googleapis.com/envoy.extensions.retry.host.previous_hosts.v3.PreviousHostsPredicate } }]
+                                  host_selection_retry_max_attempts: 3
+                    http_filters:
+                      - name: envoy.filters.http.router
+                        typed_config: { "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router }
+      clusters:
+        - name: vllm
+          type: STRICT_DNS
+          dns_refresh_rate: 5s
+          respect_dns_ttl: false
+          connect_timeout: 5s
+          lb_policy: LEAST_REQUEST
+          load_assignment:
+            cluster_name: vllm
+            endpoints:
+              - lb_endpoints:
+                  - endpoint: { address: { socket_address: { address: {{ $fn }}-vllm-vlm-pods, port_value: 8000 } } }
+          health_checks:
+            - timeout: 5s
+              interval: 10s
+              unhealthy_threshold: 3
+              healthy_threshold: 1
+              http_health_check: { path: /health }
+          outlier_detection:
+            consecutive_5xx: 5
+            consecutive_gateway_failure: 3
+            interval: 10s
+            base_ejection_time: 30s
+            max_ejection_percent: 66
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-vllm-router
+  labels: {{- include "dft.labels" . | nindent 4 }}
+spec:
+  replicas: {{ $r.replicas }}
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  selector:
+    matchLabels: {{- include "dft.selector" (dict "ctx" . "component" "vllm-router") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "dft.selector" (dict "ctx" . "component" "vllm-router") | nindent 8 }}
+      annotations:
+        checksum/envoy: {{ $r | toJson | sha256sum }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      enableServiceLinks: false
+      securityContext: { runAsNonRoot: true, runAsUser: 65532, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: envoy
+          image: {{ include "dft.image" (dict "ctx" . "name" "envoy") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/envoy"]
+          args: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+          ports:
+            - { name: http, containerPort: 8000 }
+            - { name: admin, containerPort: 9901 }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          readinessProbe: { httpGet: { path: /ready, port: admin }, periodSeconds: 5 }
+          livenessProbe:  { tcpSocket: { port: http }, periodSeconds: 20, failureThreshold: 3 }
+          resources: {{- toYaml $r.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /etc/envoy, readOnly: true }
+      volumes:
+        - name: config
+          configMap: { name: {{ $fn }}-vllm-router }
+{{- end }}

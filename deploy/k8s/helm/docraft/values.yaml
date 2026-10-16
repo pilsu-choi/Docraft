@@ -34,6 +34,8 @@ images:
   paddleocrVl:        { repository: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-vl,               tag: latest-nvidia-gpu-offline }
   # Qwen3-VL 서빙. harness와 같은 이미지·태그를 써서 반입 번들에 한 번만 싣는다.
   vllm:               { repository: vllm/vllm-openai, tag: v0.29.0 }
+  # vllmVlm.parallel: replicas 의 라우터(templates/vllm-router.yaml). CPU 만 쓴다.
+  envoy:              { repository: envoyproxy/envoy-distroless, tag: v1.35.0 }
 
 # ── 비밀값 ──────────────────────────────────────────────────────────────
 auth:
@@ -49,6 +51,9 @@ auth:
 
 # ── 백엔드(FastAPI) ────────────────────────────────────────────────────
 backend:
+  # 2 이상이면 파드 하나가 죽거나(OOMKilled 등) 재시작해도 서비스가 이어진다. 작업 상태는 Postgres(조건부 UPDATE)라 파드끼리
+  # 겹쳐 돌아도 안전하다. 아래 vlmConcurrency·ocrConcurrency·tablePageConcurrency 와 queue.concurrency 는 전체 합계이고
+  # 파드마다 올림 나눈 몫이 들어간다. resources 는 파드마다 적용된다.
   replicas: 1
   port: 8000
   service:
@@ -59,6 +64,12 @@ backend:
   # 콤마 구분 origin. 프론트엔드를 이 차트의 nginx(동일 오리진 프록시)로만 쓰면 비워도 된다.
   corsOrigins: ""
   logLevel: INFO
+  # 실패한 /api/read* 요청의 입력·실패 한 줄·받아 둔 VLM 응답을 PVC(/data/failed/<날짜>/<rid>/)에 보존해 재현에 쓴다.
+  # failedKeepDays 일이 지나거나 합계가 failedMaxMb 를 넘으면 오래된 것부터 지운다. 0 이면 보존하지 않는다(README 실패 입력 보존).
+  failedKeepDays: 7
+  failedMaxMb: 2048
+  # 이 시간(ms)보다 오래 걸린(또는 실패한) VLM 호출은 INFO 로 한 줄 남긴다. 평소 호출은 DEBUG.
+  vlmSlowMs: 15000
   aiVision: true
   aiReasoning: "off"
   # VLM 호출 한 번의 최대 대기(초). 느린 GPU 에서는 늘린다(L40S: 300 — 스키마 생성이 90초를 넘었다).
@@ -89,16 +100,16 @@ backend:
   # 여기 없는 설정을 더 넣을 때(backend/config.py 의 환경변수명 그대로)
   extraEnv: {}
   resources:
-    requests: { cpu: 250m, memory: 512Mi }
-    limits:   { memory: 2Gi }
+    requests: { cpu: 250m, memory: 512Mi, ephemeral-storage: 256Mi }
+    limits:   { memory: 2Gi, ephemeral-storage: 8Gi }
 
 # Celery 워커(선택). QUEUE_BACKEND=celery 일 때만 의미가 있다 — inline 이면 배포하지 않는다.
 worker:
   enabled: false
   replicas: 1
   resources:
-    requests: { cpu: 500m, memory: 1Gi }
-    limits:   { memory: 2Gi }
+    requests: { cpu: 500m, memory: 1Gi, ephemeral-storage: 256Mi }
+    limits:   { memory: 2Gi, ephemeral-storage: 8Gi }
 
 # 프론트엔드(nginx). 기본은 꺼짐 — 우산 차트나 별도 정적 호스팅을 쓸 수 있어 선택으로 둔다.
 frontend:
@@ -108,8 +119,8 @@ frontend:
     type: ClusterIP
     nodePort: ""
   resources:
-    requests: { cpu: 50m, memory: 64Mi }
-    limits:   { memory: 256Mi }
+    requests: { cpu: 50m, memory: 64Mi, ephemeral-storage: 64Mi }
+    limits:   { memory: 256Mi, ephemeral-storage: 1Gi }
 
 # ── 작업 큐 ─────────────────────────────────────────────────────────────
 queue:
@@ -146,6 +157,11 @@ externalRedis:
   url: ""
 
 # ── 스토리지 ────────────────────────────────────────────────────────────
+# emptyDir 크기 상한(노드 디스크가 차 다른 파드까지 퇴거되는 것을 막는다). 컨테이너 ephemeral-storage limits 와 별개로 볼륨마다 건다.
+ephemeral:
+  tmp: 2Gi            # backend·worker·frontend 의 /tmp(업로드 임시파일·PDF 렌더), frontend nginx 캐시
+  masterSource: 1Gi   # master.sourceImage 복사본(/master)
+
 persistence:
   storageClass: ""
   # backend·worker 가 함께 쓰는 /data(업로드 원본).
@@ -228,15 +244,15 @@ paddleocrVl:
   timeout: 600
   resources:
     vlmServer:
-      requests: { cpu: "1", memory: 4Gi }
-      limits:   { memory: 16Gi }
+      requests: { cpu: "1", memory: 4Gi, ephemeral-storage: 1Gi }
+      limits:   { memory: 16Gi, ephemeral-storage: 30Gi }   # 컨테이너 쓰기층(~/.paddlex·vLLM 컴파일 캐시·로그)
     # api 는 VLM 추론은 vlm-server 에 맡기지만, 그 안의 문서 방향·왜곡 보정·레이아웃 검출
     # (PP-DocLayoutV3 등)은 자체적으로 GPU 로 돈다 — pipeline_config_vllm.yaml 에 --device 지정이
     # 없어(paddleocr-lines 의 --device cpu 와 달리) CPU 전용 옵션이 아직 없다. 그대로 GPU 자원을
     # 요청한다(위 apiGpuResource 로 vlm-server 와 다른 MIG 조각을 줄 수 있다).
     api:
-      requests: { cpu: 500m, memory: 1Gi }
-      limits:   { memory: 4Gi }
+      requests: { cpu: 500m, memory: 1Gi, ephemeral-storage: 256Mi }
+      limits:   { memory: 4Gi, ephemeral-storage: 20Gi }
 
 # ── PP-OCRv5 줄 좌표 파서 (CPU 추론, GPU 드라이버만 주입) ───────────────
 paddleocrLines:
@@ -254,8 +270,8 @@ paddleocrLines:
   # 카드(또는 MIG 조각) 하나를 여전히 잡아야 한다(위 device 주석 참고).
   gpuResource: nvidia.com/gpu
   resources:
-    requests: { cpu: "1", memory: 2Gi }
-    limits:   { memory: 4Gi }
+    requests: { cpu: "1", memory: 2Gi, ephemeral-storage: 256Mi }
+    limits:   { memory: 4Gi, ephemeral-storage: 10Gi }   # 모델 캐시는 PVC/hostPath 라 세지 않는다
 
 # ── AI(VLM) 엔드포인트 ──────────────────────────────────────────────────
 # vllmVlm(아래, in-cluster vLLM)을 켜지 않고 외부 OpenAI 호환 VLM(별도 호스팅 vLLM, OpenRouter 등)을
@@ -281,9 +297,11 @@ vllmVlm:
   # 그대로 두거나 같이 조정).
   gpuCount: 1
   # 카드를 나누는 방식. tensor(기본) = 위 장수로 모델 한 벌을 나눠 띄운다(--tensor-parallel-size).
-  # data = 카드마다 모델을 한 벌씩 띄우고 vLLM 이 요청을 나눠 준다(--data-parallel-size, 주소는 하나 그대로).
-  # 한 장에 들어가는 모델(예: Qwen3.8-27B FP8 은 L40S 한 장)이면 data 가 처리량이 높다 — 벌끼리 통신하지 않는다.
-  # --max-num-seqs 는 벌마다 적용된다.
+  # data = 파드 하나에서 카드마다 모델을 한 벌씩 띄우고 vLLM 이 요청을 나눠 준다(--data-parallel-size).
+  # replicas = 카드마다 파드를 하나씩 띄우고(파드당 1장) Envoy 라우터(router)가 처리 중 요청이 적은 파드로 나눠 준다.
+  #   한 벌이 멈추거나 재시작해도 나머지 벌은 계속 받는다 — 운영 기본(2026-10-15 운영계 vLLM 지연 뒤 결정).
+  # 한 장에 들어가는 모델(예: Qwen3.8-27B FP8 은 L40S 한 장)이면 data·replicas 가 처리량이 높다 — 벌끼리 통신하지 않는다.
+  # --max-num-seqs·resources 는 벌(replicas 는 파드)마다 적용된다. 주소(Service -vllm-vlm)는 세 방식 모두 하나다.
   parallel: tensor
   # 쓸 GPU 카드 번호(쉼표 구분). **비우면(기본) device plugin 이 위 gpuCount 장을 준다.** 값을
   # 넣으면 device plugin 을 우회해 그 번호의 카드를 직접 붙인다 — 장수는 개수로 정해지고
@@ -301,9 +319,23 @@ vllmVlm:
   # Qwen3-VL 계열은 커스텀 모델 코드가 필요하다.
   extraArgs:
     - --trust-remote-code
+  # ephemeral-storage: 가중치는 hostPath/PVC 라 세지 않는다. 컨테이너 쓰기층(HOME 의 ~/.cache vllm·torch compile·triton 캐시, /tmp)과 로그가
+  # limits 로 잡힌다 — 컴파일 캐시가 수 GiB 가 될 수 있어 limits 는 넉넉히 둔다(너무 작으면 kubelet 이 파드를 퇴거시킨다).
   resources:
-    requests: { cpu: "2", memory: 16Gi }
-    limits:   { memory: 32Gi }
+    requests: { cpu: "2", memory: 16Gi, ephemeral-storage: 1Gi }
+    limits:   { memory: 32Gi, ephemeral-storage: 30Gi }
+  # 멈춤 감지(초, 0 이면 /health 만 본다) — 받은 요청이 있는데 처리한 토큰 수가 이 시간 동안 그대로면 그 파드를 재시작한다.
+  # 바쁘기만 한 엔진은 토큰이 늘어 걸리지 않는다. 판정까지 최대 이 값 + 90초(검사 30초 × 3회).
+  stallSeconds: 180
+  # parallel: replicas 의 Envoy 라우터.
+  router:
+    # 라우터는 상태가 없다 — 2 이상이면 한 파드가 죽어도 vLLM 호출이 이어진다(least_request 는 라우터마다 자기 연결 기준).
+    replicas: 1
+    # 응답 바이트가 이만큼 오지 않으면 연결을 끊는다(비스트리밍 응답은 다 만들 때까지 조용하다 — backend AI_TIMEOUT 보다 길게).
+    idleTimeoutSeconds: 900
+    resources:
+      requests: { cpu: 200m, memory: 64Mi, ephemeral-storage: 64Mi }
+      limits:   { memory: 512Mi, ephemeral-storage: 1Gi }   # 접근 로그(stdout)도 노드 디스크를 쓴다
 
 # 모든 파드에 공통으로 붙일 스케줄링 설정(gpu.* 와 별도로, GPU 파드에도 함께 병합된다)
 nodeSelector: {}

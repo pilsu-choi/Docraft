@@ -49,5 +49,5 @@ spec:
           sys.exit(1 if fails else 0)
       {{- include "dft.containerSecurity" (dict "readOnly" true) | nindent 6 }}
       resources:
-        requests: { cpu: 50m, memory: 64Mi }
-        limits:   { memory: 128Mi }
+        requests: { cpu: 50m, memory: 64Mi, ephemeral-storage: 16Mi }
+        limits:   { memory: 128Mi, ephemeral-storage: 64Mi }

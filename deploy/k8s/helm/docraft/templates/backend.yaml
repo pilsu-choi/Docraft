@@ -38,6 +38,8 @@ metadata:
   labels: {{- include "dft.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.backend.replicas }}
+  # 교체 중에도 한 파드는 계속 받는다(새 파드가 Ready 가 된 뒤에 옛 파드를 내린다).
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
   selector:
     matchLabels: {{- include "dft.selector" (dict "ctx" . "component" "backend") | nindent 6 }}
   template:
@@ -61,8 +63,8 @@ spec:
           command: ["sh", "-c", "cp -r /opt/master/. /master/"]
           {{- include "dft.containerSecurity" (dict "readOnly" false) | nindent 10 }}
           resources:
-            requests: { cpu: 100m, memory: 128Mi }
-            limits:   { memory: 512Mi }
+            requests: { cpu: 100m, memory: 128Mi, ephemeral-storage: 64Mi }
+            limits:   { memory: 512Mi, ephemeral-storage: 1Gi }
           volumeMounts:
             - { name: master-source, mountPath: /master }
       {{- end }}
@@ -97,9 +99,9 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim: { claimName: {{ $fn }}-data }
-        - { name: tmp, emptyDir: {} }
+        - { name: tmp, emptyDir: { sizeLimit: {{ .Values.ephemeral.tmp }} } }
         {{- if .Values.master.sourceImage.repository }}
-        - { name: master-source, emptyDir: {} }
+        - { name: master-source, emptyDir: { sizeLimit: {{ .Values.ephemeral.masterSource }} } }
         {{- end }}
 {{- if .Values.worker.enabled }}
 ---
@@ -134,8 +136,8 @@ spec:
           command: ["sh", "-c", "cp -r /opt/master/. /master/"]
           {{- include "dft.containerSecurity" (dict "readOnly" false) | nindent 10 }}
           resources:
-            requests: { cpu: 100m, memory: 128Mi }
-            limits:   { memory: 512Mi }
+            requests: { cpu: 100m, memory: 128Mi, ephemeral-storage: 64Mi }
+            limits:   { memory: 512Mi, ephemeral-storage: 1Gi }
           volumeMounts:
             - { name: master-source, mountPath: /master }
       {{- end }}
@@ -156,8 +158,8 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim: { claimName: {{ $fn }}-data }
-        - { name: tmp, emptyDir: {} }
+        - { name: tmp, emptyDir: { sizeLimit: {{ .Values.ephemeral.tmp }} } }
         {{- if .Values.master.sourceImage.repository }}
-        - { name: master-source, emptyDir: {} }
+        - { name: master-source, emptyDir: { sizeLimit: {{ .Values.ephemeral.masterSource }} } }
         {{- end }}
 {{- end }}

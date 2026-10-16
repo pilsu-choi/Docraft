@@ -166,7 +166,7 @@ def test_split_refine_merges_to_the_unsplit_result(monkeypatch, tmp_path):
               {"type": "table", "page": 1, "bbox": [0, 0, 50, 50], "page_size": [100, 100], "text": _table([["합계", "1O"]])}]
     sent = []
 
-    def provider(messages, timeout, timeout_cap=None):
+    def provider(messages, timeout, timeout_cap=None, max_tokens=None):
         text = messages[0]["content"][-1]["text"]
         cells = json.loads(text[text.rindex("\n\n") + 2:].removeprefix(engine.TABLE_PART_NOTE))
         sent.append(cells)
@@ -247,3 +247,29 @@ def test_spawned_work_reports_its_stages_to_the_request_that_started_it():
         future = latency.spawn(lambda: latency.note("vlm_ms", 5) or "done")
         assert future.result() == "done"
     assert stats == {"vlm_ms": 5}
+
+
+def test_a_recovered_inner_failure_does_not_taint_the_stage_of_a_later_real_failure():
+    from backend import failures
+
+    with latency.track() as stages:
+        try:
+            with latency.timed("ocr_ms"):
+                raise ValueError("recovered")
+        except ValueError:
+            pass
+        with pytest.raises(RuntimeError) as caught:
+            with latency.timed("rules_ms"):
+                with latency.timed("vlm_ms"):
+                    raise RuntimeError("real")
+    error = failures.Call("read", None, None, time.monotonic() + 5).fail(caught.value, stages, "읽기")
+
+    assert caught.value.docraft_stage == "vlm" and error.status_code == 502
+
+
+def test_keep_retains_the_last_replies_so_the_failing_call_is_not_lost():
+    with latency.track() as stages:
+        for number in range(30):
+            latency.keep("_vlm_replies", number)
+
+    assert stages["_vlm_replies"] == list(range(10, 30))

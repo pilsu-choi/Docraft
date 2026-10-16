@@ -1,5 +1,17 @@
 # Docraft wiki 변경 이력
 
+## 2026-10-15 릴리스 전 리뷰 수정
+
+- **Creation** (2026-10-15): [릴리스 전 리뷰 수정](2026-10-15-review-fixes.md) — ephemeral requests 축소·failed 폴더명·저장 비동기·stage 오염·keep 링 버퍼
+
+## 2026-10-15 고가용성 2파드
+
+- **Creation** (2026-10-15): [backend·vLLM 라우터 2파드 고가용성](2026-10-15-ha-replicas.md) — 차트 복제본·동시성 파드 분할·prune 경합 수정
+
+## 2026-10-15 판독 실패 진단성
+
+- **Creation** (2026-10-15): [판독 실패 진단성 개선](2026-10-15-failure-observability.md) — 타임아웃 분류 통일·실패 한 줄·입력 보존·Envoy 로그·디스크 한도
+
 ## 2026-10-14 진단상태 칸 판독
 
 - **Creation** (2026-10-14): [진단상태 칸 판독 구현](2026-10-14-cert-status-read-impl.md) — 상위 wiki에서 동기화

@@ -421,7 +421,7 @@ def test_compact_reply_asks_for_one_line_json_with_capped_tokens(replay, monkeyp
     calls = {call.kind: call for call in replay.calls}
     assert all(call.system.endswith(engine.COMPACT_NOTE) is compact for kind, call in calls.items() if kind != "locate")
     fields = calls["fields"]
-    assert (fields.json_schema is not None) is compact and (fields.max_tokens == 60 * 1 + 100 if compact else fields.max_tokens is None)
+    assert (fields.json_schema is not None) is compact and fields.max_tokens == (60 * 1 + 100 if compact else 2 * (60 * 1 + 100) + engine.THINK_TOKENS)
     assert calls["summary"].max_tokens == (60 * 2 + 100 if compact else 1500)
 
 

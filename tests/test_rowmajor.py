@@ -473,7 +473,7 @@ def test_a_rowmajor_reply_cut_at_the_cap_reads_the_table_asis(provider, monkeypa
     assert result["항목내역"] == [{"항목": "진찰료"}] and [bool(call["json_schema"]) for call in provider.calls].count(False) == 2
 
 
-def test_max_tokens_is_sent_only_when_given(monkeypatch):
+def test_max_tokens_defaults_to_the_reply_ceiling(monkeypatch):
     monkeypatch.setenv("AI_MODE", "provider")
     monkeypatch.setenv("AI_BASE_URL", "https://provider.invalid/v1")
     monkeypatch.setenv("AI_API_KEY", "key")
@@ -500,7 +500,8 @@ def test_max_tokens_is_sent_only_when_given(monkeypatch):
     engine._provider([], json_schema={"type": "object"}, max_tokens=500)
     engine._provider([])
 
-    assert bodies[0]["max_tokens"] == 500 and "max_tokens" not in bodies[1]
+    # 상한을 주지 않은 호출도 반복 출력이 끝없이 이어지지 않게 표 응답 상한 + 생각 몫으로 막는다
+    assert bodies[0]["max_tokens"] == 500 and bodies[1]["max_tokens"] == engine.TABLE_REPLY_TOKENS + engine.THINK_TOKENS
 
 
 @pytest.mark.parametrize("value, sent", [("1.05", 1.05), ("", None), (None, None)])
@@ -941,3 +942,17 @@ def test_values_under_an_outside_column_are_dropped_and_the_right_columns_keep_t
                                                                              "" if name == "미정열1" else "3,393" if name == "공단부담" else None for name in names]]})
     out = engine._read_rows("항목내역", spec, plan, "1,827 3,393", [], deadline=None)[0]
     assert (out["본인부담"], out["공단부담"]) == ("1,827", "3,393") and "미정열1" not in out  # rowmajor도 그 자리를 묻고 버린다
+
+
+def test_fields_cap_counts_table_rows_from_the_evidence():
+    """표(배열) 필드도 상한을 받는다 — 근거의 금액 수로 행을 세고, 금액이 없으면(이미지만 읽기) 표 응답 상한이다."""
+    schema = {"properties": {"a": {"type": "string"}, "t": {"type": "array", "items": {"properties": {"x": {}, "y": {}}}}}}
+    evidence = "진찰료 12,000 검사료 3,500"
+    assert engine._fields_cap(schema, evidence) == 60 + 100 + engine._reply_cap(evidence, 2)
+    assert engine._fields_cap(schema, "금액 없음") == 60 + 100 + engine.TABLE_REPLY_TOKENS
+    assert engine._fields_cap({"properties": {"a": {}, "b": {}}}) == 60 * 2 + 100  # 스칼라만이면 그대로
+
+
+def test_echo_cap_scales_with_the_given_text_within_the_ceiling():
+    assert engine._echo_cap("가" * 10, 2) == 2 * 10 + 100 * 2 + 100 + engine.THINK_TOKENS
+    assert engine._echo_cap("가" * 100_000) == engine.TABLE_REPLY_TOKENS + engine.THINK_TOKENS

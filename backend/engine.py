@@ -21,7 +21,8 @@ from jsonschema import Draft202012Validator
 
 from .config import ai_settings, limit, request_id
 from . import band as bandkit, doctypes, print_register, rules, table_layout
-from .latency import http_client, note, parallel, provider_slot, remaining, spawn, timed
+from .failures import ProviderError, classify
+from .latency import Timeout, http_client, keep, note, parallel, provider_slot, remaining, remote_call, spawn, tick, timed
 
 logger = logging.getLogger(__name__)
 
@@ -192,51 +193,70 @@ def _provider(messages, timeout=None, timeout_cap=None, json_schema=None, max_to
         # a reasoning mode (404), so such a model there runs with AI_REASONING=on.
         body["reasoning"] = {"enabled": False}
         body["chat_template_kwargs"] = {"enable_thinking": False}
-    if max_tokens:
-        body["max_tokens"] = max_tokens
+    # 상한 없는 호출도 반복 출력이 끝없이 이어지지 않게 표 응답 상한 + 생각 몫으로 막는다. vLLM 은 남은 문맥보다 큰 값을 줄여 쓴다.
+    body["max_tokens"] = max_tokens or TABLE_REPLY_TOKENS + THINK_TOKENS
     if settings["repetition_penalty"] is not None:
         body["repetition_penalty"] = settings["repetition_penalty"]
     prompt_chars = sum(len(_message_text(m.get("content"))) for m in messages)
-    images = sum(1 for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url")
-    logger.debug("provider call: model=%s messages=%d images=%d prompt_chars=%d", model or settings["model"], len(messages), images, prompt_chars)
+    urls = [part["image_url"]["url"] for m in messages if isinstance(m.get("content"), list) for part in m["content"] if part.get("type") == "image_url"]
+    rid, seq = request_id(), tick("_vlm_seq")
+    call_id = f"{rid}#{seq}" if seq else rid
+    summary = f"call={call_id} model={model or settings['model']} images={len(urls)}/{sum(map(len, urls)) // 1024}KB prompt_chars={prompt_chars} timeout_s={timeout:.1f}"
+    logger.debug("provider call: %s", summary)
     started = time.monotonic()
-    with provider_slot(None if timeout_cap is None else started + timeout_cap), \
-            http_client(0 if timeout_cap is not None else 2).stream("POST", f"{settings['base_url']}/chat/completions", timeout=timeout, headers={"Authorization": f"Bearer {settings['api_key']}"}, json=body) as response:
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            logger.error("provider HTTP error: status=%s elapsed=%.2fs", response.status_code, time.monotonic() - started)
-            raise RuntimeError(f"AI provider 요청 실패 (HTTP {response.status_code})") from exc
-        # httpx timeout은 바이트 사이 간격만 잰다. OpenRouter는 응답 전까지 keep-alive 공백을 흘려 보내므로 시한은 직접 잰다.
-        raw = b""
-        for chunk in response.iter_bytes():
-            raw += chunk
-            if timeout_cap is not None and time.monotonic() - started > max(0.1, timeout_cap):
-                raise TimeoutError("AI provider 응답이 요청 시한을 넘었습니다.")
-        elapsed = time.monotonic() - started
-        note("vlm_calls", 1)
-        try:
-            data = json.loads(raw)
-            for key, stage in (("prompt_tokens", "vlm_prompt_tokens"), ("completion_tokens", "vlm_completion_tokens")):
-                if isinstance((data.get("usage") or {}).get(key), int):  # 서버가 usage를 안 주면 기록하지 않는다
-                    note(stage, data["usage"][key])
-            choice = data["choices"][0]
-            finish_reason = choice.get("finish_reason")
-            if finish_reason == "length":
-                logger.warning("provider response truncated: finish_reason=length elapsed=%.2fs", elapsed)
-                raise RuntimeError("AI provider 응답이 토큰 제한으로 잘렸습니다.")
-            content = choice["message"]["content"].strip()
-        except (KeyError, IndexError, TypeError, AttributeError) as exc:
-            logger.error("provider response format error: %s elapsed=%.2fs", exc, elapsed)
-            raise RuntimeError("AI provider 응답 형식을 해석할 수 없습니다.") from exc
-        logger.debug("provider response: elapsed=%.2fs finish_reason=%s len=%d", elapsed, finish_reason, len(content))
-        if content.startswith("```"):
-            content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.I)
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            logger.error("provider json decode failed: len=%d finish_reason=%s tail=%r", len(content), finish_reason, content[-200:])
-            raise
+    deadline = None if timeout_cap is None else started + timeout_cap
+    upstream = None
+    try:
+        with provider_slot(deadline), \
+                remote_call(timeout, deadline), \
+                http_client(0 if timeout_cap is not None else 2).stream(
+                    "POST", f"{settings['base_url']}/chat/completions", timeout=timeout, json=body,
+                    headers={"Authorization": f"Bearer {settings['api_key']}", **({"X-Request-ID": call_id} if rid != "-" else {})}) as response:
+            upstream = response.headers.get("x-upstream-host")  # Envoy 라우터가 응답한 vLLM 파드(ip:port)를 실어 준다
+            if upstream:
+                note("_upstream", upstream, add=False)
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise ProviderError(f"AI provider 요청 실패 (HTTP {response.status_code})", f"http_{response.status_code}") from exc
+            # httpx timeout은 바이트 사이 간격만 잰다. OpenRouter는 응답 전까지 keep-alive 공백을 흘려 보내므로 시한은 직접 잰다.
+            raw = b""
+            for chunk in response.iter_bytes():
+                raw += chunk
+                if timeout_cap is not None and time.monotonic() - started > max(0.1, timeout_cap):
+                    raise Timeout("AI provider 응답이 요청 시한을 넘었습니다.", "deadline", round(timeout_cap, 1))
+            elapsed = time.monotonic() - started
+            note("vlm_calls", 1)
+            keep("_vlm_replies", {"call": call_id, "elapsed_ms": round(elapsed * 1000), "upstream": upstream, "raw": raw.decode("utf-8", "replace")[:20000]})
+            finish_reason = completion_tokens = None
+            try:
+                data = json.loads(raw)
+                for key, stage in (("prompt_tokens", "vlm_prompt_tokens"), ("completion_tokens", "vlm_completion_tokens")):
+                    if isinstance((data.get("usage") or {}).get(key), int):  # 서버가 usage를 안 주면 기록하지 않는다
+                        note(stage, data["usage"][key])
+                completion_tokens = (data.get("usage") or {}).get("completion_tokens")
+                choice = data["choices"][0]
+                finish_reason = choice.get("finish_reason")
+                if finish_reason == "length":
+                    raise ProviderError("AI provider 응답이 토큰 제한으로 잘렸습니다.", "truncated")
+                content = choice["message"]["content"].strip()
+            except (KeyError, IndexError, TypeError, AttributeError) as exc:
+                raise ProviderError("AI provider 응답 형식을 해석할 수 없습니다.", "format") from exc
+    except Exception as exc:
+        # 호출 하나의 실패(시간 초과·HTTP 오류·잘림·형식)를 INFO 이상으로 한 줄 남긴다. 요청 전체의 한 줄은 failures.Call.fail 몫이다.
+        logger.warning("vlm call failed: %s elapsed=%.1fs kind=%s upstream=%s %s: %s", summary, time.monotonic() - started,
+                       classify(exc)[1], upstream, type(exc).__name__, exc)
+        raise
+    slow = elapsed * 1000 > limit("VLM_SLOW_MS", 15000, 3_600_000)
+    logger.log(logging.INFO if slow else logging.DEBUG, "vlm call %s: %s elapsed=%.1fs finish_reason=%s completion_tokens=%s upstream=%s",
+               "slow" if slow else "done", summary, elapsed, finish_reason, completion_tokens, upstream)
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.I)
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        logger.error("provider json decode failed: len=%d finish_reason=%s tail=%r", len(content), finish_reason, content[-200:])
+        raise
 
 
 TABLE_CELL = re.compile(r"(<t[dh][^>]*>)(.*?)(</t[dh]>)", re.S)
@@ -306,7 +326,9 @@ def refine_tables(blocks, source, deadline=None):
         started = time.monotonic()
         try:
             messages = [_user(TABLE_REFINE_PROMPT + (TABLE_PART_NOTE if partial else "") + json.dumps(cells, ensure_ascii=False), [image])]
-            reply = _provider(messages, timeout=300) if deadline is None else _provider(messages, timeout=300, timeout_cap=remaining(deadline))
+            cap = _echo_cap(json.dumps(cells, ensure_ascii=False))
+            reply = (_provider(messages, timeout=300, max_tokens=cap) if deadline is None
+                     else _provider(messages, timeout=300, timeout_cap=remaining(deadline), max_tokens=cap))
             reply = reply.get("corrections", reply)  # models also answer with the bare {cell number: text} object
             fixed = {index: str(reply[str(index)]) for index, text in cells.items() if str(index) in reply and _edit(text, str(reply[str(index)]))}
         except Exception as exc:
@@ -921,9 +943,20 @@ def _row_bands(page_blocks, columns, per):
     return bands
 
 
-def _fields_cap(schema):
-    """Reply token cap of a call reading `schema`'s scalar fields as one JSON object (`COMPACT_REPLY`): 60 per field + 100."""
-    return 60 * len(schema.get("properties", {})) + 100
+def _fields_cap(schema, evidence=""):
+    """Reply token cap of a call reading `schema` as one JSON object (`COMPACT_REPLY`): 60 per scalar field + 100, plus each
+    table (array) field's rows cap over `evidence` (`_reply_cap`, within TABLE_REPLY_TOKENS; TABLE_REPLY_TOKENS when the
+    evidence prints no amounts to count rows by, e.g. an image-only read)."""
+    props = schema.get("properties", {}).values()
+    tables = [prop for prop in props if prop.get("type") == "array"]
+    rows = (lambda columns: min(TABLE_REPLY_TOKENS, _reply_cap(evidence, columns))) if ROW_AMOUNT.search(evidence) else (lambda _: TABLE_REPLY_TOKENS)
+    return 60 * (len(props) - len(tables)) + 100 + sum(rows(len(prop.get("items", {}).get("properties", {}))) for prop in tables)
+
+
+def _echo_cap(text, items=0):
+    """Reply token cap of a call answering about `text` it was given (cell corrections, verdicts): 2 per character + 100 per
+    item + 100 within TABLE_REPLY_TOKENS, plus THINK_TOKENS."""
+    return min(TABLE_REPLY_TOKENS, 2 * len(text) + 100 * items + 100) + THINK_TOKENS
 
 
 def _short_schema(schema):
@@ -1088,13 +1121,13 @@ def _read_chunk(schema, chunk, index, count, source, budget, deadline=None, canc
         )
     if on_call is not None:
         on_call()
-    compact = {}
     short = _short_schema(schema)
     ask = short[0] if short else schema
-    if ai_settings()["compact_reply"]:  # 한 줄 JSON, 스키마로 묶은 응답, 표가 없으면 필드 수만큼의 상한
+    # 상한: 한 줄 JSON 은 필드·표 행 수만큼, 들여쓴 JSON 은 그 두 배 + 생각 몫
+    compact = {"max_tokens": 2 * _fields_cap(schema, evidence) + THINK_TOKENS}
+    if ai_settings()["compact_reply"]:  # 한 줄 JSON, 스키마로 묶은 응답
         system += COMPACT_NOTE
-        compact = {"json_schema": ask, **({} if any(prop.get("type") == "array" for prop in schema.get("properties", {}).values())
-                                             else {"max_tokens": _fields_cap(schema)})}
+        compact = {"json_schema": ask, "max_tokens": _fields_cap(schema, evidence)}
     messages = [
         {"role": "system", "content": system},
         _user(f"Schema:\n{json.dumps(ask, ensure_ascii=False)}\n\n" + (f"Reply with these short keys:\n{short[1]}\n\n" if short else "")

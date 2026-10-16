@@ -86,7 +86,7 @@ spec:
       volumes:
         - name: nginx-conf
           configMap: { name: {{ $fn }}-frontend-nginx }
-        - { name: tmp, emptyDir: {} }
-        - { name: run, emptyDir: {} }
-        - { name: cache, emptyDir: {} }
+        - { name: tmp, emptyDir: { sizeLimit: {{ .Values.ephemeral.tmp }} } }
+        - { name: run, emptyDir: { sizeLimit: 16Mi } }
+        - { name: cache, emptyDir: { sizeLimit: {{ .Values.ephemeral.tmp }} } }
 {{- end }}

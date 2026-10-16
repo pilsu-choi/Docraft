@@ -110,7 +110,7 @@ flowchart TD
 - `remaining_ms`: 선택 정수. 최초 Parse·Extract와 추가 재처리의 전체 시한입니다. 0이면 초기 OCR·모델 호출 없이 408입니다. 서버 `READ_MAX_MS`가 상한입니다.
 - `auto_reprocess`: 선택 불리언, 기본 `true`. `false`면 최초 읽기만 수행합니다. 서버 `REPROCESS_ENABLED`(기본 `false`, 2026-10-12부터)가 꺼져 있으면 `true`여도 재처리하지 않습니다.
 
-응답은 `{"doc_type": "<정규화된 유형>", "fields": {...}, "groundings": {...}, "field_quality": {...}, "reprocess": {...}, "elapsed_ms": <정수>, "diagnostics": {...}}`입니다. `diagnostics`는 운영 지표(단계별 시간 `ocr_ms`·`extract_ms` 등, 요청 한 건의 VLM 호출 수 `vlm_calls`와 서버가 usage를 준 호출의 토큰 합 `vlm_prompt_tokens`·`vlm_completion_tokens`(usage가 없으면 기록하지 않음), 표 열 배치 출처 `table_plan`(layout·header·value·union)과 머리글을 못 읽은 사유 `table_plan_reason`, 근거가 약해 추측하지 않은 열 `table_plan_flags`(column_unplaced·code_order·column_shape, [기록](wiki/2026-10-05-column-evidence.md)), 게이트 `table_gate`·`table_reread`, rowmajor가 asis로 넘어간 사유 `rowmajor_fallback`, 맞바꾼·의심한 열 `column_swaps`, 바로 세운 쪽 `turned`, 실패 표 페이지 묶음 수 `table_pages_failed`와 페이지별 추출 완전성 `extraction_completeness`)이며 하네스는 읽지 않습니다. `fields`는 파싱→추출→`rules.apply`와 안전하게 재검증된 leaf 교정을 거친 Docraft 값입니다. 재처리는 [OCR 줄 위치와 규칙 위반이 확인된 필드](wiki/2026-09-27-reprocess-priority.md)를 먼저 선택합니다. 스칼라 텍스트의 전체 이미지 재판독에는 앞선 OCR 문장을 전달하지 않아 같은 오독을 복사하는 위험을 줄입니다. `reprocess`는 `status`, `attempts`, `extra_model_calls`, `stop_reason`, `trace`를 포함합니다. trace에는 이전·제안·채택 값과 근거가 있어 개인정보로 취급해야 합니다. 연결이 끊기면 다음 단계에서 중단하고 499, 운영자 취소는 409, 예산 만료는 408입니다. `/api/health`의 `verify_inflight`는 두 읽기 경로를 합산합니다. 자세한 상한과 채택 규칙은 [자동 재처리 기록](wiki/2026-09-27-auto-reprocess.md)을 보세요.
+응답은 `{"doc_type": "<정규화된 유형>", "fields": {...}, "groundings": {...}, "field_quality": {...}, "reprocess": {...}, "elapsed_ms": <정수>, "diagnostics": {...}}`입니다. `diagnostics`는 운영 지표(단계별 시간 `ocr_ms`·`extract_ms` 등, 요청 한 건의 VLM 호출 수 `vlm_calls`와 서버가 usage를 준 호출의 토큰 합 `vlm_prompt_tokens`·`vlm_completion_tokens`(usage가 없으면 기록하지 않음), 표 열 배치 출처 `table_plan`(layout·header·value·union)과 머리글을 못 읽은 사유 `table_plan_reason`, 근거가 약해 추측하지 않은 열 `table_plan_flags`(column_unplaced·code_order·column_shape, [기록](wiki/2026-10-05-column-evidence.md)), 게이트 `table_gate`·`table_reread`, rowmajor가 asis로 넘어간 사유 `rowmajor_fallback`, 맞바꾼·의심한 열 `column_swaps`, 바로 세운 쪽 `turned`, 실패 표 페이지 묶음 수 `table_pages_failed`와 페이지별 추출 완전성 `extraction_completeness`)이며 하네스는 읽지 않습니다. `fields`는 파싱→추출→`rules.apply`와 안전하게 재검증된 leaf 교정을 거친 Docraft 값입니다. 재처리는 [OCR 줄 위치와 규칙 위반이 확인된 필드](wiki/2026-09-27-reprocess-priority.md)를 먼저 선택합니다. 스칼라 텍스트의 전체 이미지 재판독에는 앞선 OCR 문장을 전달하지 않아 같은 오독을 복사하는 위험을 줄입니다. `reprocess`는 `status`, `attempts`, `extra_model_calls`, `stop_reason`, `trace`를 포함합니다. trace에는 이전·제안·채택 값과 근거가 있어 개인정보로 취급해야 합니다. 연결이 끊기면 다음 단계에서 중단하고 499, 운영자 취소는 409, 시간 초과(예산 만료·httpx 읽기 시간 초과·자리 대기)는 모두 408, VLM·OCR 상위 서버 오류는 502입니다([실패 진단과 재현](#실패-진단과-재현)). `/api/health`의 `verify_inflight`는 두 읽기 경로를 합산합니다. 자세한 상한과 채택 규칙은 [자동 재처리 기록](wiki/2026-09-27-auto-reprocess.md)을 보세요.
 
 `/api/read` 응답에는 기존 `fields`와 함께 `groundings`가 있습니다. 필드 근거는 `{ "page": 1, "bbox": [x1, y1, x2, y2], "source_text": "OCR 원문", "confidence": 1.0, "basis": "image_pixel" }` 형태입니다. `page`는 1부터 시작하며 `bbox`는 요청 이미지의 픽셀 좌표입니다. 90°·180°·270° 돌아간 스캔은 바로 세워 다시 읽지만 `bbox`·`page_size`는 그대로 요청 이미지(EXIF 회전 반영) 기준이고, 블록의 `orientation`이 바로 세우려고 반시계로 돌린 각도입니다([스캔 방향 정규화](wiki/2026-10-02-scan-orientation.md)). 표 근거는 최종 `fields`의 행 순서와 같은 목록이며 각 행은 열 이름에서 근거로 이어지는 객체입니다. 규칙이 만든 값, 추출값과 대응하지 않는 값, 중복되어 어느 원본 행인지 알 수 없는 값은 근거를 생략합니다. 표 행은 모든 정규화된 셀이 원본 행과 유일하게 맞을 때만 근거를 전달하므로 한 셀이 교정된 행은 다른 셀의 근거도 생략될 수 있습니다. `source_text`는 대응한 OCR 줄·표 셀·블록 원문이고 OCR 일치만으로 이미지 픽셀의 정확성을 보장하지 않습니다. `field_quality`의 경로별 `{status, issue_codes, action, stage, provenance}`는 검사 범위와 미확정 사유를 담습니다. [측정과 한계](wiki/2026-09-27-parse-extract-quality.md)를 함께 보세요.
 
@@ -272,6 +272,9 @@ KCD 상병·수가·약가·치료재료 마스터를 조회 CSV로 줄여 두�
 | `OCR_CONCURRENCY` | `2` | 원격 PaddleOCR 레이아웃 동시 호출 수, 시한까지 자리가 안 나면 408(0이면 제한 없음) |
 | `REFINE_CONCURRENCY`, `REFINE_MAX_CELLS` | `4`, `300` | 표 교정 동시 호출 수, 한 호출의 최대 칸 수(큰 표는 행 묶음으로 나눔, 0이면 나누지 않음) |
 | `REPROCESS_MAX_MS`, `REPROCESS_MIN_STAGE_MS` | `60000`, `30000` | 재처리 상한, 남은 시간이 이보다 적으면 원격 OCR·VLM 단계를 새로 시작하지 않음 |
+| `FAILED_KEEP_DAYS`, `FAILED_MAX_MB` | `7`, `2048` | `/api/read*` 실패 입력 보존 일수(0이면 보존하지 않고 기존 보존본도 지움)와 합계 상한(MB, 넘으면 오래된 건부터 지움). 아래 "실패 진단과 재현" |
+| `VLM_SLOW_MS` | `15000` | 이보다 오래 걸린 VLM 호출은 INFO 한 줄(평소 호출은 DEBUG). 실패한 호출은 항상 WARNING |
+| `DOCRAFT_COMMIT` | `unknown` | 이미지에 구운 빌드 커밋(`docker build --build-arg DOCRAFT_COMMIT=<짧은 해시>`). `/api/health`의 `version` |
 | `LOG_LEVEL`, `LOG_FILE` | `INFO`, 저장소 `docraft.log` | 로그 수준·파일 위치; 빈 `LOG_FILE`은 파일 기록 중단 |
 
 `.env.example`을 복사해 값을 설정합니다. `.env` 탐색 순서는 `DOCRAFT_ENV_FILE` → 현재 디렉터리 → 저장소 → worktree 원본 저장소이며, 처음 찾은 파일만 읽고 기존 환경변수는 유지합니다. 화면의 `API 키 설정`에는 `DOCRAFT_API_KEY`를 입력하고, 모델 provider의 `AI_API_KEY`는 서버에서만 사용합니다. `PARSE_PROVIDER=library`는 스캔 이미지 OCR을 제공하지 않습니다. 로컬 GPU OCR은 `docker compose --profile ocr up -d` 후 `PARSE_PROVIDER=paddle`, `PADDLEOCR_BASE_URL=http://127.0.0.1:8080`으로 연결합니다. 줄 좌표 서비스는 같은 profile의 `http://127.0.0.1:8081`을 `PADDLEOCR_LINES_URL`에 지정합니다. 표 OCR 셀 교정과 페이지 이미지 첨부는 provider에 문서 이미지를 전송합니다. 관련 구성은 [PaddleOCR 호환성](wiki/2026-09-21-paddleocr-compatibility.md), [줄 좌표](wiki/2026-09-22-ocr-line-grounding.md), [표 교정](wiki/2026-09-22-table-refine.md)에 기록되어 있습니다. `TABLE_EXTRACT=rowmajor`는 OpenAI 호환 `response_format: json_schema`를 쓰므로 고객사 vLLM(structured outputs)과 OpenRouter(`provider.require_parameters`) 모두에서 같은 방식으로 동작합니다. 열 배치 데이터는 `backend/rulesets/table_layouts.yaml`에 있고, 설계·검증은 [표 rowmajor 추출 이식](wiki/2026-10-02-table-rowmajor-report.md)에 기록되어 있습니다.
@@ -288,6 +291,21 @@ AI_VLM_MODEL=qwen/qwen3.8-27b
 PARSE_PROVIDER=paddle
 PADDLEOCR_BASE_URL=http://127.0.0.1:8080
 ```
+
+### 실패 진단과 재현
+
+폐쇄망 운영자는 터미널을 사진으로 보내므로 `/api/read`·`/api/verify`·`/api/read-options`의 실패는 **한 줄**로 원인이 읽혀야 합니다.
+
+```
+WARNING docraft.failures [rid] read-options failed: rid=… endpoint=read-options doc_type=진단서 status=408 stage=vlm kind=deadline timeout_s=19.0 budget_ms=20000 remaining_s=-0.1 elapsed_ms=19040 vlm_calls=1 upstream=10.42.1.7:8000 | Timeout: ReadTimeout after 19.0s | upload_ms=… vlm_wait_ms=… vlm_ms=…
+```
+
+- **상태 분류**(`backend/failures.py`, 세 경로와 스키마 생성이 같은 함수): 시간 초과는 종류와 상관없이 **408**(builtin·asyncio `TimeoutError`, httpx `ReadTimeout`·`ConnectTimeout`·`PoolTimeout`, 자리 대기, 요청 시한), VLM·OCR의 HTTP 오류·연결 실패·응답 형식 오류는 **502**(연결 거부도 502 — 호출자는 408/502를 같은 "판독 불가"로 다루고 503은 재시도 지시로 읽혀 쓰지 않는다), 요청 입력 오류는 422입니다. 응답 `detail`에 종류가 들어갑니다.
+- `kind`: `call_timeout`(호출 한 번의 timeout) · `deadline`(요청 `remaining_ms`/`READ_MAX_MS` 소진 — 호출 timeout이 시한으로 잘린 경우 포함) · `slot_wait`(OCR·VLM 자리 대기) · `shared_wait` · `connect_timeout` · `pool_timeout` · `http_<코드>` · `connect` · `transport` · `format`(JSON 아님·형식 오류) · `truncated` · `error`(예상 못 한 오류 — 이때만 traceback을 ERROR로 남기고, 나머지 traceback은 DEBUG).
+- `stage`는 예외가 처음 지난 가장 안쪽 단계(`vlm`·`ocr`·`lines`·…), `upstream`은 마지막으로 응답한 vLLM 파드(`ip:port`, 아래 Envoy 헤더). 파드 이름은 `kubectl get pods -o wide`의 IP로 찾는다.
+- **VLM 호출 한 건**: 호출마다 `X-Request-ID: <rid>#<호출번호>`를 vLLM(Envoy)로 보내 Envoy 접근 로그의 `rid=`와 맞춘다. 느린(`VLM_SLOW_MS` 초과) 호출은 `vlm call slow: call=… images=<장>/<KB> prompt_chars=… timeout_s=… elapsed=… finish_reason=… completion_tokens=… upstream=…` INFO, 실패한 호출은 `vlm call failed: … kind=…` WARNING.
+- **입력 보존**: 실패하면 `${DOCRAFT_DATA_DIR}/failed/<YYYYMMDD>/<rid>-<HHMMSS>-<uuid6>/`(k8s에서는 `/data`의 PVC)에 `input.<확장자>`, `meta.json`(폼 값·`remaining_ms`·실패 한 줄·오류), `vlm_replies.json`(실패 전에 이미 받은 VLM 응답)을 둡니다. 저장은 이벤트 루프 밖 워커 스레드에서 하고 정리(prune)는 프로세스당 분당 한 번만 합니다. 보존은 실패 처리를 막거나 원래 오류를 가리지 않습니다(저장 실패는 WARNING만). 고객 문서이므로 **고객사 클러스터의 PVC 밖으로 내보내지 않습니다** — 꺼내야 하면 고객 승인 후 `kubectl cp`로만 옮기고 끝나면 지웁니다. 서버 시작과 저장 때(분당 한 번)마다 `FAILED_KEEP_DAYS`·`FAILED_MAX_MB`로 정리합니다.
+- **재현**: 보존 폴더를 로컬/백엔드 파드에서 `python -m backend.replay <폴더> [--url http://localhost:8000] [--remaining-ms 180000]`로 다시 보냅니다(인증은 `DOCRAFT_API_KEY`).
 
 ## 개발 확인
 

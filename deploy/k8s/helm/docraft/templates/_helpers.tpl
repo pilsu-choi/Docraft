@@ -191,7 +191,7 @@ runtimeClassName: {{ . }}
     {{- include "dft.gpuEnv" $gpu | nindent 4 }}
   securityContext:
     allowPrivilegeEscalation: false
-  resources: {{- include "dft.gpuResources" (dict "res" (dict "requests" (dict "cpu" "50m" "memory" "64Mi") "limits" (dict "memory" "256Mi")) "gpu" $gpu) | nindent 4 }}
+  resources: {{- include "dft.gpuResources" (dict "res" (dict "requests" (dict "cpu" "50m" "memory" "64Mi" "ephemeral-storage" "64Mi") "limits" (dict "memory" "256Mi" "ephemeral-storage" "256Mi")) "gpu" $gpu) | nindent 4 }}
 {{- end -}}
 
 {{/* 보안 컨텍스트 — Pod Security "restricted". backend/worker/frontend 처럼 자체 이미지에만
@@ -246,4 +246,11 @@ affinity:
             app.kubernetes.io/instance: {{ .Release.Name }}
             docraft/data: shared
 {{- end }}
+{{- end -}}
+
+{{/* 동시성 상한은 값이 "전체 합계"다 — backend 복제본마다 올림 나눈 몫(최소 1)을 준다. 합계 0(제한 없음)은 그대로 0.
+   입력: dict "total" 합계 "replicas" backend 복제본 수. */}}
+{{- define "dft.perPod" -}}
+{{- $r := max 1 (int .replicas) -}}
+{{- if le (int .total) 0 }}0{{ else }}{{ div (add (int .total) (sub $r 1)) $r }}{{ end -}}
 {{- end -}}

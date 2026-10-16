@@ -159,13 +159,14 @@ def judge(image: str, doc_type: str, disputes: dict, deadline=None) -> dict:
     described = {key: _describe(doc_type, key, entry) for key, entry in disputes.items()}
     prompt = JUDGE_PROMPT.format(doc_type=doc_type) + json.dumps(described, ensure_ascii=False)
     messages = [engine._user(prompt, engine._page_images(image, [1]))]
+    cap = engine._echo_cap(json.dumps(described, ensure_ascii=False), len(disputes))
     if deadline is not None:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("verify deadline exceeded")
-        reply = engine._provider(messages, timeout=300, timeout_cap=remaining)
+        reply = engine._provider(messages, timeout=300, timeout_cap=remaining, max_tokens=cap)
     else:
-        reply = engine._provider(messages, timeout=300)
+        reply = engine._provider(messages, timeout=300, max_tokens=cap)
     if not isinstance(reply, dict):
         raise RuntimeError("AI provider 응답이 JSON object가 아닙니다.")
     return {key: reply[key] for key in disputes if isinstance(reply.get(key), dict)}

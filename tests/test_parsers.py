@@ -376,11 +376,12 @@ def test_table_refine_corrects_cell_text_but_never_the_grid(tmp_path, monkeypatc
     monkeypatch.setenv("AI_VLM_MODEL", "vlm")
     sent = []
     # Model replies with the bare {cell: text} object, blanks a cell, moves text from another cell and writes into the empty and image cells.
-    monkeypatch.setattr(engine, "_provider", lambda messages, timeout: sent.append(messages) or
+    monkeypatch.setattr(engine, "_provider", lambda messages, timeout, **kw: sent.append(messages) or sent.append(kw) or
                         {"0": "진찰료", "1": "670925", "2": "", "3": "⑥", "4": "직인", "5": "현금승인번호", "6": "40,000"})
     [refined] = engine.refine_tables([block], str(path))
     assert refined == ("<table><tr><td rowspan=\"2\">진찰료</td><td>670925</td><td>현금영수증</td><td>⑥</td></tr>"
                        "<tr><td><img src=\"seal.jpg\"></td><td>현금영수증</td><td></td></tr></table>")
     assert '"4"' not in sent[0][0]["content"][-1]["text"]  # the image cell is never sent
+    assert 0 < sent[1]["max_tokens"] <= engine.TABLE_REPLY_TOKENS + engine.THINK_TOKENS  # the reply is capped by the cells sent
     monkeypatch.setenv("TABLE_REFINE", "false")
     assert engine.refine_tables([block], str(path)) == [None]

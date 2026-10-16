@@ -46,7 +46,7 @@ busy_guard  # 빌드·전송 전에 한 번, 교체 직전에 한 번
 IMAGES=(docraft-backend docraft-frontend)
 if [ "$BUILD" = 1 ]; then
   echo "[deploy] 이미지 빌드: ${TAG}"
-  docker build -t "docraft-backend:${TAG}" -t docraft-backend:latest -f "${REPO_ROOT}/backend/Dockerfile" "$REPO_ROOT"
+  docker build --build-arg DOCRAFT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD)" -t "docraft-backend:${TAG}" -t docraft-backend:latest -f "${REPO_ROOT}/backend/Dockerfile" "$REPO_ROOT"
   docker build -t "docraft-frontend:${TAG}" -t docraft-frontend:latest -f "${REPO_ROOT}/frontend/Dockerfile" "$REPO_ROOT"
 fi
 
