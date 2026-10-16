@@ -22,6 +22,8 @@ def _jamo(text):
 
 def reference_item(name):
     text = _plain(str(name or ""))
+    if text in rules.PRINTED_ITEM_NAMES:
+        return text
     bare = rules._alias(rules._ITEM_GROUP.sub("", text, count=1))
     name = rules._alias(text) if bare is None or _plain(bare) not in rules._PRINTED else bare
     name = rules._PRINTED.get(_plain(name or ""), name)
